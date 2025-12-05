@@ -20,6 +20,8 @@ type Path = {
   twoSided: boolean
   // optional side for self-loop attachment: 'top', 'right', 'bottom', 'left'
   side?: 'top' | 'right' | 'bottom' | 'left'
+  // optional human-facing label (editable). If absent, UI falls back to id.
+  label?: string
 }
 
 type Mode =
@@ -51,25 +53,25 @@ export default function CanvasTool(): JSX.Element {
   ])
   const [paths, setPaths] = useState<Path[]>([
     // variance for latent F1 (self-loop)
-    { id: 'p_var_f1', from: 'n_latent', to: 'n_latent', twoSided: true, side: 'top' },
+    { id: 'p_var_f1', from: 'n_latent', to: 'n_latent', twoSided: true, side: 'top', label: 'p_var_f1' },
     // variance for error variables
-    { id: 'p_var_err_x1', from: 'n_err_x1', to: 'n_err_x1', twoSided: true, side: 'left' },
-    { id: 'p_var_err_x3', from: 'n_err_x3', to: 'n_err_x3', twoSided: true, side: 'right' },
+    { id: 'p_var_err_x1', from: 'n_err_x1', to: 'n_err_x1', twoSided: true, side: 'left', label: 'p_var_err_x1' },
+    { id: 'p_var_err_x3', from: 'n_err_x3', to: 'n_err_x3', twoSided: true, side: 'right', label: 'p_var_err_x3' },
     // covariance between error variables
-    { id: 'p_cov_err', from: 'n_err_x1', to: 'n_err_x3', twoSided: true },
+    { id: 'p_cov_err', from: 'n_err_x1', to: 'n_err_x3', twoSided: true, label: 'p_cov_err' },
     // variance for x2 manifest (self-loop)
-    { id: 'p_var_x2', from: 'n_x2', to: 'n_x2', twoSided: true },
+    { id: 'p_var_x2', from: 'n_x2', to: 'n_x2', twoSided: true, label: 'p_var_x2' },
     // factor loadings: latent to each manifest
-    { id: 'p_l1', from: 'n_latent', to: 'n_x1', twoSided: false },
-    { id: 'p_l2', from: 'n_latent', to: 'n_x2', twoSided: false },
-    { id: 'p_l3', from: 'n_latent', to: 'n_x3', twoSided: false },
+    { id: 'p_l1', from: 'n_latent', to: 'n_x1', twoSided: false, label: 'p_l1' },
+    { id: 'p_l2', from: 'n_latent', to: 'n_x2', twoSided: false, label: 'p_l2' },
+    { id: 'p_l3', from: 'n_latent', to: 'n_x3', twoSided: false, label: 'p_l3' },
     // means: constant to each manifest
-    { id: 'p_m1', from: 'n_const', to: 'n_x1', twoSided: false },
-    { id: 'p_m2', from: 'n_const', to: 'n_x2', twoSided: false },
-    { id: 'p_m3', from: 'n_const', to: 'n_x3', twoSided: false },
+    { id: 'p_m1', from: 'n_const', to: 'n_x1', twoSided: false, label: 'p_m1' },
+    { id: 'p_m2', from: 'n_const', to: 'n_x2', twoSided: false, label: 'p_m2' },
+    { id: 'p_m3', from: 'n_const', to: 'n_x3', twoSided: false, label: 'p_m3' },
     // error loadings: error variables to manifests
-    { id: 'p_err_x1', from: 'n_err_x1', to: 'n_x1', twoSided: false },
-    { id: 'p_err_x3', from: 'n_err_x3', to: 'n_x3', twoSided: false }
+    { id: 'p_err_x1', from: 'n_err_x1', to: 'n_x1', twoSided: false, label: 'p_err_x1' },
+    { id: 'p_err_x3', from: 'n_err_x3', to: 'n_x3', twoSided: false, label: 'p_err_x3' }
   ])
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -83,6 +85,31 @@ export default function CanvasTool(): JSX.Element {
   // track which node the cursor is hovering over (for path drop target)
   const hoverNodeRef = useRef<string | null>(null)
   const [tempLine, setTempLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const [editing, setEditing] = useState<{
+    id: string
+    kind: 'node' | 'path'
+    value: string
+    left: number
+    top: number
+  } | null>(null)
+  const editingInputRef = useRef<HTMLInputElement | null>(null)
+  const editingDidFocusRef = useRef(false)
+
+  // focus input when editing first opens. Avoid re-selecting on every keystroke.
+  React.useEffect(() => {
+    if (editing) {
+      if (!editingDidFocusRef.current && editingInputRef.current) {
+        // focus in next tick to avoid mousedown focus issues
+        setTimeout(() => {
+          editingInputRef.current!.focus()
+          editingInputRef.current!.select()
+        }, 0)
+        editingDidFocusRef.current = true
+      }
+    } else {
+      editingDidFocusRef.current = false
+    }
+  }, [editing])
 
   // helper: convert client to svg coords
   function clientToSvg(evt: React.MouseEvent) {
@@ -167,7 +194,9 @@ export default function CanvasTool(): JSX.Element {
       }
 
       const np: Path = { id: uid('p_'), from: src as string, to: dst as string, twoSided }
-      setPaths((ps) => [...ps, np])
+      // set label to the id by default
+      const npId = np.id
+      setPaths((ps) => [...ps, { ...np, label: npId }])
       setTempLine(null)
       setPathSource(null)
       setMode('select')
@@ -196,7 +225,8 @@ export default function CanvasTool(): JSX.Element {
 
       // add variance path automatically for manifest & latent
       if (type !== 'constant') {
-        const variance: Path = { id: uid('p_'), from: n.id, to: n.id, twoSided: true }
+        const vid = uid('p_')
+        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid }
         setPaths((ps) => [...ps, variance])
       }
 
@@ -266,7 +296,8 @@ export default function CanvasTool(): JSX.Element {
         }
       }
 
-      const p: Path = { id: uid('p_'), from: src, to: dst, twoSided }
+      const newId = uid('p_')
+      const p: Path = { id: newId, from: src, to: dst, twoSided, label: newId }
       setPaths((ps) => [...ps, p])
       setTempLine(null)
       setPathSource(null)
@@ -554,6 +585,35 @@ export default function CanvasTool(): JSX.Element {
     return { x: (startOut.x + endOut.x) / 2, y: (startOut.y + endOut.y) / 2 }
   }
 
+  // start inline editing at an SVG coordinate (svg-space x,y)
+  function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
+    const svg = svgRef.current
+    if (!svg) return
+    const pt = svg.createSVGPoint()
+    pt.x = svgPos.x
+    pt.y = svgPos.y
+    const screen = pt.matrixTransform(svg.getScreenCTM()!)
+    const rect = svg.getBoundingClientRect()
+    const left = screen.x - rect.left
+    const top = screen.y - rect.top
+    setEditing({ id, kind, value, left, top })
+  }
+
+  function saveEditing() {
+    if (!editing) return
+    const { id, kind, value } = editing
+    if (kind === 'node') {
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, label: value } : n)))
+    } else {
+      setPaths((ps) => ps.map((p) => (p.id === id ? { ...p, label: value } : p)))
+    }
+    setEditing(null)
+  }
+
+  function cancelEditing() {
+    setEditing(null)
+  }
+
   return (
     <div className="flex canvas-container">
       <aside className="w-48 border-r p-3 space-y-3">
@@ -611,7 +671,7 @@ export default function CanvasTool(): JSX.Element {
         </div>
       </aside>
 
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-4 relative">
         <svg
           ref={svgRef}
           className="w-full h-[600px] bg-white border rounded"
@@ -655,7 +715,15 @@ export default function CanvasTool(): JSX.Element {
               const height = fontSize + padding
               const rx = 4
               return (
-                <g key={`${p.id}-label`} transform={`translate(${pos.x}, ${pos.y})`} style={{ pointerEvents: 'none' }}>
+                <g
+                  key={`${p.id}-label`}
+                  transform={`translate(${pos.x}, ${pos.y})`}
+                  style={{ pointerEvents: 'auto', cursor: 'text' }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    startEditing('path', p.id, p.label ?? p.id, pos)
+                  }}
+                >
                   <rect
                     x={-width / 2}
                     y={-height / 2}
@@ -673,9 +741,9 @@ export default function CanvasTool(): JSX.Element {
                     dominantBaseline="central"
                     fontSize={fontSize}
                     fill="#000"
-                    style={{ userSelect: 'none' }}
+                    style={{ userSelect: 'none', pointerEvents: 'none' }}
                   >
-                    {p.id}
+                    {p.label ?? p.id}
                   </text>
                 </g>
               )
@@ -719,7 +787,16 @@ export default function CanvasTool(): JSX.Element {
                             onMouseLeave={() => (hoverNodeRef.current = null)}
                             style={{ cursor: 'grab' }}
                           />
-                          <text x={w / 2} y={h / 2 + 6} textAnchor="middle" style={{ userSelect: 'none', pointerEvents: 'none' }}>
+                          <text
+                            x={w / 2}
+                            y={h / 2 + 6}
+                            textAnchor="middle"
+                            style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation()
+                              startEditing('node', n.id, n.label, centerOf(n))
+                            }}
+                          >
                             {n.label}
                           </text>
                         </g>
@@ -729,7 +806,16 @@ export default function CanvasTool(): JSX.Element {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
                   <circle r={LATENT_RADIUS} {...common} cx={0} cy={0} fill="#fff" pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
-                  <text x={0} y={6} textAnchor="middle" style={{ userSelect: 'none', pointerEvents: 'none' }}>
+                  <text
+                    x={0}
+                    y={6}
+                    textAnchor="middle"
+                    style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      startEditing('node', n.id, n.label, centerOf(n))
+                    }}
+                  >
                     {n.label}
                   </text>
                 </g>
@@ -748,13 +834,46 @@ export default function CanvasTool(): JSX.Element {
                   onMouseLeave={() => (hoverNodeRef.current = null)}
                   style={{ cursor: 'grab' }}
                 />
-                <text x={0} y={6} textAnchor="middle" style={{ userSelect: 'none', pointerEvents: 'none' }}>
+                <text
+                  x={0}
+                  y={6}
+                  textAnchor="middle"
+                  style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    startEditing('node', n.id, n.label, centerOf(n))
+                  }}
+                >
                   {n.label}
                 </text>
               </g>
             )
           })}
         </svg>
+
+        {editing && (
+          <input
+            ref={editingInputRef}
+            value={editing.value}
+            onChange={(e) => setEditing((s) => (s ? { ...s, value: e.target.value } : s))}
+            onBlur={() => saveEditing()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveEditing()
+              if (e.key === 'Escape') cancelEditing()
+            }}
+            style={{
+              position: 'absolute',
+              left: editing.left,
+              top: editing.top,
+              transform: 'translate(-50%, -50%)',
+              zIndex: 40,
+              padding: '4px 8px',
+              fontSize: 12,
+              borderRadius: 4,
+              border: '1px solid #cbd5e1'
+            }}
+          />
+        )}
       </div>
     </div>
   )
