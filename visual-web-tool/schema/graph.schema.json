@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/OpenMx-visual-web-tool/graph.schema.json",
+  "title": "Visual Web Tool - Graph Schema",
+  "description": "Schema describing a graph of nodes and paths with optional basic visual layout hints.",
+  "type": "object",
+  "required": ["schemaVersion", "nodes", "paths"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 0 },
+    "meta": { "type": "object", "additionalProperties": true },
+
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["latent", "manifest", "constant"] },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+          },
+          "visual": {
+            "type": "object",
+            "description": "Optional visual layout hints; coordinates are relative to model origin (user units).",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "width": { "type": "number", "exclusiveMinimum": 0 },
+              "height": { "type": "number", "exclusiveMinimum": 0 },
+              "angle": { "type": "number", "description": "rotation angle in degrees" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fromLabel", "toLabel", "numberOfArrows"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "fromLabel": { "type": "string" },
+          "toLabel": { "type": "string" },
+          "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+          },
+          "visual": {
+            "type": "object",
+            "properties": {
+              "loopSide": { "type": "string", "enum": ["top","right","bottom","left"] },
+              "midpointOffset": {
+                "type": "object",
+                "description": "Optional offset for two-headed covariance arrows; vector (x,y) in user units applied to the straight-line midpoint",
+                "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
