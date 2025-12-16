@@ -17,7 +17,8 @@
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string", "minLength": 1 },
-          "type": { "type": "string", "enum": ["latent", "manifest", "constant"] },
+          "type": { "type": "string", "enum": ["latent", "manifest", "constant", "dataset"] },
+          "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
           "tags": {
             "type": "array",
             "items": { "type": "string" },
@@ -34,6 +35,27 @@
               "angle": { "type": "number", "description": "rotation angle in degrees" }
             },
             "additionalProperties": false
+          },
+          "mappings": {
+            "type": "object",
+            "description": "For dataset nodes: mapping of CSV column names to target node IDs",
+            "additionalProperties": { "type": "string" }
+          },
+          "datasetFile": {
+            "type": "object",
+            "description": "For dataset nodes: metadata about the associated CSV file for verification and loading",
+            "properties": {
+              "fileName": { "type": "string", "description": "Name of the CSV file (relative to examples/ or data/ directory)" },
+              "md5": { "type": "string", "description": "MD5 hash of the file for integrity verification" },
+              "rowCount": { "type": "integer", "minimum": 0, "description": "Number of data rows (excluding header)" },
+              "columnCount": { "type": "integer", "minimum": 1, "description": "Number of columns" },
+              "columns": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "List of column names in the CSV file"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -48,6 +70,7 @@
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string" },
+          "description": { "type": "string", "description": "Optional human-readable description of the path" },
           "fromLabel": { "type": "string" },
           "toLabel": { "type": "string" },
           "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },

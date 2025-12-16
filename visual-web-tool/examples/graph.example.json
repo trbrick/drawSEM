@@ -1,14 +1,15 @@
 {
   "schemaVersion": 1,
-  "meta": { "title": "CanvasTool default example", "createdAt": "2025-12-05T00:00:00Z" },
+  "meta": { "title": "CanvasTool default example with sample data", "createdAt": "2025-12-05T00:00:00Z" },
   "nodes": [
     { "label": "F1", "type": "latent", "tags": ["factor"], "visual": { "x": 220, "y": 100 } },
-    { "label": "x1", "type": "manifest", "visual": { "x": 100, "y": 250, "width": 60, "height": 60 } },
-    { "label": "x2", "type": "manifest", "visual": { "x": 220, "y": 250, "width": 60, "height": 60 } },
-    { "label": "x3", "type": "manifest", "visual": { "x": 340, "y": 250, "width": 60, "height": 60 } },
+    { "label": "x1", "type": "manifest", "levelOfMeasurement": "individual", "visual": { "x": 100, "y": 250, "width": 60, "height": 60 } },
+    { "label": "x2", "type": "manifest", "levelOfMeasurement": "individual", "visual": { "x": 220, "y": 250, "width": 60, "height": 60 } },
+    { "label": "x3", "type": "manifest", "levelOfMeasurement": "individual", "visual": { "x": 340, "y": 250, "width": 60, "height": 60 } },
     { "label": "1", "type": "constant", "visual": { "x": 220, "y": 400 } },
     { "label": "σx₁", "type": "latent", "visual": { "x": 100, "y": 350 } },
-    { "label": "σx₃", "type": "latent", "visual": { "x": 340, "y": 350 } }
+    { "label": "σx₃", "type": "latent", "visual": { "x": 340, "y": 350 } },
+    { "label": "sample", "type": "dataset", "levelOfMeasurement": "individual", "visual": { "x": 220, "y": 500 }, "mappings": { "x1": "x1", "x3": "x3" }, "datasetFile": { "fileName": "sample.csv", "md5": "d865e2fa67544050da562cdfb55ec1bd", "rowCount": 10, "columnCount": 3, "columns": ["x1", "x2", "x3"] } }
   ],
   "paths": [
     { "label": "p_var_f1", "fromLabel": "F1", "toLabel": "F1", "numberOfArrows": 2, "visual": { "loopSide": "top" } },
@@ -26,6 +27,9 @@
     { "label": "p_m3", "fromLabel": "1", "toLabel": "x3", "numberOfArrows": 1 },
 
     { "label": "p_err_x1", "fromLabel": "σx₁", "toLabel": "x1", "numberOfArrows": 1 },
-    { "label": "p_err_x3", "fromLabel": "σx₃", "toLabel": "x3", "numberOfArrows": 1 }
+    { "label": "p_err_x3", "fromLabel": "σx₃", "toLabel": "x3", "numberOfArrows": 1 },
+
+    { "label": "x1", "fromLabel": "sample", "toLabel": "x1", "numberOfArrows": 1, "description": "CSV column x1 linked to manifest variable x1" },
+    { "label": "x3", "fromLabel": "sample", "toLabel": "x3", "numberOfArrows": 1, "description": "CSV column x3 linked to manifest variable x3" }
   ]
 }
