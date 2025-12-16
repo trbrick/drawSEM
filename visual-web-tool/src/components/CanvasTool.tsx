@@ -1,4 +1,7 @@
 import React, { useRef, useState } from 'react'
+import Papa from 'papaparse'
+import Ajv from 'ajv'
+import schema from '../../schema/graph.schema.json'
 
 type NodeType = 'manifest' | 'latent' | 'constant'
 
@@ -42,7 +45,7 @@ const MANIFEST_DEFAULT_W = 60
 const MANIFEST_DEFAULT_H = 60
 
 export default function CanvasTool(): JSX.Element {
-  const [nodes, setNodes] = useState<Node[]>([
+  const defaultNodes: Node[] = [
     { id: 'n_latent', x: 220, y: 100, label: 'F1', type: 'latent' },
     { id: 'n_x1', x: 100, y: 250, label: 'x1', type: 'manifest'},
     { id: 'n_x2', x: 220, y: 250, label: 'x2', type: 'manifest'},
@@ -50,29 +53,67 @@ export default function CanvasTool(): JSX.Element {
     { id: 'n_const', x: 220, y: 400, label: '1', type: 'constant' },
     { id: 'n_err_x1', x: 100, y: 350, label: 'σx₁', type: 'latent' },
     { id: 'n_err_x3', x: 340, y: 350, label: 'σx₃', type: 'latent' }
-  ])
-  const [paths, setPaths] = useState<Path[]>([
-    // variance for latent F1 (self-loop)
+  ]
+
+  const defaultPaths: Path[] = [
     { id: 'p_var_f1', from: 'n_latent', to: 'n_latent', twoSided: true, side: 'top', label: 'p_var_f1' },
-    // variance for error variables
     { id: 'p_var_err_x1', from: 'n_err_x1', to: 'n_err_x1', twoSided: true, side: 'left', label: 'p_var_err_x1' },
     { id: 'p_var_err_x3', from: 'n_err_x3', to: 'n_err_x3', twoSided: true, side: 'right', label: 'p_var_err_x3' },
-    // covariance between error variables
     { id: 'p_cov_err', from: 'n_err_x1', to: 'n_err_x3', twoSided: true, label: 'p_cov_err' },
-    // variance for x2 manifest (self-loop)
     { id: 'p_var_x2', from: 'n_x2', to: 'n_x2', twoSided: true, label: 'p_var_x2' },
-    // factor loadings: latent to each manifest
     { id: 'p_l1', from: 'n_latent', to: 'n_x1', twoSided: false, label: 'p_l1' },
     { id: 'p_l2', from: 'n_latent', to: 'n_x2', twoSided: false, label: 'p_l2' },
     { id: 'p_l3', from: 'n_latent', to: 'n_x3', twoSided: false, label: 'p_l3' },
-    // means: constant to each manifest
     { id: 'p_m1', from: 'n_const', to: 'n_x1', twoSided: false, label: 'p_m1' },
     { id: 'p_m2', from: 'n_const', to: 'n_x2', twoSided: false, label: 'p_m2' },
     { id: 'p_m3', from: 'n_const', to: 'n_x3', twoSided: false, label: 'p_m3' },
-    // error loadings: error variables to manifests
     { id: 'p_err_x1', from: 'n_err_x1', to: 'n_x1', twoSided: false, label: 'p_err_x1' },
     { id: 'p_err_x3', from: 'n_err_x3', to: 'n_x3', twoSided: false, label: 'p_err_x3' }
-  ])
+  ]
+  const [nodes, setNodes] = useState<Node[]>(() => defaultNodes)
+  const [paths, setPaths] = useState<Path[]>(() => defaultPaths)
+
+  // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
+  // and replace the initial nodes/paths when valid.
+  React.useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        // dynamic import works with Vite for JSON files
+        const url = new URL('../examples/graph.example.json', import.meta.url).href
+        const res = await fetch(url)
+        if (!res.ok) return
+        const g: any = await res.json()
+        if (!g) return
+        // validate the example using AJV and the bundled schema
+        try {
+          const ajv = new Ajv({ allErrors: true, strict: false })
+          const validate = ajv.compile(schema as object)
+          const ok = validate(g)
+          if (!ok) {
+            // expose errors in the UI
+            const errs = (validate.errors || []).map((er) => `${er.instancePath || '/'}: ${er.message}`)
+            if (mounted) setImportErrors(errs)
+            return
+          }
+        } catch (ve) {
+          // validation compilation failed; ignore and do not replace
+          return
+        }
+
+        if (mounted && g && Array.isArray((g as any).nodes) && Array.isArray((g as any).paths)) {
+          const { nodes: nodesOut, paths: pathsOut } = convertDocToRuntime(g as any)
+          setNodes(nodesOut)
+          setPaths(pathsOut)
+        }
+      } catch (e) {
+        // ignore if file not present or import fails
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pathSource, setPathSource] = useState<string | null>(null)
@@ -94,6 +135,232 @@ export default function CanvasTool(): JSX.Element {
   } | null>(null)
   const editingInputRef = useRef<HTMLInputElement | null>(null)
   const editingDidFocusRef = useRef(false)
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importErrors, setImportErrors] = useState<string[] | null>(null)
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [csvMeta, setCsvMeta] = useState<any | null>(null)
+  const [csvCollapsed, setCsvCollapsed] = useState<boolean>(false)
+
+  // Convert a validated schema document to the CanvasTool runtime nodes/paths
+  function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } {
+    const usedIds = new Set<string>()
+    const labelToId: Record<string, string> = {}
+    function slugifyLabel(label: string) {
+      return (
+        'n_' +
+        label
+          .toString()
+          .normalize('NFKD')
+          .replace(/[^\w\s\-\.]/g, '')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_\-\.]/g, '')
+      )
+    }
+    function uniqueId(base: string) {
+      let id = base
+      let i = 1
+      while (usedIds.has(id)) id = `${base}_${i++}`
+      usedIds.add(id)
+      return id
+    }
+
+    const nodesOut: Node[] = (doc.nodes || []).map((n: any) => {
+      const label = n.label || 'node'
+      let base = n.id || slugifyLabel(label)
+      base = base.replace(/^p_/, 'n_')
+      const id = uniqueId(base)
+      labelToId[label] = id
+      const visual = n.visual || {}
+      const out: any = {
+        id,
+        x: typeof visual.x === 'number' ? visual.x : 0,
+        y: typeof visual.y === 'number' ? visual.y : 0,
+        label,
+        type: n.type || 'manifest'
+      }
+      if (out.type === 'manifest') {
+        out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
+        out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
+      }
+      return out
+    })
+
+    function mkPathId(base: string) {
+      return uniqueId(base.replace(/^p_/, 'p_'))
+    }
+
+    const pathsOut: Path[] = (doc.paths || []).map((p: any) => {
+      const fromLabel = p.fromLabel
+      const toLabel = p.toLabel
+      const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
+      const to = labelToId[toLabel] || slugifyLabel(toLabel)
+      if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
+      if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
+
+      const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
+      const twoSided = numberOfArrows >= 2
+      const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
+      const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
+      const id = mkPathId(idBase)
+      const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
+      if (side) out.side = side
+      out.label = p.label || id
+      if (p.visual && p.visual.midpointOffset) out.visual = { midpointOffset: p.visual.midpointOffset }
+      return out
+    })
+
+    return { nodes: nodesOut, paths: pathsOut }
+  }
+
+  // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
+  function handleImportClick() {
+    fileInputRef.current?.click()
+  }
+
+  function handleCsvImportClick() {
+    csvFileInputRef.current?.click()
+  }
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files && e.target.files[0]
+    if (!f) return
+    try {
+      const text = await f.text()
+      const doc: any = JSON.parse(text)
+
+      // validate using AJV and the bundled schema
+      const ajv = new Ajv({ allErrors: true, strict: false })
+      const validate = ajv.compile(schema as object)
+      const ok = validate(doc)
+      if (!ok) {
+        const errs = (validate.errors || []).map((er) => `${er.instancePath || '/'}: ${er.message}`)
+        setImportErrors(errs)
+        return
+      }
+
+      // convert validated document to runtime CanvasTool shape
+      const { nodes: nodesOut, paths: pathsOut } = convertDocToRuntime(doc)
+
+      // apply into runtime state
+      setNodes(nodesOut)
+      setPaths(pathsOut)
+      setSelectedId(null)
+      setPathSource(null)
+      setTempLine(null)
+      setImportErrors(null)
+    } catch (err: any) {
+      setImportErrors([err && err.message ? err.message : String(err)])
+    } finally {
+      // reset file input so same file can be chosen again
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // CSV import (browser): incremental parsing with PapaParse and incremental stats
+  function makeColStat(name: string) {
+    return {
+      name,
+      count: 0,
+      missing: 0,
+      numericCount: 0,
+      mean: 0,
+      m2: 0,
+      min: Infinity,
+      max: -Infinity,
+      distinctSet: new Set<string>(),
+      distinctLimited: false,
+      distinctLimit: 10000,
+      distinctSize: 0
+    }
+  }
+
+  function finalizeColStat(s: any) {
+    const out: any = { name: s.name, count: s.count, missing: s.missing }
+    if (s.numericCount > 0) {
+      const variance = s.numericCount > 1 ? s.m2 / (s.numericCount - 1) : 0
+      out.numericCount = s.numericCount
+      out.mean = s.mean
+      out.std = Math.sqrt(variance)
+      out.min = s.min === Infinity ? null : s.min
+      out.max = s.max === -Infinity ? null : s.max
+    }
+    out.distinct = s.distinctLimited ? { approx: s.distinctSize } : { exact: s.distinctSize }
+    return out
+  }
+
+  function onCsvSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files && e.target.files[0]
+    if (!f) return
+    setCsvMeta(null)
+    setImportErrors(null)
+
+    let headers: string[] | null = null
+    const statsMap: Record<string, any> = {}
+    Papa.parse(f, {
+      header: true,
+      skipEmptyLines: true,
+      worker: false,
+      step: (results: any) => {
+        if (!headers) {
+          headers = results && results.meta && Array.isArray(results.meta.fields) ? results.meta.fields.slice() : Object.keys(results.data || {})
+          for (const h of headers || []) statsMap[h] = makeColStat(h)
+        }
+        const row = results.data
+        if (!row || !headers) return
+        for (const h of headers) {
+          const s = statsMap[h]
+          s.count += 1
+          const raw = row[h]
+          const v = raw == null ? '' : String(raw).trim()
+          if (v === '') {
+            s.missing += 1
+            continue
+          }
+          if (!s.distinctLimited) {
+            s.distinctSet.add(v)
+            if (s.distinctSet.size > s.distinctLimit) {
+              s.distinctLimited = true
+              s.distinctSize = s.distinctSet.size
+              s.distinctSet = null
+            }
+          } else {
+            s.distinctSize = (s.distinctSize || 0) + 1
+          }
+
+          const vnum = Number(v)
+          if (!Number.isNaN(vnum) && v.trim() !== '') {
+            s.numericCount += 1
+            const delta = vnum - s.mean
+            s.mean += delta / s.numericCount
+            const delta2 = vnum - s.mean
+            s.m2 += delta * delta2
+            if (vnum < s.min) s.min = vnum
+            if (vnum > s.max) s.max = vnum
+          }
+        }
+      },
+      complete: () => {
+        if (!headers) {
+          setImportErrors(['CSV had no header row or was empty'])
+          return
+        }
+        const columns = headers.map((h) => {
+          const s = statsMap[h]
+          if (s && s.distinctSet) s.distinctSize = s.distinctSet.size
+          return finalizeColStat(s)
+        })
+        setCsvMeta({ headers, columns, fileName: f.name })
+      },
+      error: (err: any) => {
+        setImportErrors([err && err.message ? err.message : String(err)])
+      }
+    })
+
+    // reset file input so same file can be selected again
+    if (csvFileInputRef.current) csvFileInputRef.current.value = ''
+  }
 
   // focus input when editing first opens. Avoid re-selecting on every keystroke.
   React.useEffect(() => {
@@ -656,7 +923,29 @@ export default function CanvasTool(): JSX.Element {
             >
               Add Two-headed Path
             </button>
+            <button
+              className={`py-2 rounded bg-white border`}
+              onClick={() => handleImportClick()}
+            >
+              Import Graph JSON
+            </button>
+            <button
+              className={`py-2 rounded bg-white border`}
+              onClick={() => handleCsvImportClick()}
+            >
+              Import CSV
+            </button>
           </div>
+          {importErrors && (
+            <div className="pt-2 text-xs text-rose-700">
+              <div className="font-medium">Import errors:</div>
+              <ul className="list-disc pl-4">
+                {importErrors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="pt-2">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={showPathLabels} onChange={(e) => setShowPathLabels(e.target.checked)} />
@@ -669,9 +958,105 @@ export default function CanvasTool(): JSX.Element {
           <div className="text-xs">Nodes: {nodes.length}</div>
           <div className="text-xs">Paths: {paths.length}</div>
         </div>
+        
       </aside>
 
       <div className="flex-1 p-4 relative">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={onFileSelected}
+        />
+        <input
+          ref={csvFileInputRef}
+          type="file"
+          accept="text/csv,.csv"
+          style={{ display: 'none' }}
+          onChange={onCsvSelected}
+        />
+        {/* Floating CSV metadata popup (top-right of model view) */}
+        {csvMeta && csvMeta.columns && (
+          <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">{csvMeta.fileName || 'CSV'}</div>
+                <div className="text-xs text-slate-500">Headers: {Array.isArray(csvMeta.headers) ? csvMeta.headers.length : 0}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  title={csvCollapsed ? 'Expand CSV metadata' : 'Minimize CSV metadata'}
+                  className="p-1 rounded hover:bg-slate-100"
+                  onClick={() => setCsvCollapsed((s) => !s)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="12" cy="6" rx="7" ry="3" stroke="#333" fill="#fff" />
+                    <ellipse cx="12" cy="18" rx="7" ry="3" stroke="#333" fill="#fff" />
+                  </svg>
+                </button>
+                <button
+                  title="Clear CSV metadata"
+                  className="p-1 rounded hover:bg-slate-100"
+                  onClick={() => setCsvMeta(null)}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 6h18" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M10 11v6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M14 11v6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {!csvCollapsed ? (
+              <div className="mt-2 overflow-y-auto max-h-[70vh]">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[11px] text-slate-600">
+                      <th className="pb-1">Name</th>
+                      <th className="pb-1">Count</th>
+                      <th className="pb-1">Missing</th>
+                      <th className="pb-1">Numeric</th>
+                      <th className="pb-1">Mean</th>
+                      <th className="pb-1">Std</th>
+                      <th className="pb-1">Min</th>
+                      <th className="pb-1">Max</th>
+                      <th className="pb-1">Distinct</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvMeta.columns.map((c: any, i: number) => {
+                      const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
+                      const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
+                      const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
+                      const min = c.min != null ? String(c.min) : '--'
+                      const max = c.max != null ? String(c.max) : '--'
+                      return (
+                        <tr key={i} className="odd:bg-white even:bg-slate-50">
+                          <td className="py-1">{c.name}</td>
+                          <td className="py-1">{c.count}</td>
+                          <td className="py-1">{c.missing}</td>
+                          <td className="py-1">{c.numericCount ?? 0}</td>
+                          <td className="py-1">{mean}</td>
+                          <td className="py-1">{std}</td>
+                          <td className="py-1">{min}</td>
+                          <td className="py-1">{max}</td>
+                          <td className="py-1">{distinct}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center justify-center">
+                <div className="text-xs text-slate-500">{csvMeta.fileName || 'CSV'}</div>
+              </div>
+            )}
+          </div>
+        )}
         <svg
           ref={svgRef}
           className="w-full h-[600px] bg-white border rounded"

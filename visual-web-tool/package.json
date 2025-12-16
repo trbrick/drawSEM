@@ -6,10 +6,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5173",
-    "lint": "eslint \"src/**/*.{ts,tsx}\" || true"
+    "lint": "eslint \"src/**/*.{ts,tsx}\" || true",
+    "import:graph": "node scripts/import-graph.js",
+    "csv:metadata": "node scripts/csv-metadata.js"
   },
   "dependencies": {
     "ajv": "^8.17.1",
+    "csv-parse": "^6.1.0",
+    "papaparse": "^5.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
