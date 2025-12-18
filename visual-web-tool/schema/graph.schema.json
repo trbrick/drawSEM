@@ -50,7 +50,7 @@
         "properties": {
           "id": { "type": "string" },
           "label": { "type": "string", "minLength": 1 },
-          "type": { "type": "string", "enum": ["latent", "manifest", "constant", "dataset"] },
+          "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
           "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
           "tags": {
             "type": "array",

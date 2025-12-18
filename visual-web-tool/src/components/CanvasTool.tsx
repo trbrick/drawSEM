@@ -7,7 +7,7 @@ import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 
-type NodeType = 'manifest' | 'latent' | 'constant' | 'dataset'
+type NodeType = 'variable' | 'constant' | 'dataset'
 
 type DatasetFile = {
   fileName: string
@@ -65,8 +65,7 @@ type Path = {
 
 type Mode =
   | 'select'
-  | 'add-manifest'
-  | 'add-latent'
+  | 'add-variable'
   | 'add-constant'
   | 'add-one-path'
   | 'add-two-path'
@@ -504,6 +503,24 @@ export default function CanvasTool(): JSX.Element {
     }
   }, [nodes])
 
+  // Helper: determine if a variable node should render as manifest (has incoming dataset path at same level)
+  // Returns 'manifest' or 'latent' for rendering purposes
+  const getVariableRenderType = (nodeId: string): 'manifest' | 'latent' => {
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'variable') return 'latent'
+    
+    // Check if there's an incoming path from a dataset node at the same level
+    const incomingDatasetPath = paths.find((p) => {
+      if (p.to !== nodeId) return false
+      const sourceNode = nodes.find((n) => n.id === p.from)
+      if (!sourceNode || sourceNode.type !== 'dataset') return false
+      // Check level match
+      return sourceNode.levelOfMeasurement === node.levelOfMeasurement
+    })
+    
+    return incomingDatasetPath ? 'manifest' : 'latent'
+  }
+
   const selectedNode = React.useMemo(() => {
     if (selectedType !== 'node' || !selectedId) return null
     return nodes.find((n) => n.id === selectedId) || null
@@ -770,8 +787,11 @@ export default function CanvasTool(): JSX.Element {
             const w = DATASET_DEFAULT_W
             const h = DATASET_DEFAULT_H
             function nodeBBox(n: Node) {
-              if (n.type === 'latent') return { minX: n.x - LATENT_RADIUS, maxX: n.x + LATENT_RADIUS, minY: n.y - LATENT_RADIUS, maxY: n.y + LATENT_RADIUS }
-              if (n.type === 'manifest') return { minX: n.x - (n.width ?? MANIFEST_DEFAULT_W) / 2, maxX: n.x + (n.width ?? MANIFEST_DEFAULT_W) / 2, minY: n.y - (n.height ?? MANIFEST_DEFAULT_H) / 2, maxY: n.y + (n.height ?? MANIFEST_DEFAULT_H) / 2 }
+              if (n.type === 'variable') {
+                const renderType = getVariableRenderType(n.id)
+                if (renderType === 'latent') return { minX: n.x - LATENT_RADIUS, maxX: n.x + LATENT_RADIUS, minY: n.y - LATENT_RADIUS, maxY: n.y + LATENT_RADIUS }
+                return { minX: n.x - (n.width ?? MANIFEST_DEFAULT_W) / 2, maxX: n.x + (n.width ?? MANIFEST_DEFAULT_W) / 2, minY: n.y - (n.height ?? MANIFEST_DEFAULT_H) / 2, maxY: n.y + (n.height ?? MANIFEST_DEFAULT_H) / 2 }
+              }
               if (n.type === 'constant') return { minX: n.x - 19, maxX: n.x + 19, minY: n.y - 22, maxY: n.y + 11 }
               return { minX: n.x - (n.width ?? w) / 2, maxX: n.x + (n.width ?? w) / 2, minY: n.y - (n.height ?? h) / 2, maxY: n.y + (n.height ?? h) / 2 }
             }
@@ -952,19 +972,17 @@ export default function CanvasTool(): JSX.Element {
     
     // Only proceed if clicking directly on SVG background
     const p = clientToSvg(e)
-    
-    // Handle node/path creation modes
-    if (mode === 'add-manifest' || mode === 'add-latent' || mode === 'add-constant') {
-      const type: NodeType = mode === 'add-manifest' ? 'manifest' : mode === 'add-latent' ? 'latent' : 'constant'
-      const n: Node = { id: uid('n_'), x: p.x, y: p.y, label: type === 'constant' ? '1' : `${type[0].toUpperCase()}${nodes.length + 1}`, type }
-      if (type === 'manifest') {
+    if (mode === 'add-variable' || mode === 'add-constant') {
+      const type: NodeType = mode === 'add-variable' ? 'variable' : 'constant'
+      const n: Node = { id: uid('n_'), x: p.x, y: p.y, label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type }
+      if (type === 'variable') {
         n.width = MANIFEST_DEFAULT_W
         n.height = MANIFEST_DEFAULT_H
       }
       setNodes((s) => [...s, n])
       selectElement(n.id, 'node')
 
-      // add variance path automatically for manifest & latent
+      // add variance path automatically for variable nodes
       if (type !== 'constant') {
         const vid = uid('p_')
         const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid }
@@ -1078,15 +1096,14 @@ export default function CanvasTool(): JSX.Element {
     const dy = towards.y - cy
     const dist = Math.hypot(dx, dy) || 1
 
-    if (n.type === 'latent') {
-      const r = LATENT_RADIUS
-      return { x: cx + (dx * (r / dist)), y: cy + (dy * (r / dist)) }
-    }
-
-    if (n.type === 'manifest') {
+    if (n.type === 'variable') {
+      const renderType = getVariableRenderType(n.id)
+      if (renderType === 'latent') {
+        const r = LATENT_RADIUS
+        return { x: cx + (dx * (r / dist)), y: cy + (dy * (r / dist)) }
+      }
       const halfW = (n.width ?? MANIFEST_DEFAULT_W) / 2
       const halfH = (n.height ?? MANIFEST_DEFAULT_H) / 2
-      // if dx or dy is 0, avoid division by zero
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
       let sX = absDx > 0 ? halfW / absDx : Infinity
@@ -1175,12 +1192,20 @@ export default function CanvasTool(): JSX.Element {
     const rot = sideAngles[side]
 
     let nodeRadAlongSide = LATENT_RADIUS
-    if (from.type === 'manifest' || from.type === 'dataset') {
+    if (from.type === 'variable') {
+      const renderType = getVariableRenderType(from.id)
+      if (renderType === 'manifest') {
+        const w = from.width ?? MANIFEST_DEFAULT_W
+        const h = from.height ?? MANIFEST_DEFAULT_H
+        nodeRadAlongSide = side === 'left' || side === 'right' ? w / 2 : h / 2
+      }
+    } else if (from.type === 'dataset') {
       const w = from.width ?? MANIFEST_DEFAULT_W
       const h = from.height ?? MANIFEST_DEFAULT_H
       nodeRadAlongSide = side === 'left' || side === 'right' ? w / 2 : h / 2
+    } else if (from.type === 'constant') {
+      nodeRadAlongSide = 22
     }
-    if (from.type === 'constant') nodeRadAlongSide = 22
     const targetDist = nodeRadAlongSide + loopRadius + gap
 
     // canonical horseshoe center (below node at the same target distance)
@@ -1389,18 +1414,11 @@ export default function CanvasTool(): JSX.Element {
           <div className="text-sm font-medium">Tools:</div>
           <div className="flex gap-2">
             <button
-              title="Add Manifest (square)"
-              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-manifest' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
-              onClick={() => setMode('add-manifest')}
+              title="Add Variable (square or circle)"
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-variable' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              onClick={() => setMode('add-variable')}
             >
-              ▢
-            </button>
-            <button
-              title="Add Latent (circle)"
-              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-latent' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
-              onClick={() => setMode('add-latent')}
-            >
-              ◯
+              ▢○
             </button>
             <button
               title="Add Constant (triangle)"
@@ -1621,6 +1639,140 @@ export default function CanvasTool(): JSX.Element {
                     <path d="M14 11v6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 </button>
+              </div>
+            </div>
+
+            {/* Dataset file metadata */}
+            {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
+              <div className="text-xs space-y-2 mb-3 pb-3 border-b">
+                <div><span className="font-medium">Filename:</span> {selectedNode.dataset.fileName || '--'}</div>
+                {selectedNode.datasetFile && (
+                  <>
+                    <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetFile.md5}</span></div>
+                    <div><span className="font-medium">Row Count:</span> {selectedNode.datasetFile.rowCount}</div>
+                    <div><span className="font-medium">Column Count:</span> {selectedNode.datasetFile.columnCount}</div>
+                  </>
+                )}
+                {selectedNode.levelOfMeasurement && (
+                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
+                )}
+              </div>
+            )}
+
+            {/* Dataset CSV Data - shown when dataset node is selected */}
+            {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
+              <div>
+                {!csvCollapsed ? (
+                  <div className="overflow-y-auto max-h-[70vh]">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-[11px] text-slate-600">
+                          <th className="pb-1">Name</th>
+                          <th className="pb-1">Count</th>
+                          <th className="pb-1">Missing</th>
+                          <th className="pb-1">Numeric</th>
+                          <th className="pb-1">Mean</th>
+                          <th className="pb-1">Std</th>
+                          <th className="pb-1">Min</th>
+                          <th className="pb-1">Max</th>
+                          <th className="pb-1">Distinct</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => {
+                          const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
+                          const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
+                          const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
+                          const min = c.min != null ? String(c.min) : '--'
+                          const max = c.max != null ? String(c.max) : '--'
+                          return (
+                            <tr key={i} className="odd:bg-white even:bg-slate-50">
+                              <td className="py-1">{c.name}</td>
+                              <td className="py-1">{c.count}</td>
+                              <td className="py-1">{c.missing}</td>
+                              <td className="py-1">{c.numericCount ?? 0}</td>
+                              <td className="py-1">{mean}</td>
+                              <td className="py-1">{std}</td>
+                              <td className="py-1">{min}</td>
+                              <td className="py-1">{max}</td>
+                              <td className="py-1">{distinct}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
+                    <div className="text-xs text-slate-700 max-h-40 overflow-auto">
+                      <ul className="list-disc pl-5 space-y-1">
+                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => (
+                          <li key={i}>{c.name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Selected Non-Dataset Node details */}
+            {selectedNode && selectedNode.type !== 'dataset' && (
+              <div className="text-xs space-y-2">
+                <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
+                <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
+                {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
+                  <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
+                )}
+                {selectedNode.levelOfMeasurement && (
+                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
+                )}
+              </div>
+            )}
+
+            {/* Selected Path details */}
+            {selectedPath && (
+              <div className="text-xs space-y-2">
+                <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
+                <div><span className="font-medium">From:</span> {selectedPath.from}</div>
+                <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Floating popup (top-right of model view) - shows selected item details */}
+        {(selectedNode || selectedPath) && (
+          <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
+            {/* Header section */}
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                {selectedNode && selectedNode.type === 'dataset' && (
+                  <>
+                    <div className="text-sm font-semibold">Dataset: {selectedNode.label}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">dataset</span></div>
+                  </>
+                )}
+                {selectedNode && selectedNode.type === 'variable' && (
+                  <>
+                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{getVariableRenderType(selectedNode.id)}</span></div>
+                  </>
+                )}
+                {selectedNode && selectedNode.type === 'constant' && (
+                  <>
+                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">constant</span></div>
+                  </>
+                )}
+                {selectedPath && (
+                  <>
+                    <div className="text-sm font-semibold">Path: {selectedPath.label || selectedPath.id}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</span></div>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 <button
                   title="Close popup"
                   className="p-1 rounded hover:bg-slate-100"
@@ -1754,7 +1906,7 @@ export default function CanvasTool(): JSX.Element {
                   />
                 </div>
                 <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
-                {selectedNode.type === 'manifest' && (
+                {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
                 )}
                 <div>
@@ -2084,7 +2236,10 @@ export default function CanvasTool(): JSX.Element {
             const inLayer = isNodeInLayer(n)
             const opacity = getElementOpacity(inLayer)
             const zIndex = getElementZIndex(inLayer)
-            if (n.type === 'manifest') {
+            const common = { fill: DISPLAY_COLORS.fill, stroke: DISPLAY_COLORS.stroke, strokeWidth: DISPLAY_COLORS.defaultStrokeWidth, opacity, zIndex }
+            if (n.type === 'variable') {
+              const renderType = getVariableRenderType(n.id)
+              if (renderType === 'manifest') {
                       const w = n.width ?? 60
                       const h = n.height ?? 60
                       const halfW = w / 2
@@ -2118,8 +2273,7 @@ export default function CanvasTool(): JSX.Element {
                           </text>
                         </g>
                       )
-            }
-            if (n.type === 'latent') {
+              } else if ( renderType === 'latent' ) {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                   <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
@@ -2138,7 +2292,7 @@ export default function CanvasTool(): JSX.Element {
                 </g>
               )
             }
-            if (n.type === 'dataset') {
+            } else if (n.type === 'dataset') {
               // make the cylinder slightly narrower and taller than a manifest
               const w = (n.width ?? MANIFEST_DEFAULT_W)
               const h = (n.height ?? MANIFEST_DEFAULT_H) 
@@ -2187,7 +2341,7 @@ export default function CanvasTool(): JSX.Element {
                   </text>
                 </g>
               )
-            }
+            } else if (n.type === 'constant') {
             // constant triangle
             return (
               <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
@@ -2216,6 +2370,9 @@ export default function CanvasTool(): JSX.Element {
                 </text>
               </g>
             )
+                        }
+            
+            return null
           })}
         </svg>
 
