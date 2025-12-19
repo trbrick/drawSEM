@@ -330,6 +330,20 @@ export default function CanvasTool(): JSX.Element {
     setSelectedType(null)
   }
 
+  function deleteSelected() {
+    if (selectedType === 'node' && selectedId) {
+      console.log(`[Delete] Removing node ${selectedId}`)
+      setNodes((s) => s.filter((n) => n.id !== selectedId))
+      // Also remove any paths connected to this node
+      setPaths((s) => s.filter((p) => p.from !== selectedId && p.to !== selectedId))
+      deselectAll()
+    } else if (selectedType === 'path' && selectedId) {
+      console.log(`[Delete] Removing path ${selectedId}`)
+      setPaths((s) => s.filter((p) => p.id !== selectedId))
+      deselectAll()
+    }
+  }
+
   // Debug effect: log selection state changes
   React.useEffect(() => {
     if (selectedId && selectedType) {
@@ -337,6 +351,18 @@ export default function CanvasTool(): JSX.Element {
     } else {
       console.log(`[Selection State] Nothing selected`)
     }
+  }, [selectedId, selectedType])
+
+  // Handle Delete key to remove selected node or path
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Delete') {
+        e.preventDefault()
+        deleteSelected()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedId, selectedType])
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
@@ -1340,6 +1366,18 @@ export default function CanvasTool(): JSX.Element {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  title="Delete (Del key)"
+                  className="p-1 rounded hover:bg-red-50"
+                  onClick={() => deleteSelected()}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 6h18" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M10 11v6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M14 11v6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
                   title="Close popup"
                   className="p-1 rounded hover:bg-slate-100"
                   onClick={() => {
@@ -1347,10 +1385,7 @@ export default function CanvasTool(): JSX.Element {
                   }}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 6h18" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M10 11v6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M14 11v6" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M18 6L6 18M6 6l12 12" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 </button>
               </div>
