@@ -1343,24 +1343,24 @@ export default function CanvasTool(): JSX.Element {
         {(selectedNode || selectedPath) && (
           <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
             {/* Header section */}
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <div>
                 {selectedNode && selectedNode.type === 'dataset' && (
                   <>
-                    <div className="text-sm font-medium">{selectedNode.dataset?.fileName || selectedNode.label || 'Dataset'}</div>
-                    <div className="text-xs text-slate-500">Headers: {Array.isArray(selectedNode.dataset?.headers) ? selectedNode.dataset.headers.length : 0}</div>
+                    <div className="text-sm font-semibold">Dataset: {selectedNode.label}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">dataset</span></div>
                   </>
                 )}
                 {selectedNode && selectedNode.type !== 'dataset' && (
                   <>
-                    <div className="text-sm font-medium">Selected Node</div>
-                    <div className="text-xs text-slate-500">{selectedNode.type}</div>
+                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedNode.type}</span></div>
                   </>
                 )}
                 {selectedPath && (
                   <>
-                    <div className="text-sm font-medium">Selected Path</div>
-                    <div className="text-xs text-slate-500">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</div>
+                    <div className="text-sm font-semibold">Path: {selectedPath.label || selectedPath.id}</div>
+                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</span></div>
                   </>
                 )}
               </div>
@@ -1391,11 +1391,28 @@ export default function CanvasTool(): JSX.Element {
               </div>
             </div>
 
+            {/* Dataset file metadata */}
+            {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
+              <div className="text-xs space-y-2 mb-3 pb-3 border-b">
+                <div><span className="font-medium">Filename:</span> {selectedNode.dataset.fileName || '--'}</div>
+                {selectedNode.datasetFile && (
+                  <>
+                    <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetFile.md5}</span></div>
+                    <div><span className="font-medium">Row Count:</span> {selectedNode.datasetFile.rowCount}</div>
+                    <div><span className="font-medium">Column Count:</span> {selectedNode.datasetFile.columnCount}</div>
+                  </>
+                )}
+                {selectedNode.levelOfMeasurement && (
+                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
+                )}
+              </div>
+            )}
+
             {/* Dataset CSV Data - shown when dataset node is selected */}
             {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
               <div>
                 {!csvCollapsed ? (
-                  <div className="mt-2 overflow-y-auto max-h-[70vh]">
+                  <div className="overflow-y-auto max-h-[70vh]">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-left text-[11px] text-slate-600">
@@ -1453,8 +1470,6 @@ export default function CanvasTool(): JSX.Element {
             {selectedNode && selectedNode.type !== 'dataset' && (
               <div className="text-xs space-y-2">
                 <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
-                <div><span className="font-medium">Label:</span> {selectedNode.label}</div>
-                <div><span className="font-medium">Type:</span> {selectedNode.type}</div>
                 <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
                 {selectedNode.type === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
@@ -1471,8 +1486,6 @@ export default function CanvasTool(): JSX.Element {
                 <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
                 <div><span className="font-medium">From:</span> {selectedPath.from}</div>
                 <div><span className="font-medium">To:</span> {selectedPath.to}</div>
-                <div><span className="font-medium">Label:</span> {selectedPath.label || selectedPath.id}</div>
-                <div><span className="font-medium">Type:</span> {selectedPath.twoSided ? 'Two-headed (bidirectional)' : 'One-headed'}</div>
               </div>
             )}
           </div>
@@ -1492,6 +1505,12 @@ export default function CanvasTool(): JSX.Element {
             <marker id="arrow-start" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
               <path d="M10,0 L0,4 L10,8 z" fill="#000" />
             </marker>
+            <marker id="arrow-end-selected" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+              <path d="M0,0 L10,4 L0,8 z" fill="#ff0000" />
+            </marker>
+            <marker id="arrow-start-selected" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
+              <path d="M10,0 L0,4 L10,8 z" fill="#ff0000" />
+            </marker>
           </defs>
 
           {/* draw paths: dataset-sourced paths first (behind), then all other paths */}
@@ -1509,8 +1528,8 @@ export default function CanvasTool(): JSX.Element {
                   fill="none"
                   stroke={isSelected ? '#ff0000' : '#000'}
                   strokeWidth={isSelected ? 2.5 : 1.6}
-                  markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
-                  markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
+                  markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                  markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
                   onClick={(e) => {
                     e.stopPropagation()
                     selectElement(p.id, 'path')
@@ -1533,8 +1552,8 @@ export default function CanvasTool(): JSX.Element {
                   fill="none"
                   stroke={isSelected ? '#ff0000' : '#000'}
                   strokeWidth={isSelected ? 2.5 : 1.6}
-                  markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
-                  markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
+                  markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                  markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
                   onClick={(e) => {
                     e.stopPropagation()
                     selectElement(p.id, 'path')
@@ -1623,6 +1642,8 @@ export default function CanvasTool(): JSX.Element {
                             rx={4}
                             {...common}
                             fill="#fff"
+                            stroke={isSelected ? '#ff0000' : '#000'}
+                            strokeWidth={isSelected ? 2.5 : 1.5}
                             pointerEvents="auto"
                             onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onMouseEnter={() => (hoverNodeRef.current = n.id)}
@@ -1647,7 +1668,7 @@ export default function CanvasTool(): JSX.Element {
             if (n.type === 'latent') {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
-                  <circle r={LATENT_RADIUS} {...common} cx={0} cy={0} fill="#fff" pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
+                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
                     y={6}
@@ -1675,7 +1696,7 @@ export default function CanvasTool(): JSX.Element {
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
                   {/* bottom ellipse (draw first) */}
                   {/* bottom ellipse placed so its top meets the rectangle bottom */}
-                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke="#000" opacity={0.95} />
+                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} opacity={0.95} />
 
                   {/* rectangle body (no corner rounding, drawn on top of bottom ellipse to hide its top) */}
                   <rect
@@ -1692,11 +1713,11 @@ export default function CanvasTool(): JSX.Element {
                   />
 
                   {/* vertical side strokes (show left/right borders, no bottom border) */}
-                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke="#000" strokeWidth={1.5} />
-                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke="#000" strokeWidth={1.5} />
+                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
+                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
 
                   {/* top ellipse (stroke only) */}
-                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke="#000" />
+                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
 
                   <text
                     x={0}
@@ -1718,8 +1739,9 @@ export default function CanvasTool(): JSX.Element {
               <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
                 <polygon
                   points="0,-22 19,11 -19,11"
-                  {...common}
                   fill="#fff"
+                  stroke={isSelected ? '#ff0000' : '#000'}
+                  strokeWidth={isSelected ? 2.5 : 1.5}
                   pointerEvents="auto"
                   onMouseDown={(e) => onNodeMouseDown(e, n)}
                   onMouseEnter={() => (hoverNodeRef.current = n.id)}
