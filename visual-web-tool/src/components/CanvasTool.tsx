@@ -225,8 +225,6 @@ export default function CanvasTool(): JSX.Element {
                 updated.delete(nodeId)
                 return updated
               })
-              // Auto-show the CSV popup
-              setCsvVisible(true)
             }
           },
           error: (error: any) => {
@@ -272,6 +270,7 @@ export default function CanvasTool(): JSX.Element {
   }
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [showPathLabels, setShowPathLabels] = useState<boolean>(true)
 
@@ -297,7 +296,6 @@ export default function CanvasTool(): JSX.Element {
   const [datasetErrors, setDatasetErrors] = useState<Map<string, string>>(new Map())
   const csvFileInputRef = useRef<HTMLInputElement | null>(null)
   const [csvCollapsed, setCsvCollapsed] = useState<boolean>(false)
-  const [csvVisible, setCsvVisible] = useState<boolean>(false)
   const datasetNode = React.useMemo(() => {
     // Prefer the most recently-added dataset node that has attached metadata
     try {
@@ -306,6 +304,40 @@ export default function CanvasTool(): JSX.Element {
       return null
     }
   }, [nodes])
+
+  const selectedNode = React.useMemo(() => {
+    if (selectedType !== 'node' || !selectedId) return null
+    return nodes.find((n) => n.id === selectedId) || null
+  }, [selectedType, selectedId, nodes])
+
+  const selectedPath = React.useMemo(() => {
+    if (selectedType !== 'path' || !selectedId) return null
+    return paths.find((p) => p.id === selectedId) || null
+  }, [selectedType, selectedId, paths])
+
+  // Unified selection helper: select a node or path
+  function selectElement(id: string, type: 'node' | 'path') {
+    // Simply select the element (no toggle on every click)
+    console.log(`[Selection] Selecting ${type}:`, id)
+    setSelectedId(id)
+    setSelectedType(type)
+  }
+
+  // Unified deselection helper
+  function deselectAll() {
+    console.log(`[Selection] Deselecting all`)
+    setSelectedId(null)
+    setSelectedType(null)
+  }
+
+  // Debug effect: log selection state changes
+  React.useEffect(() => {
+    if (selectedId && selectedType) {
+      console.log(`[Selection State] Now selected: ${selectedType}:${selectedId}`)
+    } else {
+      console.log(`[Selection State] Nothing selected`)
+    }
+  }, [selectedId, selectedType])
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } {
@@ -415,7 +447,7 @@ export default function CanvasTool(): JSX.Element {
       // apply into runtime state
       setNodes(nodesOut)
       setPaths(pathsOut)
-      setSelectedId(null)
+      deselectAll()
       setPathSource(null)
       setTempLine(null)
       setImportErrors(null)
@@ -589,8 +621,6 @@ export default function CanvasTool(): JSX.Element {
             const newNode: Node = { id: uid('n_'), x, y, label: baseName, type: 'dataset', width: w, height: h, dataset: meta }
             return [...cur, newNode]
           })
-          // show the popup for the dataset we just added/updated
-          setCsvVisible(true)
         } catch (err) {
           // ignore dataset add errors
         }
@@ -735,7 +765,18 @@ export default function CanvasTool(): JSX.Element {
   }
 
   function onCanvasClick(e: React.MouseEvent) {
+    console.log(`[Mouse] Canvas click, target:`, e.target === svgRef.current ? 'SVG' : 'Child element')
+    
+    // If click was on a child element (node, path label, etc.), it should have handled its own events
+    if (e.target !== svgRef.current) {
+      console.log(`[Mouse] Click on child element, ignoring`)
+      return
+    }
+    
+    // Only proceed if clicking directly on SVG background
     const p = clientToSvg(e)
+    
+    // Handle node/path creation modes
     if (mode === 'add-manifest' || mode === 'add-latent' || mode === 'add-constant') {
       const type: NodeType = mode === 'add-manifest' ? 'manifest' : mode === 'add-latent' ? 'latent' : 'constant'
       const n: Node = { id: uid('n_'), x: p.x, y: p.y, label: type === 'constant' ? '1' : `${type[0].toUpperCase()}${nodes.length + 1}`, type }
@@ -744,7 +785,7 @@ export default function CanvasTool(): JSX.Element {
         n.height = MANIFEST_DEFAULT_H
       }
       setNodes((s) => [...s, n])
-      setSelectedId(n.id)
+      selectElement(n.id, 'node')
 
       // add variance path automatically for manifest & latent
       if (type !== 'constant') {
@@ -757,13 +798,15 @@ export default function CanvasTool(): JSX.Element {
       return
     }
 
-    // clicking background reverts to select/drag mode and clears selection
-    setSelectedId(null)
+    // Background click in select mode: clear selection and deselect path source
+    console.log(`[Mouse] Canvas background clicked, deselecting`)
+    deselectAll()
     setPathSource(null)
     setMode('select')
   }
 
   function onNodeMouseDown(e: React.MouseEvent, n: Node) {
+    console.log(`[Mouse] Node mousedown: ${n.id} (${n.label}), mode: ${mode}`)
     e.stopPropagation()
     hoverNodeRef.current = n.id
     // start path-drag if in path mode
@@ -782,7 +825,7 @@ export default function CanvasTool(): JSX.Element {
     pt.y = e.clientY
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
     // record selection immediately
-    setSelectedId(n.id)
+    selectElement(n.id, 'node')
     if (mode === 'select') {
       pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - n.x, offsetY: cursor.y - n.y }
     }
@@ -1270,29 +1313,38 @@ export default function CanvasTool(): JSX.Element {
           style={{ display: 'none' }}
           onChange={onCsvSelected}
         />
-        {/* Floating CSV metadata popup (top-right of model view) */}
-        {datasetNode && datasetNode.dataset && csvVisible && (
+        {/* Floating popup (top-right of model view) - shows selected item details */}
+        {(selectedNode || selectedPath) && (
           <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
-            <div className="flex items-center justify-between">
+            {/* Header section */}
+            <div className="flex items-center justify-between mb-2">
               <div>
-                <div className="text-sm font-medium">{datasetNode.dataset.fileName || datasetNode.label || 'CSV'}</div>
-                <div className="text-xs text-slate-500">Headers: {Array.isArray(datasetNode.dataset.headers) ? datasetNode.dataset.headers.length : 0}</div>
+                {selectedNode && selectedNode.type === 'dataset' && (
+                  <>
+                    <div className="text-sm font-medium">{selectedNode.dataset?.fileName || selectedNode.label || 'Dataset'}</div>
+                    <div className="text-xs text-slate-500">Headers: {Array.isArray(selectedNode.dataset?.headers) ? selectedNode.dataset.headers.length : 0}</div>
+                  </>
+                )}
+                {selectedNode && selectedNode.type !== 'dataset' && (
+                  <>
+                    <div className="text-sm font-medium">Selected Node</div>
+                    <div className="text-xs text-slate-500">{selectedNode.type}</div>
+                  </>
+                )}
+                {selectedPath && (
+                  <>
+                    <div className="text-sm font-medium">Selected Path</div>
+                    <div className="text-xs text-slate-500">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</div>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  title={csvCollapsed ? 'Expand CSV metadata' : 'Show column names'}
+                  title="Close popup"
                   className="p-1 rounded hover:bg-slate-100"
-                  onClick={() => setCsvCollapsed((s) => !s)}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <ellipse cx="12" cy="6" rx="7" ry="3" stroke="#333" fill="#fff" />
-                    <ellipse cx="12" cy="18" rx="7" ry="3" stroke="#333" fill="#fff" />
-                  </svg>
-                </button>
-                <button
-                  title="Close CSV popup"
-                  className="p-1 rounded hover:bg-slate-100"
-                  onClick={() => setCsvVisible(false)}
+                  onClick={() => {
+                    deselectAll()
+                  }}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 6h18" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
@@ -1304,56 +1356,88 @@ export default function CanvasTool(): JSX.Element {
               </div>
             </div>
 
-            {!csvCollapsed ? (
-              <div className="mt-2 overflow-y-auto max-h-[70vh]">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-[11px] text-slate-600">
-                      <th className="pb-1">Name</th>
-                      <th className="pb-1">Count</th>
-                      <th className="pb-1">Missing</th>
-                      <th className="pb-1">Numeric</th>
-                      <th className="pb-1">Mean</th>
-                      <th className="pb-1">Std</th>
-                      <th className="pb-1">Min</th>
-                      <th className="pb-1">Max</th>
-                      <th className="pb-1">Distinct</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(datasetNode.dataset.columns || []).map((c: any, i: number) => {
-                      const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
-                      const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
-                      const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
-                      const min = c.min != null ? String(c.min) : '--'
-                      const max = c.max != null ? String(c.max) : '--'
-                      return (
-                        <tr key={i} className="odd:bg-white even:bg-slate-50">
-                          <td className="py-1">{c.name}</td>
-                          <td className="py-1">{c.count}</td>
-                          <td className="py-1">{c.missing}</td>
-                          <td className="py-1">{c.numericCount ?? 0}</td>
-                          <td className="py-1">{mean}</td>
-                          <td className="py-1">{std}</td>
-                          <td className="py-1">{min}</td>
-                          <td className="py-1">{max}</td>
-                          <td className="py-1">{distinct}</td>
+            {/* Dataset CSV Data - shown when dataset node is selected */}
+            {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
+              <div>
+                {!csvCollapsed ? (
+                  <div className="mt-2 overflow-y-auto max-h-[70vh]">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-[11px] text-slate-600">
+                          <th className="pb-1">Name</th>
+                          <th className="pb-1">Count</th>
+                          <th className="pb-1">Missing</th>
+                          <th className="pb-1">Numeric</th>
+                          <th className="pb-1">Mean</th>
+                          <th className="pb-1">Std</th>
+                          <th className="pb-1">Min</th>
+                          <th className="pb-1">Max</th>
+                          <th className="pb-1">Distinct</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => {
+                          const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
+                          const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
+                          const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
+                          const min = c.min != null ? String(c.min) : '--'
+                          const max = c.max != null ? String(c.max) : '--'
+                          return (
+                            <tr key={i} className="odd:bg-white even:bg-slate-50">
+                              <td className="py-1">{c.name}</td>
+                              <td className="py-1">{c.count}</td>
+                              <td className="py-1">{c.missing}</td>
+                              <td className="py-1">{c.numericCount ?? 0}</td>
+                              <td className="py-1">{mean}</td>
+                              <td className="py-1">{std}</td>
+                              <td className="py-1">{min}</td>
+                              <td className="py-1">{max}</td>
+                              <td className="py-1">{distinct}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
+                    <div className="text-xs text-slate-700 max-h-40 overflow-auto">
+                      <ul className="list-disc pl-5 space-y-1">
+                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => (
+                          <li key={i}>{c.name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="mt-2">
-                <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
-                <div className="text-xs text-slate-700 max-h-40 overflow-auto">
-                  <ul className="list-disc pl-5 space-y-1">
-                    {(datasetNode.dataset.columns || []).map((c: any, i: number) => (
-                      <li key={i}>{c.name}</li>
-                    ))}
-                  </ul>
-                </div>
+            )}
+
+            {/* Selected Non-Dataset Node details */}
+            {selectedNode && selectedNode.type !== 'dataset' && (
+              <div className="text-xs space-y-2">
+                <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
+                <div><span className="font-medium">Label:</span> {selectedNode.label}</div>
+                <div><span className="font-medium">Type:</span> {selectedNode.type}</div>
+                <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
+                {selectedNode.type === 'manifest' && (
+                  <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
+                )}
+                {selectedNode.levelOfMeasurement && (
+                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
+                )}
+              </div>
+            )}
+
+            {/* Selected Path details */}
+            {selectedPath && (
+              <div className="text-xs space-y-2">
+                <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
+                <div><span className="font-medium">From:</span> {selectedPath.from}</div>
+                <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+                <div><span className="font-medium">Label:</span> {selectedPath.label || selectedPath.id}</div>
+                <div><span className="font-medium">Type:</span> {selectedPath.twoSided ? 'Two-headed (bidirectional)' : 'One-headed'}</div>
               </div>
             )}
           </div>
@@ -1381,33 +1465,49 @@ export default function CanvasTool(): JSX.Element {
               const srcNode = nodes.find((n) => n.id === p.from)
               return srcNode?.type === 'dataset'
             })
-            .map((p) => (
-              <path
-                key={p.id}
-                d={pathD(p)}
-                fill="none"
-                stroke="#000"
-                strokeWidth={1.6}
-                markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
-                markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
-              />
-            ))}
+            .map((p) => {
+              const isSelected = selectedType === 'path' && selectedId === p.id
+              return (
+                <path
+                  key={p.id}
+                  d={pathD(p)}
+                  fill="none"
+                  stroke={isSelected ? '#ff0000' : '#000'}
+                  strokeWidth={isSelected ? 2.5 : 1.6}
+                  markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
+                  markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    selectElement(p.id, 'path')
+                  }}
+                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+                />
+              )
+            })}
           {paths
             .filter((p) => {
               const srcNode = nodes.find((n) => n.id === p.from)
               return srcNode?.type !== 'dataset'
             })
-            .map((p) => (
-              <path
-                key={p.id}
-                d={pathD(p)}
-                fill="none"
-                stroke="#000"
-                strokeWidth={1.6}
-                markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
-                markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
-              />
-            ))}
+            .map((p) => {
+              const isSelected = selectedType === 'path' && selectedId === p.id
+              return (
+                <path
+                  key={p.id}
+                  d={pathD(p)}
+                  fill="none"
+                  stroke={isSelected ? '#ff0000' : '#000'}
+                  strokeWidth={isSelected ? 2.5 : 1.6}
+                  markerEnd={!p.twoSided ? 'url(#arrow-end)' : 'url(#arrow-end)'}
+                  markerStart={p.twoSided ? 'url(#arrow-start)' : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    selectElement(p.id, 'path')
+                  }}
+                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+                />
+              )
+            })}
 
           {/* path labels */}
           {showPathLabels &&
@@ -1473,7 +1573,7 @@ export default function CanvasTool(): JSX.Element {
 
           {/* draw nodes */}
           {nodes.map((n) => {
-            const isSelected = n.id === selectedId
+            const isSelected = selectedType === 'node' && n.id === selectedId
             const common = { fill: '#fff', stroke: '#000', strokeWidth: 1.5 }
             if (n.type === 'manifest') {
                       const w = n.width ?? 60
