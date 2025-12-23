@@ -2,6 +2,10 @@ import React, { useRef, useState } from 'react'
 import Papa from 'papaparse'
 import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
+import { convertToUnicode } from '../utils/converters'
+import { convertDocToRuntime } from '../utils/runtimeConverter'
+import { uid, isDatasetPath } from '../utils/helpers'
+import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 
 type NodeType = 'manifest' | 'latent' | 'constant' | 'dataset'
 
@@ -45,8 +49,8 @@ type Path = {
   side?: 'top' | 'right' | 'bottom' | 'left'
   // optional human-facing label (editable). If null or absent, UI will not display a label.
   label?: string | null
-  // numeric value for the path; defaults to 1.0
-  value?: number
+  // numeric value for the path; defaults to 1.0 (null for dataset paths)
+  value?: number | null
   // whether the path parameter is free or fixed; defaults to 'free'
   free?: 'free' | 'fixed'
   // optional semantic category from optimization.parameterTypes
@@ -66,97 +70,6 @@ type Mode =
   | 'add-constant'
   | 'add-one-path'
   | 'add-two-path'
-
-// Converter function: converts LaTeX-style notation to Unicode with support for nested subscripts
-// Examples:
-//   \epsilon_{x1} -> ε_{x₁}
-//   V_{e_{x1}} -> V_{ex₁} (nested subscripts collapsed to single depth)
-//   \mu_{x2} -> μ_{x₂}
-function convertToUnicode(text: string): string {
-  if (!text) return text
-
-  // Greek letter mappings
-  const greekMap: Record<string, string> = {
-    '\\epsilon': 'ε',
-    '\\varepsilon': 'ε',
-    '\\mu': 'μ',
-    '\\sigma': 'σ',
-    '\\tau': 'τ',
-    '\\phi': 'φ',
-    '\\psi': 'ψ',
-    '\\theta': 'θ',
-    '\\lambda': 'λ',
-    '\\gamma': 'γ',
-    '\\delta': 'δ',
-    '\\alpha': 'α',
-    '\\beta': 'β',
-    '\\rho': 'ρ',
-  }
-
-  // Subscript digit mappings (0-9)
-  const subscriptMap: Record<string, string> = {
-    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
-    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
-  }
-
-  // Superscript mappings (0-9, +, -, =, ())
-  const superscriptMap: Record<string, string> = {
-    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
-    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
-    '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
-  }
-
-  let result = text
-
-  // Replace Greek letters
-  for (const [latex, unicode] of Object.entries(greekMap)) {
-    result = result.replaceAll(latex, unicode)
-  }
-
-  // Collapse nested subscripts: _{..._{...}...} -> _{...} (remove inner subscript markers)
-  // Iterate until no more nested subscripts are found
-  let prevResult = ''
-  let iterations = 0
-  while (result !== prevResult && iterations < 10) {
-    prevResult = result
-    // Match _{content_{inner}content} and replace with _{contentinnercontent}
-    result = result.replace(/_\{([^{}]*)_\{([^{}]*)\}([^{}]*)\}/g, '_\{$1$2$3\}')
-    iterations++
-  }
-
-  // Handle multi-character subscripts: _abc123 -> ₐᵦ𝒸₁₂₃ (all following alphanumeric chars become subscript)
-  // Process these BEFORE braced subscripts so nested cases like _{x_1} work correctly
-  result = result.replace(/_([a-zA-Z0-9]+)/g, (match, chars) => {
-    return chars.split('').map((c: string) => subscriptMap[c] || c).join('')
-  })
-
-  // Convert subscripts: _{X...} where each character becomes subscript
-  // Now the inner _X patterns have been converted, so we won't have nested underscores
-  result = result.replace(/_\{([^}]+)\}/g, (match, content) => {
-    return content.split('').map((c: string) => subscriptMap[c] || c).join('')
-  })
-
-  // Handle superscripts: ^X or ^{...} notation
-  result = result.replace(/\^\{([^}]+)\}/g, (match, content) => {
-    return '^' + content.split('').map((c: string) => superscriptMap[c] || c).join('')
-  })
-  result = result.replace(/\^([0-9+\-=()a-zA-Z])/g, (match, char) => {
-    return '^' + (superscriptMap[char] || char)
-  })
-
-  return result
-}
-
-function uid(prefix = '') {
-  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-}
-
-// visual constants
-const LATENT_RADIUS = 36
-const MANIFEST_DEFAULT_W = 60
-const MANIFEST_DEFAULT_H = 60
-const DATASET_DEFAULT_W = 60
-const DATASET_DEFAULT_H = 60
 
 export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
@@ -197,12 +110,6 @@ export default function CanvasTool(): JSX.Element {
         p.id === pathId ? { ...p, parameterType } : p
       )
     )
-  }
-
-  // Helper: Check if a path originates from a dataset node
-  const isDatasetPath = (path: Path): boolean => {
-    const srcNode = nodes.find((n) => n.id === path.from)
-    return srcNode?.type === 'dataset'
   }
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
@@ -539,94 +446,6 @@ export default function CanvasTool(): JSX.Element {
   }, [selectedId, selectedType])
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
-  function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } {
-    const usedIds = new Set<string>()
-    const labelToId: Record<string, string> = {}
-    function slugifyLabel(label: string) {
-      return (
-        'n_' +
-        label
-          .toString()
-          .normalize('NFKD')
-          .replace(/[^\w\s\-\.]/g, '')
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, '_')
-          .replace(/[^a-z0-9_\-\.]/g, '')
-      )
-    }
-    function uniqueId(base: string) {
-      let id = base
-      let i = 1
-      while (usedIds.has(id)) id = `${base}_${i++}`
-      usedIds.add(id)
-      return id
-    }
-
-    const nodesOut: Node[] = (doc.nodes || []).map((n: any) => {
-      const label = n.label || 'node'
-      // Apply Unicode converter when loading (convert LaTeX to Unicode display)
-      const displayLabel = convertToUnicode(label)
-      let base = n.id || slugifyLabel(label)
-      base = base.replace(/^p_/, 'n_')
-      const id = uniqueId(base)
-      labelToId[label] = id
-      const visual = n.visual || {}
-      const out: any = {
-        id,
-        x: typeof visual.x === 'number' ? visual.x : 0,
-        y: typeof visual.y === 'number' ? visual.y : 0,
-        label: displayLabel,
-        type: n.type || 'manifest'
-      }
-      if (out.type === 'manifest') {
-        out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
-        out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
-      } else if (out.type === 'dataset') {
-        out.width = typeof visual.width === 'number' ? visual.width : DATASET_DEFAULT_W
-        out.height = typeof visual.height === 'number' ? visual.height : DATASET_DEFAULT_H
-      }
-      // Copy optional fields
-      if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
-      if (n.mappings) out.mappings = n.mappings
-      if (n.datasetFile) out.datasetFile = n.datasetFile
-      return out
-    })
-
-    function mkPathId(base: string) {
-      return uniqueId(base.replace(/^p_/, 'p_'))
-    }
-
-    const pathsOut: Path[] = (doc.paths || []).map((p: any) => {
-      const fromLabel = p.fromLabel
-      const toLabel = p.toLabel
-      const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
-      const to = labelToId[toLabel] || slugifyLabel(toLabel)
-      if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
-      if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
-
-      const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
-      const twoSided = numberOfArrows >= 2
-      const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
-      const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
-      const id = mkPathId(idBase)
-      const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
-      if (side) out.side = side
-      // Apply Unicode converter to path labels when loading (convert LaTeX to Unicode display)
-      out.label = p.label ? convertToUnicode(p.label) : undefined
-      // Add value (defaults to 1.0, but preserve null for dataset paths)
-      out.value = p.value !== undefined ? p.value : 1.0
-      out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
-      // Add optimization metadata: parameterType and optional overrides
-      if (p.parameterType) out.parameterType = p.parameterType
-      if (p.optimization) out.optimization = p.optimization
-      if (p.visual && p.visual.midpointOffset) out.visual = { midpointOffset: p.visual.midpointOffset }
-      return out
-    })
-
-    return { nodes: nodesOut, paths: pathsOut }
-  }
-
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
   function handleImportClick() {
     fileInputRef.current?.click()
@@ -1796,7 +1615,7 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      placeholder={isDatasetPath(selectedPath) ? "(required - CSV column name)" : "(optional)"}
+                      placeholder={isDatasetPath(selectedPath, nodes) ? "(required - CSV column name)" : "(optional)"}
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
                     />
                   </div>
@@ -1816,8 +1635,8 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      disabled={isDatasetPath(selectedPath)}
-                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-20 ${isDatasetPath(selectedPath) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      disabled={isDatasetPath(selectedPath, nodes)}
+                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-20 ${isDatasetPath(selectedPath, nodes) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -1833,8 +1652,8 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      disabled={isDatasetPath(selectedPath)}
-                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white ${isDatasetPath(selectedPath) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      disabled={isDatasetPath(selectedPath, nodes)}
+                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white ${isDatasetPath(selectedPath, nodes) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <option value="free">free</option>
                       <option value="fixed">fixed</option>
@@ -1843,7 +1662,7 @@ export default function CanvasTool(): JSX.Element {
                 </div>
 
                 {/* Dataset mapping info panel - shown for dataset paths */}
-                {isDatasetPath(selectedPath) && (
+                {isDatasetPath(selectedPath, nodes) && (
                   <div className="bg-blue-50 border border-blue-200 rounded p-2 text-blue-800 text-[11px] space-y-1">
                     <div><strong>Dataset Mapping Path</strong></div>
                     <div>• Connects a dataset to a variable</div>
@@ -1854,7 +1673,7 @@ export default function CanvasTool(): JSX.Element {
                 )}
 
                 {/* Optimization info - hidden for dataset paths */}
-                {!isDatasetPath(selectedPath) && (
+                {!isDatasetPath(selectedPath, nodes) && (
                   <div className="space-y-2 border-t pt-2">
                     <div className="font-medium text-slate-700">Optimization</div>
                     
