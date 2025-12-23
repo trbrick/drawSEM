@@ -159,6 +159,43 @@ const MANIFEST_DEFAULT_H = 60
 export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
   const [paths, setPaths] = useState<Path[]>([])
+  const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
+
+  // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
+  const getPathOptimizationConfig = (path: Path) => {
+    const typeDefaults = path.parameterType ? parameterTypes[path.parameterType] : {}
+    return {
+      prior: path.optimization?.prior !== undefined ? path.optimization.prior : typeDefaults?.prior,
+      bounds: path.optimization?.bounds !== undefined ? path.optimization.bounds : typeDefaults?.bounds,
+      start: path.optimization?.start !== undefined ? path.optimization.start : typeDefaults?.start,
+    }
+  }
+
+  // Helper: Update a path's optimization field
+  const updatePathOptimization = (pathId: string, updates: Partial<Path['optimization']>) => {
+    setPaths((ps) =>
+      ps.map((p) =>
+        p.id === pathId
+          ? {
+              ...p,
+              optimization: {
+                ...(p.optimization || {}),
+                ...updates,
+              },
+            }
+          : p
+      )
+    )
+  }
+
+  // Helper: Update a path's parameterType field
+  const updatePathParameterType = (pathId: string, parameterType: string | undefined) => {
+    setPaths((ps) =>
+      ps.map((p) =>
+        p.id === pathId ? { ...p, parameterType } : p
+      )
+    )
+  }
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
   // and replace the initial nodes/paths when valid.
@@ -205,6 +242,10 @@ export default function CanvasTool(): JSX.Element {
           console.log('[JSON Import] Conversion complete. Runtime nodes:', nodesOut.length, 'Runtime paths:', pathsOut.length)
           setNodes(nodesOut)
           setPaths(pathsOut)
+          // Extract and set optimization parameterTypes if present
+          if ((g as any).optimization?.parameterTypes) {
+            setParameterTypes((g as any).optimization.parameterTypes)
+          }
         }
       } catch (e) {
         console.error('[JSON Import] Unexpected exception:', e)
@@ -602,6 +643,10 @@ export default function CanvasTool(): JSX.Element {
       // apply into runtime state
       setNodes(nodesOut)
       setPaths(pathsOut)
+      // Extract and set optimization parameterTypes if present
+      if ((doc as any).optimization?.parameterTypes) {
+        setParameterTypes((doc as any).optimization.parameterTypes)
+      }
       deselectAll()
       setPathSource(null)
       setTempLine(null)
@@ -1603,24 +1648,214 @@ export default function CanvasTool(): JSX.Element {
 
             {/* Selected Non-Dataset Node details */}
             {selectedNode && selectedNode.type !== 'dataset' && (
-              <div className="text-xs space-y-2">
+              <div className="text-xs space-y-2 border-t pt-3">
                 <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
+                <div>
+                  <span className="font-medium">Label:</span>
+                  <input
+                    type="text"
+                    value={selectedNode.label}
+                    onChange={(e) => {
+                      const converted = convertToUnicode(e.target.value)
+                      setNodes((ns) =>
+                        ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
+                      )
+                    }}
+                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                  />
+                </div>
                 <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
                 {selectedNode.type === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
                 )}
-                {selectedNode.levelOfMeasurement && (
-                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
-                )}
+                <div>
+                  <span className="font-medium">Level of Measurement:</span>
+                  <input
+                    type="text"
+                    value={selectedNode.levelOfMeasurement || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.trim()
+                      setNodes((ns) =>
+                        ns.map((n) =>
+                          n.id === selectedNode.id
+                            ? { ...n, levelOfMeasurement: val || undefined }
+                            : n
+                        )
+                      )
+                    }}
+                    placeholder="(e.g., 'within', 'between')"
+                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                  />
+                </div>
               </div>
             )}
 
             {/* Selected Path details */}
             {selectedPath && (
-              <div className="text-xs space-y-2">
-                <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
-                <div><span className="font-medium">From:</span> {selectedPath.from}</div>
-                <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+              <div className="text-xs space-y-3 border-t pt-3">
+                {/* Basic info */}
+                <div className="space-y-2">
+                  <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
+                  <div><span className="font-medium">From:</span> {selectedPath.from}</div>
+                  <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+                  <div>
+                    <span className="font-medium">Label:</span>
+                    <input
+                      type="text"
+                      value={selectedPath.label || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.trim()
+                        const converted = convertToUnicode(val)
+                        setPaths((ps) =>
+                          ps.map((p) =>
+                            p.id === selectedPath.id
+                              ? { ...p, label: converted || null }
+                              : p
+                          )
+                        )
+                      }}
+                      placeholder="(optional)"
+                      className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                    />
+                  </div>
+                  <div>
+                    <span className="font-medium">Value:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={selectedPath.value ?? 1.0}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value)
+                        setPaths((ps) =>
+                          ps.map((p) =>
+                            p.id === selectedPath.id
+                              ? { ...p, value: isNaN(val) ? 1.0 : val }
+                              : p
+                          )
+                        )
+                      }}
+                      className="ml-2 px-2 py-1 border rounded text-xs bg-white w-20"
+                    />
+                  </div>
+                  <div>
+                    <span className="font-medium">Free/Fixed:</span>
+                    <select
+                      value={selectedPath.free ?? 'free'}
+                      onChange={(e) => {
+                        setPaths((ps) =>
+                          ps.map((p) =>
+                            p.id === selectedPath.id
+                              ? { ...p, free: (e.target.value as 'free' | 'fixed') || 'free' }
+                              : p
+                          )
+                        )
+                      }}
+                      className="ml-2 px-2 py-1 border rounded text-xs bg-white"
+                    >
+                      <option value="free">free</option>
+                      <option value="fixed">fixed</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Optimization info */}
+                <div className="space-y-2 border-t pt-2">
+                  <div className="font-medium text-slate-700">Optimization</div>
+                  
+                  {/* Parameter Type selector */}
+                  <div>
+                    <span className="font-medium">Parameter Type:</span>
+                    <select
+                      value={selectedPath.parameterType || ''}
+                      onChange={(e) => updatePathParameterType(selectedPath.id, e.target.value || undefined)}
+                      className="ml-2 px-2 py-1 border rounded text-xs bg-white"
+                    >
+                      <option value="">-- None --</option>
+                      {Object.keys(parameterTypes).map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Show effective config */}
+                  {(() => {
+                    const config = getPathOptimizationConfig(selectedPath)
+                    return (
+                      <>
+                        <div className="text-slate-600 italic text-[10px]">Effective config (from type or override):</div>
+                        <div className="pl-2 space-y-1">
+                          <div>
+                            <span className="font-medium">Prior:</span>
+                            <div className="text-[10px] text-slate-600">
+                              {config.prior ? JSON.stringify(config.prior) : '(none)'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="font-medium">Bounds:</span>
+                            <div className="text-[10px] text-slate-600">
+                              {config.bounds ? `[${config.bounds[0] ?? '∞'}, ${config.bounds[1] ?? '∞'}]` : '(none)'}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="font-medium">Start:</span>
+                            <div className="text-[10px] text-slate-600">
+                              {config.start ? String(config.start) : '(auto)'}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
+
+                  {/* Overrides section */}
+                  <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
+                  <div className="pl-2 space-y-2">
+                    <div>
+                      <label className="font-medium block">Override Bounds (JSON):</label>
+                      <input
+                        type="text"
+                        value={selectedPath.optimization?.bounds ? JSON.stringify(selectedPath.optimization.bounds) : ''}
+                        onChange={(e) => {
+                          try {
+                            const val = e.target.value.trim()
+                            if (!val) {
+                              updatePathOptimization(selectedPath.id, { bounds: undefined })
+                            } else {
+                              const parsed = JSON.parse(val)
+                              updatePathOptimization(selectedPath.id, { bounds: parsed })
+                            }
+                          } catch {
+                            // Silently ignore parse errors during typing
+                          }
+                        }}
+                        placeholder="[null, null] or [min, max]"
+                        className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-medium block">Override Start (number or 'auto'):</label>
+                      <input
+                        type="text"
+                        value={selectedPath.optimization?.start !== undefined ? String(selectedPath.optimization.start) : ''}
+                        onChange={(e) => {
+                          const val = e.target.value.trim()
+                          if (!val) {
+                            updatePathOptimization(selectedPath.id, { start: undefined })
+                          } else if (val === 'auto') {
+                            updatePathOptimization(selectedPath.id, { start: 'auto' })
+                          } else {
+                            const num = parseFloat(val)
+                            if (!isNaN(num)) {
+                              updatePathOptimization(selectedPath.id, { start: num })
+                            }
+                          }
+                        }}
+                        placeholder="auto"
+                        className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
