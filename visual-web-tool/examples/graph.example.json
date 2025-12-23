@@ -1,6 +1,30 @@
 {
   "schemaVersion": 1,
   "meta": { "title": "CanvasTool default example with sample data", "createdAt": "2025-12-05T00:00:00Z" },
+  "optimization": {
+    "parameterTypes": {
+      "loading": {
+        "prior": { "distribution": "normal", "mean": 0, "sd": 1 },
+        "bounds": [null, null],
+        "start": "auto"
+      },
+      "variance": {
+        "prior": { "distribution": "exponential", "rate": 1 },
+        "bounds": [0.001, null],
+        "start": "auto"
+      },
+      "mean": {
+        "prior": null,
+        "bounds": [null, null],
+        "start": "auto"
+      },
+      "errorVariance": {
+        "prior": { "distribution": "exponential", "rate": 1 },
+        "bounds": [0.001, null],
+        "start": "auto"
+      }
+    }
+  },
   "nodes": [
     { "label": "F_1", "type": "latent", "tags": ["factor"], "visual": { "x": 220, "y": 100 } },
     { "label": "x_1", "type": "manifest", "levelOfMeasurement": "individual", "visual": { "x": 100, "y": 250, "width": 60, "height": 60 } },
@@ -12,22 +36,22 @@
     { "label": "sample", "type": "dataset", "levelOfMeasurement": "individual", "visual": { "x": 220, "y": 500 }, "mappings": { "x1": "x_1", "x3": "x_3" }, "datasetFile": { "fileName": "sample.csv", "md5": "d865e2fa67544050da562cdfb55ec1bd", "rowCount": 10, "columnCount": 3, "columns": ["x1", "x2", "x3"] } }
   ],
   "paths": [
-    { "label": "V_{F_1}", "fromLabel": "F_1", "toLabel": "F_1", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "visual": { "loopSide": "top" } },
-    { "label": "V_{\\epsilon_{x_1}}", "fromLabel": "\\epsilon_{x_1}", "toLabel": "\\epsilon_{x_1}", "numberOfArrows": 2, "value": 1.0, "free": "free", "visual": { "loopSide": "left" } },
-    { "label": "V_{\\epsilon_{x_3}}", "fromLabel": "\\epsilon_{x_3}", "toLabel": "\\epsilon_{x_3}", "numberOfArrows": 2, "value": 1.0, "free": "free", "visual": { "loopSide": "right" } },
-    { "label": null, "fromLabel": "\\epsilon_{x_1}", "toLabel": "\\epsilon_{x_3}", "numberOfArrows": 2, "value": 1.0, "free": "free" },
-    { "label": "V_{x_2}", "fromLabel": "x_2", "toLabel": "x_2", "numberOfArrows": 2, "value": 1.0, "free": "free" },
+    { "label": "V_{F_1}", "fromLabel": "F_1", "toLabel": "F_1", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance", "visual": { "loopSide": "top" } },
+    { "label": "V_{\\epsilon_{x_1}}", "fromLabel": "\\epsilon_{x_1}", "toLabel": "\\epsilon_{x_1}", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "errorVariance", "visual": { "loopSide": "left" } },
+    { "label": "V_{\\epsilon_{x_3}}", "fromLabel": "\\epsilon_{x_3}", "toLabel": "\\epsilon_{x_3}", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "errorVariance", "visual": { "loopSide": "right" } },
+    { "label": null, "fromLabel": "\\epsilon_{x_1}", "toLabel": "\\epsilon_{x_3}", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "errorVariance" },
+    { "label": "V_{x_2}", "fromLabel": "x_2", "toLabel": "x_2", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance" },
 
-    { "label": "L_1", "fromLabel": "F_1", "toLabel": "x_1", "numberOfArrows": 1, "value": 3.2, "free": "fixed" },
-    { "label": "L_2", "fromLabel": "F_1", "toLabel": "x_2", "numberOfArrows": 1, "value": 1.0, "free": "free" },
-    { "label": "L_3", "fromLabel": "F_1", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "free" },
+    { "label": "L_1", "fromLabel": "F_1", "toLabel": "x_1", "numberOfArrows": 1, "value": 3.2, "free": "fixed", "parameterType": "loading" },
+    { "label": "L_2", "fromLabel": "F_1", "toLabel": "x_2", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "loading" },
+    { "label": "L_3", "fromLabel": "F_1", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "loading", "optimization": { "bounds": [0, 5] } },
 
-    { "label": "\\mu_{x_1}", "fromLabel": "1", "toLabel": "x_1", "numberOfArrows": 1, "value": 1.0, "free": "free" },
-    { "label": "\\mu_{x_2}", "fromLabel": "1", "toLabel": "x_2", "numberOfArrows": 1, "value": 1.0, "free": "free" },
-    { "label": "\\mu_{x_3}", "fromLabel": "1", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "free" },
+    { "label": "\\mu_{x_1}", "fromLabel": "1", "toLabel": "x_1", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "mean" },
+    { "label": "\\mu_{x_2}", "fromLabel": "1", "toLabel": "x_2", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "mean" },
+    { "label": "\\mu_{x_3}", "fromLabel": "1", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "mean" },
 
-    { "label": "V_{\\epsilon_{x_1}}", "fromLabel": "\\epsilon_{x_1}", "toLabel": "x_1", "numberOfArrows": 1, "value": 1.0, "free": "fixed" },
-    { "label": "V_{\\epsilon_{x_3}}", "fromLabel": "\\epsilon_{x_3}", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "fixed" },
+    { "label": "V_{\\epsilon_{x_1}}", "fromLabel": "\\epsilon_{x_1}", "toLabel": "x_1", "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
+    { "label": "V_{\\epsilon_{x_3}}", "fromLabel": "\\epsilon_{x_3}", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
 
     { "fromLabel": "sample", "toLabel": "x_1", "numberOfArrows": 1, "description": "CSV column x1 linked to manifest variable x_1" },
     { "fromLabel": "sample", "toLabel": "x_3", "numberOfArrows": 1, "description": "CSV column x3 linked to manifest variable x_3" }

@@ -49,6 +49,14 @@ type Path = {
   value?: number
   // whether the path parameter is free or fixed; defaults to 'free'
   free?: 'free' | 'fixed'
+  // optional semantic category from optimization.parameterTypes
+  parameterType?: string
+  // optional path-specific optimization overrides
+  optimization?: {
+    prior?: Record<string, any> | null
+    bounds?: [number | null, number | null] | null
+    start?: number | string | null
+  }
 }
 
 type Mode =
@@ -553,6 +561,9 @@ export default function CanvasTool(): JSX.Element {
       // Add value (defaults to 1.0) and free status (defaults to 'free')
       out.value = typeof p.value === 'number' ? p.value : 1.0
       out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
+      // Add optimization metadata: parameterType and optional overrides
+      if (p.parameterType) out.parameterType = p.parameterType
+      if (p.optimization) out.optimization = p.optimization
       if (p.visual && p.visual.midpointOffset) out.visual = { midpointOffset: p.visual.midpointOffset }
       return out
     })
