@@ -1291,54 +1291,61 @@ export default function CanvasTool(): JSX.Element {
       <aside className="w-48 border-r p-3 space-y-3">
         <div className="space-y-2">
           <div className="text-sm font-medium">Tools</div>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
-              className={`py-2 rounded ${mode === 'add-manifest' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
+              title="Add Manifest (square)"
+              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-manifest' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-manifest')}
             >
-              Add Manifest (square)
+              ▢
             </button>
             <button
-              className={`py-2 rounded ${mode === 'add-latent' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
+              title="Add Latent (circle)"
+              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-latent' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-latent')}
             >
-              Add Latent (circle)
+              ◯
             </button>
             <button
-              className={`py-2 rounded ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
+              title="Add Constant (triangle)"
+              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-constant')}
             >
-              Add Constant (triangle)
+              △
             </button>
             <button
-              className="py-2 rounded bg-white border"
+              title="Add Dataset (cylinder)"
+              className="py-2 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
               onClick={handleCsvImportClick}
             >
-              Add Dataset (cylinder)
+              ⛁
             </button>
             <button
-              className={`py-2 rounded ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
+              title="Add One-headed Path"
+              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-one-path')
                 setPathSource(null)
               }}
             >
-              Add One-headed Path
+              →
             </button>
             <button
-              className={`py-2 rounded ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
+              title="Add Two-headed Path"
+              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-two-path')
                 setPathSource(null)
               }}
             >
-              Add Two-headed Path
+              ↔
             </button>
             <button
-              className={`py-2 rounded bg-white border`}
+              title="Import Graph JSON"
+              className={`py-2 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100 col-span-3`}
               onClick={() => handleImportClick()}
             >
-              Import Graph JSON
+              {'{ }'} Import JSON
             </button>
           </div>
           {importErrors && (
