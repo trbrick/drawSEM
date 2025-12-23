@@ -22,6 +22,11 @@
         "prior": { "distribution": "exponential", "rate": 1 },
         "bounds": [0.001, null],
         "start": "auto"
+      },
+      "dataMapping": {
+        "prior": null,
+        "bounds": null,
+        "start": null
       }
     }
   },
@@ -53,7 +58,7 @@
     { "label": "V_{\\epsilon_{x_1}}", "fromLabel": "\\epsilon_{x_1}", "toLabel": "x_1", "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
     { "label": "V_{\\epsilon_{x_3}}", "fromLabel": "\\epsilon_{x_3}", "toLabel": "x_3", "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
 
-    { "fromLabel": "sample", "toLabel": "x_1", "numberOfArrows": 1, "description": "CSV column x1 linked to manifest variable x_1" },
-    { "fromLabel": "sample", "toLabel": "x_3", "numberOfArrows": 1, "description": "CSV column x3 linked to manifest variable x_3" }
+    { "label": "x_1", "fromLabel": "sample", "toLabel": "x_1", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping", "description": "CSV column x1 linked to manifest variable x_1" },
+    { "label": "x_3", "fromLabel": "sample", "toLabel": "x_3", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping", "description": "CSV column x3 linked to manifest variable x_3" }
   ]
 }

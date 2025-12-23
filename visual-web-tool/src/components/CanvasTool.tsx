@@ -155,6 +155,8 @@ function uid(prefix = '') {
 const LATENT_RADIUS = 36
 const MANIFEST_DEFAULT_W = 60
 const MANIFEST_DEFAULT_H = 60
+const DATASET_DEFAULT_W = 60
+const DATASET_DEFAULT_H = 60
 
 export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
@@ -195,6 +197,12 @@ export default function CanvasTool(): JSX.Element {
         p.id === pathId ? { ...p, parameterType } : p
       )
     )
+  }
+
+  // Helper: Check if a path originates from a dataset node
+  const isDatasetPath = (path: Path): boolean => {
+    const srcNode = nodes.find((n) => n.id === path.from)
+    return srcNode?.type === 'dataset'
   }
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
@@ -493,6 +501,10 @@ export default function CanvasTool(): JSX.Element {
       case 'neither':
         return null
       case 'default':
+        // If value is null and we have a label, show the label
+        if (path.value === null && label) {
+          return label
+        }
         if (isFree) {
           // free paths: show label if available, else show "=[value]"
           return label ?? `=${value}`
@@ -570,6 +582,9 @@ export default function CanvasTool(): JSX.Element {
       if (out.type === 'manifest') {
         out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
         out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
+      } else if (out.type === 'dataset') {
+        out.width = typeof visual.width === 'number' ? visual.width : DATASET_DEFAULT_W
+        out.height = typeof visual.height === 'number' ? visual.height : DATASET_DEFAULT_H
       }
       // Copy optional fields
       if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
@@ -599,8 +614,8 @@ export default function CanvasTool(): JSX.Element {
       if (side) out.side = side
       // Apply Unicode converter to path labels when loading (convert LaTeX to Unicode display)
       out.label = p.label ? convertToUnicode(p.label) : undefined
-      // Add value (defaults to 1.0) and free status (defaults to 'free')
-      out.value = typeof p.value === 'number' ? p.value : 1.0
+      // Add value (defaults to 1.0, but preserve null for dataset paths)
+      out.value = p.value !== undefined ? p.value : 1.0
       out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
       // Add optimization metadata: parameterType and optional overrides
       if (p.parameterType) out.parameterType = p.parameterType
@@ -782,8 +797,8 @@ export default function CanvasTool(): JSX.Element {
               // ignore and use defaults
             }
 
-            const w = 110
-            const h = 48
+            const w = DATASET_DEFAULT_W
+            const h = DATASET_DEFAULT_H
             function nodeBBox(n: Node) {
               if (n.type === 'latent') return { minX: n.x - LATENT_RADIUS, maxX: n.x + LATENT_RADIUS, minY: n.y - LATENT_RADIUS, maxY: n.y + LATENT_RADIUS }
               if (n.type === 'manifest') return { minX: n.x - (n.width ?? MANIFEST_DEFAULT_W) / 2, maxX: n.x + (n.width ?? MANIFEST_DEFAULT_W) / 2, minY: n.y - (n.height ?? MANIFEST_DEFAULT_H) / 2, maxY: n.y + (n.height ?? MANIFEST_DEFAULT_H) / 2 }
@@ -818,7 +833,7 @@ export default function CanvasTool(): JSX.Element {
               if (i % 2 === 0) candidateX += 40 * (i % 4 === 0 ? 1 : -1)
             }
 
-            const newNode: Node = { id: uid('n_'), x, y, label: baseName, type: 'dataset', width: w, height: h, dataset: meta }
+            const newNode: Node = { id: uid('d_'), x, y, label: baseName, type: 'dataset', width: w, height: h, dataset: meta }
             return [...cur, newNode]
           })
         } catch (err) {
@@ -949,7 +964,17 @@ export default function CanvasTool(): JSX.Element {
       // For paths from dataset nodes, use the target node's label as the default (column name)
       // For other paths, use the id
       const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || np.id) : np.id
-      setPaths((ps) => [...ps, { ...np, label: defaultLabel }])
+      const newPath: Path = { ...np, label: defaultLabel }
+      
+      // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
+      if (srcNode?.type === 'dataset') {
+        newPath.free = 'fixed'
+        newPath.value = null as any // null value for data mapping
+        newPath.parameterType = 'dataMapping'
+        // No optimization elements for dataset paths
+      }
+      
+      setPaths((ps) => [...ps, newPath])
       setTempLine(null)
       setPathSource(null)
       setMode('select')
@@ -1052,15 +1077,33 @@ export default function CanvasTool(): JSX.Element {
       const srcNode2 = nodes.find((n) => n.id === src)
       const dstNode2 = nodes.find((n) => n.id === dst)
 
-      // Enforce constraint: paths from dataset nodes must target nodes at the same levelOfMeasurement
+      // Enforce constraints for paths from dataset nodes
       if (srcNode2?.type === 'dataset') {
-        if (srcNode2.levelOfMeasurement !== dstNode2?.levelOfMeasurement) {
-          // Invalid: level mismatch. Cancel path creation.
+        // Datasets can only be "from" of one-headed paths (not two-headed)
+        if (twoSided) {
+          console.warn('[Path] Dataset nodes cannot be part of two-headed paths')
           setTempLine(null)
           setPathSource(null)
           setMode('select')
           return
         }
+        // Dataset paths must target nodes at the same levelOfMeasurement (if dataset has one)
+        if (srcNode2.levelOfMeasurement && dstNode2?.levelOfMeasurement && srcNode2.levelOfMeasurement !== dstNode2.levelOfMeasurement) {
+          console.warn('[Path] Dataset level of measurement does not match target node')
+          setTempLine(null)
+          setPathSource(null)
+          setMode('select')
+          return
+        }
+      }
+
+      // Prevent two-headed paths to dataset nodes
+      if (dstNode2?.type === 'dataset' && twoSided) {
+        console.warn('[Path] Dataset nodes cannot be part of two-headed paths')
+        setTempLine(null)
+        setPathSource(null)
+        setMode('select')
+        return
       }
 
       // enforce uniqueness: only one one-headed path from one shape to another
@@ -1080,6 +1123,20 @@ export default function CanvasTool(): JSX.Element {
       // For other paths, use the id
       const defaultLabel2 = srcNode2?.type === 'dataset' ? (dstNode2?.label || newId) : newId
       const p: Path = { id: newId, from: src, to: dst, twoSided, label: defaultLabel2 }
+      
+      // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
+      if (srcNode2?.type === 'dataset') {
+        p.free = 'fixed'
+        p.value = null as any // null value for data mapping
+        p.parameterType = 'dataMapping'
+        // No optimization elements for dataset paths
+      }
+      
+      // If destination node lacks levelOfMeasurement and source is a dataset, inherit it
+      if (srcNode2?.type === 'dataset' && !dstNode2?.levelOfMeasurement && srcNode2.levelOfMeasurement) {
+        setNodes((ns) => ns.map((n) => (n.id === dstNode2!.id ? { ...n, levelOfMeasurement: srcNode2.levelOfMeasurement } : n)))
+      }
+      
       setPaths((ps) => [...ps, p])
       setTempLine(null)
       setPathSource(null)
@@ -1435,6 +1492,12 @@ export default function CanvasTool(): JSX.Element {
               Add Constant (triangle)
             </button>
             <button
+              className="py-2 rounded bg-white border"
+              onClick={handleCsvImportClick}
+            >
+              Add Dataset (cylinder)
+            </button>
+            <button
               className={`py-2 rounded ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border'}`}
               onClick={() => {
                 setMode('add-one-path')
@@ -1457,12 +1520,6 @@ export default function CanvasTool(): JSX.Element {
               onClick={() => handleImportClick()}
             >
               Import Graph JSON
-            </button>
-            <button
-              className={`py-2 rounded bg-white border`}
-              onClick={() => handleCsvImportClick()}
-            >
-              Import CSV
             </button>
           </div>
           {importErrors && (
@@ -1582,9 +1639,34 @@ export default function CanvasTool(): JSX.Element {
                     <div><span className="font-medium">Column Count:</span> {selectedNode.datasetFile.columnCount}</div>
                   </>
                 )}
-                {selectedNode.levelOfMeasurement && (
-                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
-                )}
+                <div>
+                  <span className="font-medium">Level of Measurement:</span>
+                  <input
+                    type="text"
+                    list="levelOfMeasurementList"
+                    value={selectedNode.levelOfMeasurement || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.trim()
+                      setNodes((ns) =>
+                        ns.map((n) =>
+                          n.id === selectedNode.id
+                            ? { ...n, levelOfMeasurement: val || undefined }
+                            : n
+                        )
+                      )
+                    }}
+                    placeholder="e.g., 'within', 'between', 'individual'"
+                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                  />
+                  <datalist id="levelOfMeasurementList">
+                    {Array.from(new Set(nodes
+                      .filter((n) => n.levelOfMeasurement)
+                      .map((n) => n.levelOfMeasurement)
+                    )).map((level) => (
+                      <option key={level} value={level} />
+                    ))}
+                  </datalist>
+                </div>
               </div>
             )}
 
@@ -1714,7 +1796,7 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      placeholder="(optional)"
+                      placeholder={isDatasetPath(selectedPath) ? "(required - CSV column name)" : "(optional)"}
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
                     />
                   </div>
@@ -1734,7 +1816,8 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      className="ml-2 px-2 py-1 border rounded text-xs bg-white w-20"
+                      disabled={isDatasetPath(selectedPath)}
+                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-20 ${isDatasetPath(selectedPath) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -1750,7 +1833,8 @@ export default function CanvasTool(): JSX.Element {
                           )
                         )
                       }}
-                      className="ml-2 px-2 py-1 border rounded text-xs bg-white"
+                      disabled={isDatasetPath(selectedPath)}
+                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white ${isDatasetPath(selectedPath) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <option value="free">free</option>
                       <option value="fixed">fixed</option>
@@ -1758,104 +1842,117 @@ export default function CanvasTool(): JSX.Element {
                   </div>
                 </div>
 
-                {/* Optimization info */}
-                <div className="space-y-2 border-t pt-2">
-                  <div className="font-medium text-slate-700">Optimization</div>
-                  
-                  {/* Parameter Type selector */}
-                  <div>
-                    <span className="font-medium">Parameter Type:</span>
-                    <select
-                      value={selectedPath.parameterType || ''}
-                      onChange={(e) => updatePathParameterType(selectedPath.id, e.target.value || undefined)}
-                      className="ml-2 px-2 py-1 border rounded text-xs bg-white"
-                    >
-                      <option value="">-- None --</option>
-                      {Object.keys(parameterTypes).map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
+                {/* Dataset mapping info panel - shown for dataset paths */}
+                {isDatasetPath(selectedPath) && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-2 text-blue-800 text-[11px] space-y-1">
+                    <div><strong>Dataset Mapping Path</strong></div>
+                    <div>• Connects a dataset to a variable</div>
+                    <div>• Label: required (should match CSV column)</div>
+                    <div>• Value: always null (data from CSV)</div>
+                    <div>• Type: 'dataMapping' (fixed, no optimization)</div>
                   </div>
+                )}
 
-                  {/* Show effective config */}
-                  {(() => {
-                    const config = getPathOptimizationConfig(selectedPath)
-                    return (
-                      <>
-                        <div className="text-slate-600 italic text-[10px]">Effective config (from type or override):</div>
-                        <div className="pl-2 space-y-1">
-                          <div>
-                            <span className="font-medium">Prior:</span>
-                            <div className="text-[10px] text-slate-600">
-                              {config.prior ? JSON.stringify(config.prior) : '(none)'}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="font-medium">Bounds:</span>
-                            <div className="text-[10px] text-slate-600">
-                              {config.bounds ? `[${config.bounds[0] ?? '∞'}, ${config.bounds[1] ?? '∞'}]` : '(none)'}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="font-medium">Start:</span>
-                            <div className="text-[10px] text-slate-600">
-                              {config.start ? String(config.start) : '(auto)'}
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    )
-                  })()}
-
-                  {/* Overrides section */}
-                  <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
-                  <div className="pl-2 space-y-2">
+                {/* Optimization info - hidden for dataset paths */}
+                {!isDatasetPath(selectedPath) && (
+                  <div className="space-y-2 border-t pt-2">
+                    <div className="font-medium text-slate-700">Optimization</div>
+                    
+                    {/* Parameter Type selector */}
                     <div>
-                      <label className="font-medium block">Override Bounds (JSON):</label>
-                      <input
-                        type="text"
-                        value={selectedPath.optimization?.bounds ? JSON.stringify(selectedPath.optimization.bounds) : ''}
-                        onChange={(e) => {
-                          try {
+                      <span className="font-medium">Parameter Type:</span>
+                      <select
+                        value={selectedPath.parameterType || ''}
+                        onChange={(e) => updatePathParameterType(selectedPath.id, e.target.value || undefined)}
+                        className="ml-2 px-2 py-1 border rounded text-xs bg-white"
+                      >
+                        <option value="">-- None --</option>
+                        {Object.keys(parameterTypes).map((type) => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Show effective config */}
+                    {(() => {
+                      const config = getPathOptimizationConfig(selectedPath)
+                      return (
+                        <>
+                          <div className="text-slate-600 italic text-[10px]">Effective config (from type or override):</div>
+                          <div className="pl-2 space-y-1">
+                            <div>
+                              <span className="font-medium">Prior:</span>
+                              <div className="text-[10px] text-slate-600">
+                                {config.prior ? JSON.stringify(config.prior) : '(none)'}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="font-medium">Bounds:</span>
+                              <div className="text-[10px] text-slate-600">
+                                {config.bounds ? `[${config.bounds[0] ?? '∞'}, ${config.bounds[1] ?? '∞'}]` : '(none)'}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="font-medium">Start:</span>
+                              <div className="text-[10px] text-slate-600">
+                                {config.start ? String(config.start) : '(auto)'}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )
+                    })()}
+
+                    {/* Overrides section */}
+                    <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
+                    <div className="pl-2 space-y-2">
+                      <div>
+                        <label className="font-medium block">Override Bounds (JSON):</label>
+                        <input
+                          type="text"
+                          value={selectedPath.optimization?.bounds ? JSON.stringify(selectedPath.optimization.bounds) : ''}
+                          onChange={(e) => {
+                            try {
+                              const val = e.target.value.trim()
+                              if (!val) {
+                                updatePathOptimization(selectedPath.id, { bounds: undefined })
+                              } else {
+                                const parsed = JSON.parse(val)
+                                updatePathOptimization(selectedPath.id, { bounds: parsed })
+                              }
+                            } catch {
+                              // Silently ignore parse errors during typing
+                            }
+                          }}
+                          placeholder="[null, null] or [min, max]"
+                          className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-medium block">Override Start (number or 'auto'):</label>
+                        <input
+                          type="text"
+                          value={selectedPath.optimization?.start !== undefined ? String(selectedPath.optimization.start) : ''}
+                          onChange={(e) => {
                             const val = e.target.value.trim()
                             if (!val) {
-                              updatePathOptimization(selectedPath.id, { bounds: undefined })
+                              updatePathOptimization(selectedPath.id, { start: undefined })
+                            } else if (val === 'auto') {
+                              updatePathOptimization(selectedPath.id, { start: 'auto' })
                             } else {
-                              const parsed = JSON.parse(val)
-                              updatePathOptimization(selectedPath.id, { bounds: parsed })
+                              const num = parseFloat(val)
+                              if (!isNaN(num)) {
+                                updatePathOptimization(selectedPath.id, { start: num })
+                              }
                             }
-                          } catch {
-                            // Silently ignore parse errors during typing
-                          }
-                        }}
-                        placeholder="[null, null] or [min, max]"
-                        className="w-full px-2 py-1 border rounded text-[11px] bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-medium block">Override Start (number or 'auto'):</label>
-                      <input
-                        type="text"
-                        value={selectedPath.optimization?.start !== undefined ? String(selectedPath.optimization.start) : ''}
-                        onChange={(e) => {
-                          const val = e.target.value.trim()
-                          if (!val) {
-                            updatePathOptimization(selectedPath.id, { start: undefined })
-                          } else if (val === 'auto') {
-                            updatePathOptimization(selectedPath.id, { start: 'auto' })
-                          } else {
-                            const num = parseFloat(val)
-                            if (!isNaN(num)) {
-                              updatePathOptimization(selectedPath.id, { start: num })
-                            }
-                          }
-                        }}
-                        placeholder="auto"
-                        className="w-full px-2 py-1 border rounded text-[11px] bg-white"
-                      />
+                          }}
+                          placeholder="auto"
+                          className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
           </div>
