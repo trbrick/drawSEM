@@ -59,6 +59,86 @@ type Mode =
   | 'add-one-path'
   | 'add-two-path'
 
+// Converter function: converts LaTeX-style notation to Unicode with support for nested subscripts
+// Examples:
+//   \epsilon_{x1} -> ε_{x₁}
+//   V_{e_{x1}} -> V_{ex₁} (nested subscripts collapsed to single depth)
+//   \mu_{x2} -> μ_{x₂}
+function convertToUnicode(text: string): string {
+  if (!text) return text
+
+  // Greek letter mappings
+  const greekMap: Record<string, string> = {
+    '\\epsilon': 'ε',
+    '\\varepsilon': 'ε',
+    '\\mu': 'μ',
+    '\\sigma': 'σ',
+    '\\tau': 'τ',
+    '\\phi': 'φ',
+    '\\psi': 'ψ',
+    '\\theta': 'θ',
+    '\\lambda': 'λ',
+    '\\gamma': 'γ',
+    '\\delta': 'δ',
+    '\\alpha': 'α',
+    '\\beta': 'β',
+    '\\rho': 'ρ',
+  }
+
+  // Subscript digit mappings (0-9)
+  const subscriptMap: Record<string, string> = {
+    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  }
+
+  // Superscript mappings (0-9, +, -, =, ())
+  const superscriptMap: Record<string, string> = {
+    '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+    '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+  }
+
+  let result = text
+
+  // Replace Greek letters
+  for (const [latex, unicode] of Object.entries(greekMap)) {
+    result = result.replaceAll(latex, unicode)
+  }
+
+  // Collapse nested subscripts: _{..._{...}...} -> _{...} (remove inner subscript markers)
+  // Iterate until no more nested subscripts are found
+  let prevResult = ''
+  let iterations = 0
+  while (result !== prevResult && iterations < 10) {
+    prevResult = result
+    // Match _{content_{inner}content} and replace with _{contentinnercontent}
+    result = result.replace(/_\{([^{}]*)_\{([^{}]*)\}([^{}]*)\}/g, '_\{$1$2$3\}')
+    iterations++
+  }
+
+  // Handle multi-character subscripts: _abc123 -> ₐᵦ𝒸₁₂₃ (all following alphanumeric chars become subscript)
+  // Process these BEFORE braced subscripts so nested cases like _{x_1} work correctly
+  result = result.replace(/_([a-zA-Z0-9]+)/g, (match, chars) => {
+    return chars.split('').map((c: string) => subscriptMap[c] || c).join('')
+  })
+
+  // Convert subscripts: _{X...} where each character becomes subscript
+  // Now the inner _X patterns have been converted, so we won't have nested underscores
+  result = result.replace(/_\{([^}]+)\}/g, (match, content) => {
+    return content.split('').map((c: string) => subscriptMap[c] || c).join('')
+  })
+
+  // Handle superscripts: ^X or ^{...} notation
+  result = result.replace(/\^\{([^}]+)\}/g, (match, content) => {
+    return '^' + content.split('').map((c: string) => superscriptMap[c] || c).join('')
+  })
+  result = result.replace(/\^([0-9+\-=()a-zA-Z])/g, (match, char) => {
+    return '^' + (superscriptMap[char] || char)
+  })
+
+  return result
+}
+
 function uid(prefix = '') {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 }
@@ -424,6 +504,8 @@ export default function CanvasTool(): JSX.Element {
 
     const nodesOut: Node[] = (doc.nodes || []).map((n: any) => {
       const label = n.label || 'node'
+      // Apply Unicode converter when loading (convert LaTeX to Unicode display)
+      const displayLabel = convertToUnicode(label)
       let base = n.id || slugifyLabel(label)
       base = base.replace(/^p_/, 'n_')
       const id = uniqueId(base)
@@ -433,7 +515,7 @@ export default function CanvasTool(): JSX.Element {
         id,
         x: typeof visual.x === 'number' ? visual.x : 0,
         y: typeof visual.y === 'number' ? visual.y : 0,
-        label,
+        label: displayLabel,
         type: n.type || 'manifest'
       }
       if (out.type === 'manifest') {
@@ -466,7 +548,8 @@ export default function CanvasTool(): JSX.Element {
       const id = mkPathId(idBase)
       const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
       if (side) out.side = side
-      out.label = p.label ?? undefined  // can be null or undefined
+      // Apply Unicode converter to path labels when loading (convert LaTeX to Unicode display)
+      out.label = p.label ? convertToUnicode(p.label) : undefined
       // Add value (defaults to 1.0) and free status (defaults to 'free')
       out.value = typeof p.value === 'number' ? p.value : 1.0
       out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
@@ -1257,10 +1340,12 @@ export default function CanvasTool(): JSX.Element {
   function saveEditing() {
     if (!editing) return
     const { id, kind, value } = editing
+    // Apply converter to normalize LaTeX notation to Unicode (idempotent, so safe to apply multiple times)
+    const convertedValue = convertToUnicode(value)
     if (kind === 'node') {
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, label: value } : n)))
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, label: convertedValue } : n)))
     } else {
-      setPaths((ps) => ps.map((p) => (p.id === id ? { ...p, label: value } : p)))
+      setPaths((ps) => ps.map((p) => (p.id === id ? { ...p, label: convertedValue } : p)))
     }
     setEditing(null)
   }
