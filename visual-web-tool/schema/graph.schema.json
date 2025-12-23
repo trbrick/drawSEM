@@ -69,8 +69,10 @@
         "required": ["fromLabel", "toLabel", "numberOfArrows"],
         "properties": {
           "id": { "type": "string" },
-          "label": { "type": "string" },
+          "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
           "description": { "type": "string", "description": "Optional human-readable description of the path" },
+          "value": { "type": "number", "default": 1.0, "description": "Numeric value for the path parameter; defaults to 1.0. Note: Should not be specified for paths originating from dataset nodes." },
+          "free": { "type": "string", "enum": ["free", "fixed"], "default": "free", "description": "Whether the path parameter is free to vary or fixed to its value; defaults to 'free'. Note: Should not be specified for paths originating from dataset nodes." },
           "fromLabel": { "type": "string" },
           "toLabel": { "type": "string" },
           "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },

@@ -43,8 +43,12 @@ type Path = {
   twoSided: boolean
   // optional side for self-loop attachment: 'top', 'right', 'bottom', 'left'
   side?: 'top' | 'right' | 'bottom' | 'left'
-  // optional human-facing label (editable). If absent, UI falls back to id.
-  label?: string
+  // optional human-facing label (editable). If null or absent, UI will not display a label.
+  label?: string | null
+  // numeric value for the path; defaults to 1.0
+  value?: number
+  // whether the path parameter is free or fixed; defaults to 'free'
+  free?: 'free' | 'fixed'
 }
 
 type Mode =
@@ -272,7 +276,7 @@ export default function CanvasTool(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
   const [pathSource, setPathSource] = useState<string | null>(null)
-  const [showPathLabels, setShowPathLabels] = useState<boolean>(true)
+  const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -341,6 +345,34 @@ export default function CanvasTool(): JSX.Element {
       console.log(`[Delete] Removing path ${selectedId}`)
       setPaths((s) => s.filter((p) => p.id !== selectedId))
       deselectAll()
+    }
+  }
+
+  // Helper function to get path display text based on label mode
+  function getPathDisplayText(path: Path): string | null {
+    const value = path.value ?? 1.0
+    const label = path.label
+    const isFree = (path.free ?? 'free') === 'free'
+
+    switch (pathLabelMode) {
+      case 'labels':
+        return label ?? null
+      case 'values':
+        return value.toString()
+      case 'both':
+        return label ? `${label}=${value}` : value.toString()
+      case 'neither':
+        return null
+      case 'default':
+        if (isFree) {
+          // free paths: show label if available, else show "=[value]"
+          return label ?? `=${value}`
+        } else {
+          // fixed paths: show value only if not 1.0
+          return value !== 1.0 ? value.toString() : null
+        }
+      default:
+        return null
     }
   }
 
@@ -434,7 +466,10 @@ export default function CanvasTool(): JSX.Element {
       const id = mkPathId(idBase)
       const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
       if (side) out.side = side
-      out.label = p.label || id
+      out.label = p.label ?? undefined  // can be null or undefined
+      // Add value (defaults to 1.0) and free status (defaults to 'free')
+      out.value = typeof p.value === 'number' ? p.value : 1.0
+      out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
       if (p.visual && p.visual.midpointOffset) out.visual = { midpointOffset: p.visual.midpointOffset }
       return out
     })
@@ -1310,10 +1345,14 @@ export default function CanvasTool(): JSX.Element {
             </div>
           )}
           <div className="pt-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={showPathLabels} onChange={(e) => setShowPathLabels(e.target.checked)} />
-              <span>Show path labels</span>
-            </label>
+            <label className="text-sm block mb-1">Path Labels:</label>
+            <select value={pathLabelMode} onChange={(e) => setPathLabelMode(e.target.value as any)} className="text-sm border rounded px-2 py-1 w-full">
+              <option value="labels">Labels only</option>
+              <option value="values">Values only</option>
+              <option value="both">Both</option>
+              <option value="neither">Neither</option>
+              <option value="default">Default</option>
+            </select>
           </div>
           <div className="text-xs text-slate-500">Mode: {mode}{pathSource ? ` (source selected)` : ''}</div>
         </div>
@@ -1564,51 +1603,52 @@ export default function CanvasTool(): JSX.Element {
             })}
 
           {/* path labels */}
-          {showPathLabels &&
-            paths.map((p) => {
-              const pos = pathLabelPos(p)
-              if (!pos) return null
-              const fontSize = 12
-              const padding = 6
-              // approximate char width for monospace-ish label: ~0.6 * fontSize
-              const approxCharW = fontSize * 0.6
-              const width = Math.max(24, approxCharW * p.id.length + padding * 2)
-              const height = fontSize + padding
-              const rx = 4
-              return (
-                <g
-                  key={`${p.id}-label`}
-                  transform={`translate(${pos.x}, ${pos.y})`}
-                  style={{ pointerEvents: 'auto', cursor: 'text' }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    startEditing('path', p.id, p.label ?? p.id, pos)
-                  }}
+          {paths.map((p) => {
+            const displayText = getPathDisplayText(p)
+            if (!displayText) return null
+            const pos = pathLabelPos(p)
+            if (!pos) return null
+            const fontSize = 12
+            const padding = 6
+            // approximate char width for monospace-ish label: ~0.6 * fontSize
+            const approxCharW = fontSize * 0.6
+            const width = Math.max(24, approxCharW * displayText.length + padding * 2)
+            const height = fontSize + padding
+            const rx = 4
+            return (
+              <g
+                key={`${p.id}-label`}
+                transform={`translate(${pos.x}, ${pos.y})`}
+                style={{ pointerEvents: 'auto', cursor: 'text' }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  startEditing('path', p.id, p.label ?? p.id, pos)
+                }}
+              >
+                <rect
+                  x={-width / 2}
+                  y={-height / 2}
+                  width={width}
+                  height={height}
+                  rx={rx}
+                  fill="#fff"
+                  stroke="none"
+                  opacity={0.95}
+                />
+                <text
+                  x={0}
+                  y={0}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={fontSize}
+                  fill="#000"
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
-                  <rect
-                    x={-width / 2}
-                    y={-height / 2}
-                    width={width}
-                    height={height}
-                    rx={rx}
-                    fill="#fff"
-                    stroke="none"
-                    opacity={0.95}
-                  />
-                  <text
-                    x={0}
-                    y={0}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSize}
-                    fill="#000"
-                    style={{ userSelect: 'none', pointerEvents: 'none' }}
-                  >
-                    {p.label ?? p.id}
-                  </text>
-                </g>
-              )
-            })}
+                  {displayText}
+                </text>
+              </g>
+            )
+          })}
 
           {/* temporary drag line while creating a path */}
           {tempLine && (
