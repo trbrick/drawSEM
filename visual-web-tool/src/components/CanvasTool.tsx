@@ -1287,42 +1287,44 @@ export default function CanvasTool(): JSX.Element {
   }
 
   return (
-    <div className="flex canvas-container">
-      <aside className="w-48 border-r p-3 space-y-3">
-        <div className="space-y-2">
-          <div className="text-sm font-medium">Tools</div>
-          <div className="grid grid-cols-3 gap-2">
+    <div className="flex flex-col h-screen canvas-container">
+      {/* Top toolbar with icon buttons */}
+      <header className="border-b p-3 bg-white">
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-medium">Tools:</div>
+          <div className="flex gap-2">
             <button
               title="Add Manifest (square)"
-              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-manifest' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-manifest' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-manifest')}
             >
               ▢
             </button>
             <button
               title="Add Latent (circle)"
-              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-latent' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-latent' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-latent')}
             >
               ◯
             </button>
             <button
               title="Add Constant (triangle)"
-              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-constant')}
             >
               △
             </button>
             <button
               title="Add Dataset (cylinder)"
-              className="py-2 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
+              className="py-2 px-3 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
               onClick={handleCsvImportClick}
             >
               ⛁
             </button>
+            <div className="border-l mx-2"></div>
             <button
               title="Add One-headed Path"
-              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-one-path')
                 setPathSource(null)
@@ -1332,7 +1334,7 @@ export default function CanvasTool(): JSX.Element {
             </button>
             <button
               title="Add Two-headed Path"
-              className={`py-2 rounded text-xl flex items-center justify-center ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
+              className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-two-path')
                 setPathSource(null)
@@ -1340,24 +1342,22 @@ export default function CanvasTool(): JSX.Element {
             >
               ↔
             </button>
+            <div className="border-l mx-2"></div>
             <button
               title="Import Graph JSON"
-              className={`py-2 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100 col-span-3`}
+              className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100`}
               onClick={() => handleImportClick()}
             >
               {'{ }'} Import JSON
             </button>
           </div>
-          {importErrors && (
-            <div className="pt-2 text-xs text-rose-700">
-              <div className="font-medium">Import errors:</div>
-              <ul className="list-disc pl-4">
-                {importErrors.map((err, i) => (
-                  <li key={i}>{err}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+        </div>
+      </header>
+
+      {/* Main content area with sidebar and canvas */}
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto">
+          <div className="space-y-2">
           {datasetErrors.size > 0 && (
             <div className="pt-2 text-xs text-amber-700">
               <div className="font-medium">Dataset loading errors:</div>
@@ -1384,7 +1384,6 @@ export default function CanvasTool(): JSX.Element {
           <div className="text-xs">Nodes: {nodes.length}</div>
           <div className="text-xs">Paths: {paths.length}</div>
         </div>
-        
       </aside>
 
       <div className="flex-1 p-4 relative">
@@ -2083,6 +2082,7 @@ export default function CanvasTool(): JSX.Element {
           />
         )}
       </div>
+    </div>
     </div>
   )
 }
