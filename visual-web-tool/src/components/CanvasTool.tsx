@@ -75,6 +75,7 @@ export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
   const [paths, setPaths] = useState<Path[]>([])
   const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
+  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
 
   // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
   const getPathOptimizationConfig = (path: Path) => {
@@ -110,6 +111,29 @@ export default function CanvasTool(): JSX.Element {
         p.id === pathId ? { ...p, parameterType } : p
       )
     )
+  }
+
+  // Layer helpers: determine if a node/path should be highlighted in the current layer
+  const isNodeInLayer = (node: Node): boolean => {
+    if (activeLayer === 'all') return true
+    if (activeLayer === 'sem') return node.type !== 'dataset'
+    if (activeLayer === 'data') return node.type === 'dataset' || node.type === 'manifest'
+    return true
+  }
+
+  const isPathInLayer = (path: Path): boolean => {
+    if (activeLayer === 'all') return true
+    const fromNode = nodes.find(n => n.id === path.from)
+    const toNode = nodes.find(n => n.id === path.to)
+    if (activeLayer === 'sem') {
+      // SEM layer: show paths that don't originate from dataset nodes
+      return fromNode?.type !== 'dataset'
+    }
+    if (activeLayer === 'data') {
+      // Data layer: show paths from datasets to manifest variables
+      return isDatasetPath(path, nodes) && toNode?.type === 'manifest'
+    }
+    return true
   }
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
@@ -1368,7 +1392,49 @@ export default function CanvasTool(): JSX.Element {
       {/* Main content area with sidebar and canvas */}
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto flex flex-col">
-          {/* Empty main area for future use */}
+          {/* Layers panel - like a photo editor layers stack */}
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-slate-700">Layers</div>
+            <div className="space-y-1">
+              <button
+                onClick={() => setActiveLayer('all')}
+                className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                  activeLayer === 'all'
+                    ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
+                    : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Complete Graph
+              </button>
+              <button
+                onClick={() => setActiveLayer('sem')}
+                className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                  activeLayer === 'sem'
+                    ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
+                    : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                SEM
+              </button>
+              <button
+                onClick={() => setActiveLayer('data')}
+                className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                  activeLayer === 'data'
+                    ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
+                    : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Data
+              </button>
+            </div>
+            <div className="text-xs text-slate-500 mt-2 p-2 bg-slate-50 rounded">
+              {activeLayer === 'sem' && 'Variables, constants & SEM paths'}
+              {activeLayer === 'data' && 'Datasets & data connections'}
+              {activeLayer === 'all' && 'All elements'}
+            </div>
+          </div>
+
+          {/* Empty space - reserved for future sidebar content */}
           <div className="flex-1"></div>
 
           {/* Status display at bottom */}
@@ -1811,14 +1877,12 @@ export default function CanvasTool(): JSX.Element {
             </marker>
           </defs>
 
-          {/* draw paths: dataset-sourced paths first (behind), then all other paths */}
-          {paths
-            .filter((p) => {
-              const srcNode = nodes.find((n) => n.id === p.from)
-              return srcNode?.type === 'dataset'
-            })
-            .map((p) => {
+          {/* draw paths with layer-based opacity */}
+          {paths.map((p) => {
               const isSelected = selectedType === 'path' && selectedId === p.id
+              const inLayer = isPathInLayer(p)
+              const opacity = inLayer ? 1 : 0.25
+              const zIndex = inLayer ? 10 : 1
               return (
                 <path
                   key={p.id}
@@ -1832,31 +1896,8 @@ export default function CanvasTool(): JSX.Element {
                     e.stopPropagation()
                     selectElement(p.id, 'path')
                   }}
-                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
-                />
-              )
-            })}
-          {paths
-            .filter((p) => {
-              const srcNode = nodes.find((n) => n.id === p.from)
-              return srcNode?.type !== 'dataset'
-            })
-            .map((p) => {
-              const isSelected = selectedType === 'path' && selectedId === p.id
-              return (
-                <path
-                  key={p.id}
-                  d={pathD(p)}
-                  fill="none"
-                  stroke={isSelected ? '#ff0000' : '#000'}
-                  strokeWidth={isSelected ? 2.5 : 1.6}
-                  markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
-                  markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    selectElement(p.id, 'path')
-                  }}
-                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+                  opacity={opacity}
+                  style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
                 />
               )
             })}
@@ -1867,6 +1908,9 @@ export default function CanvasTool(): JSX.Element {
             if (!displayText) return null
             const pos = pathLabelPos(p)
             if (!pos) return null
+            const inLayer = isPathInLayer(p)
+            const opacity = inLayer ? 1 : 0.25
+            const zIndex = inLayer ? 10 : 1
             const fontSize = 12
             const padding = 6
             // approximate char width for monospace-ish label: ~0.6 * fontSize
@@ -1878,7 +1922,7 @@ export default function CanvasTool(): JSX.Element {
               <g
                 key={`${p.id}-label`}
                 transform={`translate(${pos.x}, ${pos.y})`}
-                style={{ pointerEvents: 'auto', cursor: 'text' }}
+                style={{ pointerEvents: 'auto', cursor: 'text', opacity, zIndex }}
                 onDoubleClick={(e) => {
                   e.stopPropagation()
                   startEditing('path', p.id, p.label ?? p.id, pos)
@@ -1927,14 +1971,17 @@ export default function CanvasTool(): JSX.Element {
           {/* draw nodes */}
           {nodes.map((n) => {
             const isSelected = selectedType === 'node' && n.id === selectedId
-            const common = { fill: '#fff', stroke: '#000', strokeWidth: 1.5 }
+            const inLayer = isNodeInLayer(n)
+            const opacity = inLayer ? 1 : 0.25
+            const zIndex = inLayer ? 10 : 1
+            const common = { fill: '#fff', stroke: '#000', strokeWidth: 1.5, opacity, zIndex }
             if (n.type === 'manifest') {
                       const w = n.width ?? 60
                       const h = n.height ?? 60
                       const halfW = w / 2
                       const halfH = h / 2
                       return (
-                        <g key={n.id} transform={`translate(${n.x - halfW}, ${n.y - halfH})`}>
+                        <g key={n.id} transform={`translate(${n.x - halfW}, ${n.y - halfH})`} style={{ opacity, zIndex }}>
                           <rect
                             width={w}
                             height={h}
@@ -1966,7 +2013,7 @@ export default function CanvasTool(): JSX.Element {
             }
             if (n.type === 'latent') {
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
+                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                   <circle r={LATENT_RADIUS} cx={0} cy={0} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
@@ -1992,7 +2039,7 @@ export default function CanvasTool(): JSX.Element {
               // then draw vertical side strokes and top ellipse stroke so the bottom of the rectangle
               // and the top of the bottom ellipse are not visible; rectangle corners are not rounded.
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
+                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                   {/* bottom ellipse (draw first) */}
                   {/* bottom ellipse placed so its top meets the rectangle bottom */}
                   <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} opacity={0.95} />
@@ -2035,7 +2082,7 @@ export default function CanvasTool(): JSX.Element {
             }
             // constant triangle
             return (
-              <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
+              <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                 <polygon
                   points="0,-22 19,11 -19,11"
                   fill="#fff"
