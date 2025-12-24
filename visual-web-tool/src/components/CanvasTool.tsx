@@ -1287,7 +1287,7 @@ export default function CanvasTool(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-screen canvas-container">
+    <div className="flex flex-col h-full canvas-container">
       {/* Top toolbar with icon buttons */}
       <header className="border-b p-3 bg-white">
         <div className="flex items-center gap-3">
@@ -1386,7 +1386,7 @@ export default function CanvasTool(): JSX.Element {
         </div>
       </aside>
 
-      <div className="flex-1 p-4 relative">
+      <div className="flex-1 p-4 relative overflow-hidden">
         <input
           ref={fileInputRef}
           type="file"
@@ -1784,7 +1784,7 @@ export default function CanvasTool(): JSX.Element {
         )}
         <svg
           ref={svgRef}
-          className="w-full h-[600px] bg-white border rounded"
+          className="w-full h-full bg-white border rounded"
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}

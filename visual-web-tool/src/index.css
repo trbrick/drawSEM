@@ -6,8 +6,7 @@ html, body, #root {
   height: 100%;
 }
 
-/* small canvas defaults */
+/* canvas container - height handled by flexbox layout */
 .canvas-container {
-  height: 600px;
   display: flex;
 }
