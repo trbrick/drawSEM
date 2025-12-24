@@ -1350,14 +1350,35 @@ export default function CanvasTool(): JSX.Element {
             >
               {'{ }'} Import JSON
             </button>
+            <div className="border-l mx-2"></div>
+            <label className="text-sm font-medium flex items-center gap-2">
+              Path Labels:
+              <select value={pathLabelMode} onChange={(e) => setPathLabelMode(e.target.value as any)} className="text-sm border rounded px-2 py-1 bg-white">
+                <option value="labels">Labels</option>
+                <option value="values">Values</option>
+                <option value="both">Both</option>
+                <option value="neither">Neither</option>
+                <option value="default">Default</option>
+              </select>
+            </label>
           </div>
         </div>
       </header>
 
       {/* Main content area with sidebar and canvas */}
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto">
-          <div className="space-y-2">
+        <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto flex flex-col">
+          {/* Empty main area for future use */}
+          <div className="flex-1"></div>
+
+          {/* Status display at bottom */}
+          <div className="border-t pt-3 space-y-2">
+            <div className="text-xs font-medium text-slate-700">Status</div>
+            <div className="text-xs text-slate-600">
+              <div>Nodes: {nodes.length}</div>
+              <div>Paths: {paths.length}</div>
+            </div>
+            <div className="text-xs text-slate-500 mt-2">Mode: {mode}{pathSource ? ` (source)` : ''}</div>
           {datasetErrors.size > 0 && (
             <div className="pt-2 text-xs text-amber-700">
               <div className="font-medium">Dataset loading errors:</div>
@@ -1368,22 +1389,7 @@ export default function CanvasTool(): JSX.Element {
               </ul>
             </div>
           )}
-          <div className="pt-2">
-            <label className="text-sm block mb-1">Path Labels:</label>
-            <select value={pathLabelMode} onChange={(e) => setPathLabelMode(e.target.value as any)} className="text-sm border rounded px-2 py-1 w-full">
-              <option value="labels">Labels only</option>
-              <option value="values">Values only</option>
-              <option value="both">Both</option>
-              <option value="neither">Neither</option>
-              <option value="default">Default</option>
-            </select>
           </div>
-          <div className="text-xs text-slate-500">Mode: {mode}{pathSource ? ` (source selected)` : ''}</div>
-        </div>
-        <div className="pt-2 border-t">
-          <div className="text-xs">Nodes: {nodes.length}</div>
-          <div className="text-xs">Paths: {paths.length}</div>
-        </div>
       </aside>
 
       <div className="flex-1 p-4 relative overflow-hidden">
