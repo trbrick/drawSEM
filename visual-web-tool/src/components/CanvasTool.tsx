@@ -71,11 +71,34 @@ type Mode =
   | 'add-one-path'
   | 'add-two-path'
 
+// Display styling constants
+const DISPLAY_COLORS = {
+  fill: '#fff',
+  stroke: '#000',
+  selectedStroke: '#ff0000',
+  selectedStrokeWidth: 2.5,
+  defaultStrokeWidth: 1.5,
+}
+
+const DISPLAY_OPACITY = {
+  highlighted: 1,
+  transparent: 0.25,
+  invisible: 0,
+}
+
+const DISPLAY_Z_INDEX = {
+  highlighted: 10,
+  background: 1,
+}
+
+type OffLayerVisibility = 'transparent' | 'invisible'
+
 export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
   const [paths, setPaths] = useState<Path[]>([])
   const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
+  const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
 
   // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
   const getPathOptimizationConfig = (path: Path) => {
@@ -114,6 +137,16 @@ export default function CanvasTool(): JSX.Element {
   }
 
   // Layer helpers: determine if a node/path should be highlighted in the current layer
+  const getElementOpacity = (inLayer: boolean): number => {
+    if (inLayer) return DISPLAY_OPACITY.highlighted
+    return offLayerVisibility === 'transparent' ? DISPLAY_OPACITY.transparent : DISPLAY_OPACITY.invisible
+  }
+
+  const getElementZIndex = (inLayer: boolean): number => {
+    if (inLayer) return DISPLAY_Z_INDEX.highlighted
+    return DISPLAY_Z_INDEX.background
+  }
+
   const isNodeInLayer = (node: Node): boolean => {
     if (activeLayer === 'all') return true
     if (activeLayer === 'sem') return node.type !== 'dataset'
@@ -1385,6 +1418,18 @@ export default function CanvasTool(): JSX.Element {
                 <option value="default">Default</option>
               </select>
             </label>
+            <div className="border-l mx-2"></div>
+            <label className="text-sm font-medium flex items-center gap-2">
+              Off-Layer:
+              <select
+                value={offLayerVisibility}
+                onChange={(e) => setOffLayerVisibility(e.target.value as OffLayerVisibility)}
+                className="text-sm border rounded px-2 py-1 bg-white"
+              >
+                <option value="transparent">Translucent</option>
+                <option value="invisible">Hidden</option>
+              </select>
+            </label>
           </div>
         </div>
       </header>
@@ -1881,15 +1926,15 @@ export default function CanvasTool(): JSX.Element {
           {paths.map((p) => {
               const isSelected = selectedType === 'path' && selectedId === p.id
               const inLayer = isPathInLayer(p)
-              const opacity = inLayer ? 1 : 0.25
-              const zIndex = inLayer ? 10 : 1
+              const opacity = getElementOpacity(inLayer)
+              const zIndex = getElementZIndex(inLayer)
               return (
                 <path
                   key={p.id}
                   d={pathD(p)}
                   fill="none"
-                  stroke={isSelected ? '#ff0000' : '#000'}
-                  strokeWidth={isSelected ? 2.5 : 1.6}
+                  stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
+                  strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : 1.6}
                   markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
                   markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
                   onClick={(e) => {
@@ -1909,8 +1954,8 @@ export default function CanvasTool(): JSX.Element {
             const pos = pathLabelPos(p)
             if (!pos) return null
             const inLayer = isPathInLayer(p)
-            const opacity = inLayer ? 1 : 0.25
-            const zIndex = inLayer ? 10 : 1
+            const opacity = getElementOpacity(inLayer)
+            const zIndex = getElementZIndex(inLayer)
             const fontSize = 12
             const padding = 6
             // approximate char width for monospace-ish label: ~0.6 * fontSize
@@ -1934,7 +1979,7 @@ export default function CanvasTool(): JSX.Element {
                   width={width}
                   height={height}
                   rx={rx}
-                  fill="#fff"
+                  fill={DISPLAY_COLORS.fill}
                   stroke="none"
                   opacity={0.95}
                 />
@@ -1944,7 +1989,7 @@ export default function CanvasTool(): JSX.Element {
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={fontSize}
-                  fill="#000"
+                  fill={DISPLAY_COLORS.stroke}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {displayText}
@@ -1972,9 +2017,9 @@ export default function CanvasTool(): JSX.Element {
           {nodes.map((n) => {
             const isSelected = selectedType === 'node' && n.id === selectedId
             const inLayer = isNodeInLayer(n)
-            const opacity = inLayer ? 1 : 0.25
-            const zIndex = inLayer ? 10 : 1
-            const common = { fill: '#fff', stroke: '#000', strokeWidth: 1.5, opacity, zIndex }
+            const opacity = getElementOpacity(inLayer)
+            const zIndex = getElementZIndex(inLayer)
+            const common = { fill: DISPLAY_COLORS.fill, stroke: DISPLAY_COLORS.stroke, strokeWidth: DISPLAY_COLORS.defaultStrokeWidth, opacity, zIndex }
             if (n.type === 'manifest') {
                       const w = n.width ?? 60
                       const h = n.height ?? 60
@@ -1987,9 +2032,9 @@ export default function CanvasTool(): JSX.Element {
                             height={h}
                             rx={4}
                             {...common}
-                            fill="#fff"
-                            stroke={isSelected ? '#ff0000' : '#000'}
-                            strokeWidth={isSelected ? 2.5 : 1.5}
+                            fill={DISPLAY_COLORS.fill}
+                            stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
+                            strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth}
                             pointerEvents="auto"
                             onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onMouseEnter={() => (hoverNodeRef.current = n.id)}
@@ -2014,7 +2059,7 @@ export default function CanvasTool(): JSX.Element {
             if (n.type === 'latent') {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
-                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
+                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
                     y={6}
@@ -2042,7 +2087,7 @@ export default function CanvasTool(): JSX.Element {
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                   {/* bottom ellipse (draw first) */}
                   {/* bottom ellipse placed so its top meets the rectangle bottom */}
-                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} opacity={0.95} />
+                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} opacity={0.95} />
 
                   {/* rectangle body (no corner rounding, drawn on top of bottom ellipse to hide its top) */}
                   <rect
@@ -2050,7 +2095,7 @@ export default function CanvasTool(): JSX.Element {
                     y={-h / 2 + topEllipseRy / 2}
                     width={w}
                     height={h - topEllipseRy}
-                    fill="#fff"
+                    fill={DISPLAY_COLORS.fill}
                     pointerEvents="auto"
                     onMouseDown={(e) => onNodeMouseDown(e, n)}
                     onMouseEnter={() => (hoverNodeRef.current = n.id)}
@@ -2059,11 +2104,11 @@ export default function CanvasTool(): JSX.Element {
                   />
 
                   {/* vertical side strokes (show left/right borders, no bottom border) */}
-                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
-                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
+                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
+                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
 
                   {/* top ellipse (stroke only) */}
-                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill="#fff" stroke={isSelected ? '#ff0000' : '#000'} strokeWidth={isSelected ? 2.5 : 1.5} />
+                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
 
                   <text
                     x={0}
@@ -2085,9 +2130,9 @@ export default function CanvasTool(): JSX.Element {
               <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
                 <polygon
                   points="0,-22 19,11 -19,11"
-                  fill="#fff"
-                  stroke={isSelected ? '#ff0000' : '#000'}
-                  strokeWidth={isSelected ? 2.5 : 1.5}
+                  fill={DISPLAY_COLORS.fill}
+                  stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
+                  strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth}
                   pointerEvents="auto"
                   onMouseDown={(e) => onNodeMouseDown(e, n)}
                   onMouseEnter={() => (hoverNodeRef.current = n.id)}
