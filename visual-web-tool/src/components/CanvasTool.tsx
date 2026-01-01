@@ -97,8 +97,19 @@ export default function CanvasTool(): JSX.Element {
   const [nodes, setNodes] = useState<Node[]>([])
   const [paths, setPaths] = useState<Path[]>([])
   const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
-  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
+  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
+
+  // Get all unique level of measurement values from nodes
+  const getLevelOfMeasurementOptions = (): string[] => {
+    const levels = new Set<string>()
+    nodes.forEach((n) => {
+      if (n.levelOfMeasurement) {
+        levels.add(n.levelOfMeasurement)
+      }
+    })
+    return Array.from(levels).sort()
+  }
 
   // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
   const getPathOptimizationConfig = (path: Path) => {
@@ -151,7 +162,9 @@ export default function CanvasTool(): JSX.Element {
     if (activeLayer === 'all') return true
     if (activeLayer === 'sem') return node.type !== 'dataset'
     if (activeLayer === 'data') return node.type === 'dataset' || node.type === 'manifest'
-    return true
+    // Level of measurement layer: show nodes with that specific level
+    if (node.levelOfMeasurement === activeLayer) return true
+    return false
   }
 
   const isPathInLayer = (path: Path): boolean => {
@@ -166,7 +179,9 @@ export default function CanvasTool(): JSX.Element {
       // Data layer: show paths from datasets to manifest variables
       return isDatasetPath(path, nodes) && toNode?.type === 'manifest'
     }
-    return true
+    // Level of measurement layer: show paths between nodes with that level
+    if (fromNode?.levelOfMeasurement === activeLayer && toNode?.levelOfMeasurement === activeLayer) return true
+    return false
   }
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
@@ -1471,11 +1486,36 @@ export default function CanvasTool(): JSX.Element {
               >
                 Data
               </button>
+              {/* Visual break before measurement level layers */}
+              {getLevelOfMeasurementOptions().length > 0 && (
+                <div className="mt-2 pt-2 border-t">
+                  <div className="text-xs font-medium text-slate-600 px-1 mb-1">Level of Measurement</div>
+                </div>
+              )}
+              {/* Dynamic measurement level layers */}
+              {getLevelOfMeasurementOptions().map((level) => (
+                <button
+                  key={level}
+                  onClick={() => setActiveLayer(level)}
+                  className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                    activeLayer === level
+                      ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
+                      : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
             </div>
             <div className="text-xs text-slate-500 mt-2 p-2 bg-slate-50 rounded">
               {activeLayer === 'sem' && 'Variables, constants & SEM paths'}
               {activeLayer === 'data' && 'Datasets & data connections'}
               {activeLayer === 'all' && 'All elements'}
+              {![
+                'sem',
+                'data',
+                'all',
+              ].includes(activeLayer) && `Level: ${activeLayer}`}
             </div>
           </div>
 
