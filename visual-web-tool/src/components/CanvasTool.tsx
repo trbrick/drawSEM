@@ -99,6 +99,7 @@ export default function CanvasTool(): JSX.Element {
   const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
@@ -155,6 +156,71 @@ export default function CanvasTool(): JSX.Element {
         p.id === pathId ? { ...p, parameterType } : p
       )
     )
+  }
+
+  // Helper: Show error message with auto-dismiss
+  const showPathError = (message: string) => {
+    setErrorMessage(message)
+    setTimeout(() => setErrorMessage(null), 4000)
+  }
+
+  // Helper: Check if a path is valid and return error message if not
+  const getPathValidationError = (srcId: string, dstId: string, twoSided: boolean): string | null => {
+    const srcNode = nodes.find((n) => n.id === srcId)
+    const dstNode = nodes.find((n) => n.id === dstId)
+
+    // Can't have self-paths with one arrow (only two-sided variance)
+    if (srcId === dstId && !twoSided) {
+      return 'Self-paths must be two-headed (variance). Use ↔ to create variance.'
+    }
+
+    // Dataset nodes can only be sources, never destinations
+    if (dstNode?.type === 'dataset') {
+      return 'Dataset nodes can only be data sources, not path destinations. Paths must originate FROM datasets, not TO datasets.'
+    }
+
+    // Constants can only be sources (one-headed incoming paths), not destinations and no two-headed paths
+    if (dstNode?.type === 'constant') {
+      return 'Constants cannot be path destinations. Constants are fixed values that can only serve as sources (→).'
+    }
+
+    // Constants can't have any two-headed paths (self or outgoing)
+    if (srcNode?.type === 'constant' && twoSided) {
+      return 'Constants cannot have two-headed paths (↔). Constants can only have one-headed outgoing paths (→).'
+    }
+
+    // Datasets can only be sources, never destinations (handled above at line 182)
+    // If they're also the source, they can't have two-headed paths
+    if (srcNode?.type === 'dataset' && twoSided) {
+      return 'Datasets cannot have two-headed paths. Use → for one-headed paths from datasets.'
+    }
+
+    // Paths from datasets to nodes with different level of measurement
+    if (srcNode?.type === 'dataset') {
+      const srcEffective = getEffectiveLevelOfMeasurement(srcNode)
+      const dstEffective = getEffectiveLevelOfMeasurement(dstNode!)
+      if (srcEffective.level && dstEffective.level && srcEffective.level !== dstEffective.level) {
+        return `Cannot connect dataset (level: ${srcEffective.level}) to node at different level (${dstEffective.level}). All connected nodes must be at the same level of measurement.`
+      }
+    }
+
+    // Paths to nodes without level of measurement when dataset has one
+    if (srcNode?.type === 'dataset' && srcNode.levelOfMeasurement && !dstNode?.levelOfMeasurement) {
+      const specifiedLevels = getLevelOfMeasurementOptions()
+      if (specifiedLevels.length > 1) {
+        return `Target node has no level of measurement specified. Please assign a level first, or this node will be treated as unspecified.`
+      }
+    }
+
+    // Duplicate one-headed paths
+    if (!twoSided) {
+      const exists = paths.find((pp) => pp.from === srcId && pp.to === dstId && pp.twoSided === false)
+      if (exists) {
+        return 'A one-headed path already exists between these nodes.'
+      }
+    }
+
+    return null
   }
 
   // Layer helpers: determine if a node/path should be highlighted in the current layer
@@ -831,38 +897,20 @@ export default function CanvasTool(): JSX.Element {
       const dst = hoverNodeRef.current
       const twoSided = (mode as any) === 'add-two-path'
 
-      // do not create a one-headed self-path; self-paths should be two-headed (variance)
-      if (src === dst && !twoSided) {
+      // Validate the path
+      const validationError = getPathValidationError(src, dst, twoSided)
+      console.log('[Path Validation] Checking path from', src, 'to', dst, 'twoSided:', twoSided, 'error:', validationError)
+      if (validationError) {
+        console.log('[Path Validation] Validation failed, showing error')
+        showPathError(validationError)
         setTempLine(null)
         setPathSource(null)
         setMode('select')
         return
       }
+
       const srcNode = nodes.find((n) => n.id === src)
       const dstNode = nodes.find((n) => n.id === dst)
-
-      // Enforce constraint: paths from dataset nodes must target nodes at the same levelOfMeasurement
-      if (srcNode?.type === 'dataset') {
-        if (srcNode.levelOfMeasurement !== dstNode?.levelOfMeasurement) {
-          // Invalid: level mismatch. Cancel path creation.
-          setTempLine(null)
-          setPathSource(null)
-          setMode('select')
-          return
-        }
-      }
-
-      // enforce uniqueness: only one one-headed path from one shape to another
-      if (!twoSided) {
-        const exists = paths.find((pp) => pp.from === src && pp.to === dst && pp.twoSided === false)
-        if (exists) {
-          // clear temp and return to select
-          setTempLine(null)
-          setPathSource(null)
-          setMode('select')
-          return
-        }
-      }
 
       const np: Path = { id: uid('p_'), from: src as string, to: dst as string, twoSided }
       // For paths from dataset nodes, use the target node's label as the default (column name)
@@ -971,65 +1019,27 @@ export default function CanvasTool(): JSX.Element {
       const dst = hoverNodeRef.current
       const twoSided = (mode as any) === 'add-two-path'
 
-      // do not create a one-headed self-path; self-paths should be two-headed (variance)
-      if (src === dst && !twoSided) {
-        setTempLine(null)
-        setPathSource(null)
-        setMode('select')
-        return
-      }
-      const srcNode2 = nodes.find((n) => n.id === src)
-      const dstNode2 = nodes.find((n) => n.id === dst)
-
-      // Enforce constraints for paths from dataset nodes
-      if (srcNode2?.type === 'dataset') {
-        // Datasets can only be "from" of one-headed paths (not two-headed)
-        if (twoSided) {
-          console.warn('[Path] Dataset nodes cannot be part of two-headed paths')
-          setTempLine(null)
-          setPathSource(null)
-          setMode('select')
-          return
-        }
-        // Dataset paths must target nodes at the same levelOfMeasurement (if dataset has one)
-        if (srcNode2.levelOfMeasurement && dstNode2?.levelOfMeasurement && srcNode2.levelOfMeasurement !== dstNode2.levelOfMeasurement) {
-          console.warn('[Path] Dataset level of measurement does not match target node')
-          setTempLine(null)
-          setPathSource(null)
-          setMode('select')
-          return
-        }
-      }
-
-      // Prevent two-headed paths to dataset nodes
-      if (dstNode2?.type === 'dataset' && twoSided) {
-        console.warn('[Path] Dataset nodes cannot be part of two-headed paths')
+      // Validate the path
+      const validationError = getPathValidationError(src, dst, twoSided)
+      if (validationError) {
+        showPathError(validationError)
         setTempLine(null)
         setPathSource(null)
         setMode('select')
         return
       }
 
-      // enforce uniqueness: only one one-headed path from one shape to another
-      if (!twoSided) {
-        const exists = paths.find((pp) => pp.from === src && pp.to === dst && pp.twoSided === false)
-        if (exists) {
-          // clear temp and return to select
-          setTempLine(null)
-          setPathSource(null)
-          setMode('select')
-          return
-        }
-      }
+      const srcNode = nodes.find((n) => n.id === src)
+      const dstNode = nodes.find((n) => n.id === dst)
 
       const newId = uid('p_')
       // For paths from dataset nodes, use the target node's label as the default (column name)
       // For other paths, use the id
-      const defaultLabel2 = srcNode2?.type === 'dataset' ? (dstNode2?.label || newId) : newId
-      const p: Path = { id: newId, from: src, to: dst, twoSided, label: defaultLabel2 }
+      const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || newId) : newId
+      const p: Path = { id: newId, from: src, to: dst, twoSided, label: defaultLabel }
       
       // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
-      if (srcNode2?.type === 'dataset') {
+      if (srcNode?.type === 'dataset') {
         p.free = 'fixed'
         p.value = null as any // null value for data mapping
         p.parameterType = 'dataMapping'
@@ -1037,8 +1047,8 @@ export default function CanvasTool(): JSX.Element {
       }
       
       // If destination node lacks levelOfMeasurement and source is a dataset, inherit it
-      if (srcNode2?.type === 'dataset' && !dstNode2?.levelOfMeasurement && srcNode2.levelOfMeasurement) {
-        setNodes((ns) => ns.map((n) => (n.id === dstNode2!.id ? { ...n, levelOfMeasurement: srcNode2.levelOfMeasurement } : n)))
+      if (srcNode?.type === 'dataset' && !dstNode?.levelOfMeasurement && srcNode.levelOfMeasurement) {
+        setNodes((ns) => ns.map((n) => (n.id === dstNode!.id ? { ...n, levelOfMeasurement: srcNode.levelOfMeasurement } : n)))
       }
       
       setPaths((ps) => [...ps, p])
@@ -1461,6 +1471,8 @@ export default function CanvasTool(): JSX.Element {
           </div>
         </div>
       </header>
+
+      {/* Error message notification - removed from here */}
 
       {/* Main content area with sidebar and canvas */}
       <div className="flex flex-1 overflow-hidden">
@@ -2072,7 +2084,6 @@ export default function CanvasTool(): JSX.Element {
             const inLayer = isNodeInLayer(n)
             const opacity = getElementOpacity(inLayer)
             const zIndex = getElementZIndex(inLayer)
-            const common = { fill: DISPLAY_COLORS.fill, stroke: DISPLAY_COLORS.stroke, strokeWidth: DISPLAY_COLORS.defaultStrokeWidth, opacity, zIndex }
             if (n.type === 'manifest') {
                       const w = n.width ?? 60
                       const h = n.height ?? 60
@@ -2084,7 +2095,6 @@ export default function CanvasTool(): JSX.Element {
                             width={w}
                             height={h}
                             rx={4}
-                            {...common}
                             fill={DISPLAY_COLORS.fill}
                             stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
                             strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth}
@@ -2233,6 +2243,24 @@ export default function CanvasTool(): JSX.Element {
           />
         )}
       </div>
+
+      {/* Error message notification - positioned at bottom to avoid layout shift */}
+      {errorMessage && (
+        <div className="fixed bottom-0 left-0 right-0 bg-red-50 border-t-2 border-red-400 px-4 py-3 text-sm text-red-800 shadow-md" style={{ zIndex: 50 }}>
+          <div className="flex items-start gap-2">
+            <span className="text-red-600 font-bold text-lg">⚠</span>
+            <div className="flex-1">
+              <strong>Invalid path:</strong> {errorMessage}
+            </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-red-600 hover:text-red-900 font-bold text-lg ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </div>
   )
