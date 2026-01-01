@@ -100,7 +100,7 @@ export default function CanvasTool(): JSX.Element {
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
 
-  // Get all unique level of measurement values from nodes
+  // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
     const levels = new Set<string>()
     nodes.forEach((n) => {
@@ -109,6 +109,16 @@ export default function CanvasTool(): JSX.Element {
       }
     })
     return Array.from(levels).sort()
+  }
+
+  // Get effective level of measurement for a node (specified or defaulted to single level)
+  const getEffectiveLevelOfMeasurement = (node: Node): { level: string | undefined; isDefault: boolean } => {
+    // If explicitly set, use that
+    if (node.levelOfMeasurement) return { level: node.levelOfMeasurement, isDefault: false }
+    // If there's only one level in the graph, use it as default
+    const levels = getLevelOfMeasurementOptions()
+    if (levels.length === 1) return { level: levels[0], isDefault: true }
+    return { level: undefined, isDefault: false }
   }
 
   // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
@@ -162,8 +172,9 @@ export default function CanvasTool(): JSX.Element {
     if (activeLayer === 'all') return true
     if (activeLayer === 'sem') return node.type !== 'dataset'
     if (activeLayer === 'data') return node.type === 'dataset' || node.type === 'manifest'
-    // Level of measurement layer: show nodes with that specific level
-    if (node.levelOfMeasurement === activeLayer) return true
+    // Level of measurement layer: show nodes with that specific level (using effective level)
+    const effective = getEffectiveLevelOfMeasurement(node)
+    if (effective.level === activeLayer) return true
     return false
   }
 
@@ -179,8 +190,10 @@ export default function CanvasTool(): JSX.Element {
       // Data layer: show paths from datasets to manifest variables
       return isDatasetPath(path, nodes) && toNode?.type === 'manifest'
     }
-    // Level of measurement layer: show paths between nodes with that level
-    if (fromNode?.levelOfMeasurement === activeLayer && toNode?.levelOfMeasurement === activeLayer) return true
+    // Level of measurement layer: show paths between nodes with that level (using effective levels)
+    const fromEffective = fromNode ? getEffectiveLevelOfMeasurement(fromNode) : { level: undefined, isDefault: false }
+    const toEffective = toNode ? getEffectiveLevelOfMeasurement(toNode) : { level: undefined, isDefault: false }
+    if (fromEffective.level === activeLayer && toEffective.level === activeLayer) return true
     return false
   }
 
