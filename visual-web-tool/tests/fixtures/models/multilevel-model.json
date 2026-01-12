@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Multilevel SEM Model",
+    "description": "Within-level and between-level variables with cross-level interactions",
+    "approach": "multilevel structural equation modeling"
+  },
+  "models": {
+    "multilevel_model": {
+      "label": "Two-Level Multilevel SEM",
+      "meta": {
+        "description": "Students (level-1) nested within schools (level-2)"
+      },
+      "nodes": [
+        {
+          "label": "X_within",
+          "type": "variable",
+          "levelOfMeasurement": "within",
+          "tags": ["level1"],
+          "visual": { "x": 0, "y": 50 }
+        },
+        {
+          "label": "Y_within",
+          "type": "variable",
+          "levelOfMeasurement": "within",
+          "tags": ["level1"],
+          "visual": { "x": 150, "y": 50 }
+        },
+        {
+          "label": "X_between",
+          "type": "variable",
+          "levelOfMeasurement": "between",
+          "tags": ["level2"],
+          "visual": { "x": 0, "y": 200 }
+        },
+        {
+          "label": "Y_between",
+          "type": "variable",
+          "levelOfMeasurement": "between",
+          "tags": ["level2"],
+          "visual": { "x": 150, "y": 200 }
+        }
+      ],
+      "paths": [
+        {
+          "label": "γ₁₁",
+          "fromLabel": "X_within",
+          "toLabel": "Y_within",
+          "numberOfArrows": 1,
+          "value": 0.5,
+          "free": "free",
+          "parameterType": "regression",
+          "tags": ["within-level"]
+        },
+        {
+          "label": "γ₂₁",
+          "fromLabel": "X_between",
+          "toLabel": "Y_between",
+          "numberOfArrows": 1,
+          "value": 0.5,
+          "free": "free",
+          "parameterType": "regression",
+          "tags": ["between-level"]
+        },
+        {
+          "fromLabel": "X_within",
+          "toLabel": "X_within",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "tags": ["within-level"],
+          "visual": { "loopSide": "left" }
+        },
+        {
+          "fromLabel": "Y_within",
+          "toLabel": "Y_within",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "tags": ["within-level"],
+          "visual": { "loopSide": "top" }
+        },
+        {
+          "fromLabel": "X_between",
+          "toLabel": "X_between",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "tags": ["between-level"],
+          "visual": { "loopSide": "left" }
+        },
+        {
+          "fromLabel": "Y_between",
+          "toLabel": "Y_between",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "tags": ["between-level"],
+          "visual": { "loopSide": "top" }
+        }
+      ],
+      "optimization": {
+        "parameterTypes": {
+          "regression": {
+            "prior": null,
+            "bounds": [null, null],
+            "start": "auto"
+          },
+          "variance": {
+            "prior": { "distribution": "exponential", "rate": 1 },
+            "bounds": [0.001, null],
+            "start": "auto"
+          }
+        }
+      }
+    }
+  }
+}

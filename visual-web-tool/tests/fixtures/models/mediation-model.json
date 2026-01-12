@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Mediation Analysis Model",
+    "description": "Indirect effect of X on Y through M (a-b path)",
+    "approach": "mediation analysis"
+  },
+  "models": {
+    "mediation_model": {
+      "label": "Simple Mediation",
+      "meta": {
+        "description": "X→M→Y with optional direct effect"
+      },
+      "nodes": [
+        {
+          "label": "X",
+          "type": "variable",
+          "visual": { "x": 0, "y": 100 }
+        },
+        {
+          "label": "M",
+          "type": "variable",
+          "visual": { "x": 150, "y": 100 }
+        },
+        {
+          "label": "Y",
+          "type": "variable",
+          "visual": { "x": 300, "y": 100 }
+        }
+      ],
+      "paths": [
+        {
+          "label": "a",
+          "fromLabel": "X",
+          "toLabel": "M",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "regression"
+        },
+        {
+          "label": "b",
+          "fromLabel": "M",
+          "toLabel": "Y",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "regression"
+        },
+        {
+          "label": "c'",
+          "fromLabel": "X",
+          "toLabel": "Y",
+          "numberOfArrows": 1,
+          "value": 0.0,
+          "free": "free",
+          "parameterType": "regression"
+        },
+        {
+          "fromLabel": "X",
+          "toLabel": "X",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "fixed",
+          "parameterType": "variance",
+          "visual": { "loopSide": "top" }
+        },
+        {
+          "fromLabel": "M",
+          "toLabel": "M",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "visual": { "loopSide": "top" }
+        },
+        {
+          "fromLabel": "Y",
+          "toLabel": "Y",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "visual": { "loopSide": "top" }
+        }
+      ],
+      "optimization": {
+        "parameterTypes": {
+          "regression": {
+            "prior": null,
+            "bounds": [null, null],
+            "start": "auto"
+          },
+          "variance": {
+            "prior": { "distribution": "exponential", "rate": 1 },
+            "bounds": [0.001, null],
+            "start": "auto"
+          }
+        }
+      }
+    }
+  }
+}

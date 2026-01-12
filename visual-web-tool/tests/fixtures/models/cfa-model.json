@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Confirmatory Factor Analysis Model",
+    "description": "Single latent factor with three manifest indicators",
+    "approach": "confirmatory factor analysis"
+  },
+  "models": {
+    "cfa_model": {
+      "label": "Simple CFA",
+      "meta": {
+        "description": "One factor with three indicators and error terms"
+      },
+      "nodes": [
+        {
+          "label": "F",
+          "type": "variable",
+          "tags": ["latent", "factor"],
+          "visual": { "x": 150, "y": 50 }
+        },
+        {
+          "label": "X1",
+          "type": "variable",
+          "levelOfMeasurement": "observed",
+          "tags": ["manifest"],
+          "visual": { "x": 0, "y": 200, "width": 60, "height": 60 }
+        },
+        {
+          "label": "X2",
+          "type": "variable",
+          "levelOfMeasurement": "observed",
+          "tags": ["manifest"],
+          "visual": { "x": 150, "y": 200, "width": 60, "height": 60 }
+        },
+        {
+          "label": "X3",
+          "type": "variable",
+          "levelOfMeasurement": "observed",
+          "tags": ["manifest"],
+          "visual": { "x": 300, "y": 200, "width": 60, "height": 60 }
+        },
+        {
+          "label": "ε₁",
+          "type": "variable",
+          "tags": ["residual"],
+          "visual": { "x": 0, "y": 320 }
+        },
+        {
+          "label": "ε₂",
+          "type": "variable",
+          "tags": ["residual"],
+          "visual": { "x": 150, "y": 320 }
+        },
+        {
+          "label": "ε₃",
+          "type": "variable",
+          "tags": ["residual"],
+          "visual": { "x": 300, "y": 320 }
+        }
+      ],
+      "paths": [
+        {
+          "label": "λ₁",
+          "fromLabel": "F",
+          "toLabel": "X1",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "fixed",
+          "parameterType": "loading"
+        },
+        {
+          "label": "λ₂",
+          "fromLabel": "F",
+          "toLabel": "X2",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "loading"
+        },
+        {
+          "label": "λ₃",
+          "fromLabel": "F",
+          "toLabel": "X3",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "loading"
+        },
+        {
+          "label": "δ₁",
+          "fromLabel": "ε₁",
+          "toLabel": "X1",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "fixed",
+          "parameterType": "errorVariance"
+        },
+        {
+          "label": "δ₂",
+          "fromLabel": "ε₂",
+          "toLabel": "X2",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "fixed",
+          "parameterType": "errorVariance"
+        },
+        {
+          "label": "δ₃",
+          "fromLabel": "ε₃",
+          "toLabel": "X3",
+          "numberOfArrows": 1,
+          "value": 1.0,
+          "free": "fixed",
+          "parameterType": "errorVariance"
+        },
+        {
+          "label": "θ₁",
+          "fromLabel": "ε₁",
+          "toLabel": "ε₁",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "errorVariance",
+          "visual": { "loopSide": "left" }
+        },
+        {
+          "label": "θ₂",
+          "fromLabel": "ε₂",
+          "toLabel": "ε₂",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "errorVariance",
+          "visual": { "loopSide": "top" }
+        },
+        {
+          "label": "θ₃",
+          "fromLabel": "ε₃",
+          "toLabel": "ε₃",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "errorVariance",
+          "visual": { "loopSide": "right" }
+        },
+        {
+          "label": "Φ",
+          "fromLabel": "F",
+          "toLabel": "F",
+          "numberOfArrows": 2,
+          "value": 1.0,
+          "free": "free",
+          "parameterType": "variance",
+          "visual": { "loopSide": "top" }
+        }
+      ],
+      "optimization": {
+        "parameterTypes": {
+          "loading": {
+            "prior": { "distribution": "normal", "mean": 0, "sd": 2 },
+            "bounds": [null, null],
+            "start": "auto"
+          },
+          "errorVariance": {
+            "prior": { "distribution": "exponential", "rate": 1 },
+            "bounds": [0.001, null],
+            "start": "auto"
+          },
+          "variance": {
+            "prior": { "distribution": "exponential", "rate": 1 },
+            "bounds": [0.001, null],
+            "start": "auto"
+          }
+        }
+      }
+    }
+  }
+}
