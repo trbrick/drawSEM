@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Importer: convert persisted graph JSON (schema format) into the CanvasTool runtime shape
+// Supports multi-model format: outputs array of {id, label, nodes, paths} objects
 // Usage: node scripts/import-graph.js [path/to/graph.json]
 const fs = require('fs')
 const path = require('path')
@@ -46,72 +47,88 @@ function slugifyLabel(label) {
   )
 }
 
-const usedIds = new Set()
-function uniqueId(base) {
-  let id = base
-  let i = 1
-  while (usedIds.has(id)) {
-    id = `${base}_${i++}`
+// Process each model in the models object
+const modelsDict = doc.models || {}
+const modelsOut = Object.entries(modelsDict).map(([modelId, model]) => {
+  const modelLabel = model.label || modelId
+  
+  const usedIds = new Set()
+  function uniqueId(base) {
+    let id = base
+    let i = 1
+    while (usedIds.has(id)) {
+      id = `${base}_${i++}`
+    }
+    usedIds.add(id)
+    return id
   }
-  usedIds.add(id)
-  return id
-}
 
-// Map labels -> generated ids
-const labelToId = {}
-const nodesOut = (doc.nodes || []).map((n) => {
-  const label = n.label || 'node'
-  let base = n.id || slugifyLabel(label)
-  base = base.replace(/^p_/, 'n_')
-  const id = uniqueId(base)
-  labelToId[label] = id
-  const visual = n.visual || {}
-  const out = {
-    id,
-    x: typeof visual.x === 'number' ? visual.x : 0,
-    y: typeof visual.y === 'number' ? visual.y : 0,
-    label,
-    type: n.type || 'manifest'
+  // Map labels -> generated ids (per model)
+  const labelToId = {}
+  const nodesOut = (model.nodes || []).map((n) => {
+    const label = n.label || 'node'
+    let base = n.id || slugifyLabel(label)
+    base = base.replace(/^p_/, 'n_')
+    const id = uniqueId(base)
+    labelToId[label] = id
+    const visual = n.visual || {}
+    const out = {
+      id,
+      x: typeof visual.x === 'number' ? visual.x : 0,
+      y: typeof visual.y === 'number' ? visual.y : 0,
+      label,
+      type: n.type || 'variable'
+    }
+    if (out.type === 'variable' && !n.tags?.includes('factor')) {
+      out.width = typeof visual.width === 'number' ? visual.width : 60
+      out.height = typeof visual.height === 'number' ? visual.height : 60
+    } else if (out.type === 'dataset') {
+      out.width = typeof visual.width === 'number' ? visual.width : 60
+      out.height = typeof visual.height === 'number' ? visual.height : 60
+    }
+    // Copy optional fields
+    if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
+    if (n.mappings) out.mappings = n.mappings
+    if (n.datasetFile) out.datasetFile = n.datasetFile
+    return out
+  })
+
+  // helper for paths
+  function mkPathId(base) {
+    return uniqueId(base.replace(/^p_/, 'p_'))
   }
-  if (out.type === 'manifest') {
-    out.width = typeof visual.width === 'number' ? visual.width : 60
-    out.height = typeof visual.height === 'number' ? visual.height : 60
-  }
-  return out
+
+  const pathsOut = (model.paths || []).map((p) => {
+    const fromLabel = p.fromLabel
+    const toLabel = p.toLabel
+    const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
+    const to = labelToId[toLabel] || slugifyLabel(toLabel)
+    // ensure any fallback ids are unique and recorded
+    if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
+    if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
+
+    const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
+    const twoSided = numberOfArrows >= 2
+    const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
+    const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
+    const id = mkPathId(idBase)
+    const out = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
+    if (side) out.side = side
+    out.label = p.label || id
+    // Add optimization metadata
+    if (p.parameterType) out.parameterType = p.parameterType
+    if (p.optimization) out.optimization = p.optimization
+    // preserve visual.midpointOffset onto out.visual if present (CanvasTool may choose to use it)
+    if (p.visual && p.visual.midpointOffset) {
+      out.visual = { midpointOffset: p.visual.midpointOffset }
+    }
+    return out
+  })
+
+  return { id: modelId, label: modelLabel, nodes: nodesOut, paths: pathsOut }
 })
 
-// helper for paths
-function mkPathId(base) {
-  return uniqueId(base.replace(/^p_/, 'p_'))
-}
-
-const pathsOut = (doc.paths || []).map((p) => {
-  const fromLabel = p.fromLabel
-  const toLabel = p.toLabel
-  const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
-  const to = labelToId[toLabel] || slugifyLabel(toLabel)
-  // ensure any fallback ids are unique and recorded
-  if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
-  if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
-
-  const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
-  const twoSided = numberOfArrows >= 2
-  const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
-  const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
-  const id = mkPathId(idBase)
-  const out = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
-  if (side) out.side = side
-  out.label = p.label || id
-  // preserve visual.midpointOffset onto out.visual if present (CanvasTool may choose to use it)
-  if (p.visual && p.visual.midpointOffset) {
-    out.visual = { midpointOffset: p.visual.midpointOffset }
-  }
-  return out
-})
-
-const result = { nodes: nodesOut, paths: pathsOut }
-
-// By default print JSON to stdout for consumption by other tools
+const result = { models: modelsOut }
 const outJson = JSON.stringify(result, null, 2)
 console.log(outJson)
 process.exit(0)

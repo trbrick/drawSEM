@@ -93,9 +93,62 @@ const DISPLAY_Z_INDEX = {
 type OffLayerVisibility = 'transparent' | 'invisible'
 
 export default function CanvasTool(): JSX.Element {
-  const [nodes, setNodes] = useState<Node[]>([])
-  const [paths, setPaths] = useState<Path[]>([])
-  const [parameterTypes, setParameterTypes] = useState<Record<string, any>>({})
+  // Multi-model state
+  const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
+  const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+  
+  // Convenience accessors for current model
+  const currentModel = models.find((m) => m.id === currentModelId)
+  const nodes = currentModel?.nodes || []
+  const paths = currentModel?.paths || []
+  const parameterTypes = currentModel?.parameterTypes || {}
+  
+  // Setters for current model (convenience wrappers)
+  const setNodes = (updater: React.SetStateAction<Node[]>) => {
+    setModels((ms) => {
+      const modelId = currentModelId
+      if (!modelId) return ms
+      return ms.map((m) =>
+        m.id === modelId
+          ? {
+              ...m,
+              nodes: typeof updater === 'function' ? updater(m.nodes) : updater,
+            }
+          : m
+      )
+    })
+  }
+
+  const setPaths = (updater: React.SetStateAction<Path[]>) => {
+    setModels((ms) => {
+      const modelId = currentModelId
+      if (!modelId) return ms
+      return ms.map((m) =>
+        m.id === modelId
+          ? {
+              ...m,
+              paths: typeof updater === 'function' ? updater(m.paths) : updater,
+            }
+          : m
+      )
+    })
+  }
+
+  const setParameterTypes = (updater: React.SetStateAction<Record<string, any>>) => {
+    setModels((ms) => {
+      const modelId = currentModelId
+      if (!modelId) return ms
+      return ms.map((m) =>
+        m.id === modelId
+          ? {
+              ...m,
+              parameterTypes: typeof updater === 'function' ? updater(m.parameterTypes) : updater,
+            }
+          : m
+      )
+    })
+  }
+
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -301,15 +354,13 @@ export default function CanvasTool(): JSX.Element {
           return
         }
 
-        if (mounted && g && Array.isArray((g as any).nodes) && Array.isArray((g as any).paths)) {
-          console.log('[JSON Import] Converting to runtime format. Nodes:', (g as any).nodes.length, 'Paths:', (g as any).paths.length)
-          const { nodes: nodesOut, paths: pathsOut } = convertDocToRuntime(g as any)
-          console.log('[JSON Import] Conversion complete. Runtime nodes:', nodesOut.length, 'Runtime paths:', pathsOut.length)
-          setNodes(nodesOut)
-          setPaths(pathsOut)
-          // Extract and set optimization parameterTypes if present
-          if ((g as any).optimization?.parameterTypes) {
-            setParameterTypes((g as any).optimization.parameterTypes)
+        if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
+          console.log('[JSON Import] Converting to runtime format. Models:', Object.keys((g as any).models).length)
+          const modelsOut = convertDocToRuntime(g as any)
+          console.log('[JSON Import] Conversion complete. Models:', modelsOut.length)
+          setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          if (modelsOut.length > 0) {
+            setCurrentModelId(modelsOut[0].id)
           }
         }
       } catch (e) {
@@ -639,15 +690,13 @@ export default function CanvasTool(): JSX.Element {
         return
       }
 
-      // convert validated document to runtime CanvasTool shape
-      const { nodes: nodesOut, paths: pathsOut } = convertDocToRuntime(doc)
-
+      // convert validated document to runtime CanvasTool shape (multi-model)
+      const modelsOut = convertDocToRuntime(doc)
+      
       // apply into runtime state
-      setNodes(nodesOut)
-      setPaths(pathsOut)
-      // Extract and set optimization parameterTypes if present
-      if ((doc as any).optimization?.parameterTypes) {
-        setParameterTypes((doc as any).optimization.parameterTypes)
+      setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+      if (modelsOut.length > 0) {
+        setCurrentModelId(modelsOut[0].id)
       }
       deselectAll()
       setPathSource(null)

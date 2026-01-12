@@ -2,8 +2,10 @@ import { convertToUnicode } from './converters'
 import { MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from './constants'
 import { Node, Path } from './helpers'
 
-// Convert a validated schema document to the CanvasTool runtime nodes/paths
-export function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } {
+/**
+ * Convert a single model object (from schema.models[n]) to runtime format
+ */
+export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[] } {
   const usedIds = new Set<string>()
   const labelToId: Record<string, string> = {}
 
@@ -29,7 +31,7 @@ export function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } 
     return id
   }
 
-  const nodesOut: Node[] = (doc.nodes || []).map((n: any) => {
+  const nodesOut: Node[] = (model.nodes || []).map((n: any) => {
     const label = n.label || 'node'
     // Apply Unicode converter when loading (convert LaTeX to Unicode display)
     const displayLabel = convertToUnicode(label)
@@ -43,9 +45,9 @@ export function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } 
       x: typeof visual.x === 'number' ? visual.x : 0,
       y: typeof visual.y === 'number' ? visual.y : 0,
       label: displayLabel,
-      type: n.type || 'manifest'
+      type: n.type || 'variable'
     }
-    if (out.type === 'manifest') {
+    if (out.type === 'variable' && !n.tags?.includes('factor')) {
       out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
       out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
     } else if (out.type === 'dataset') {
@@ -63,7 +65,7 @@ export function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } 
     return uniqueId(base.replace(/^p_/, 'p_'))
   }
 
-  const pathsOut: Path[] = (doc.paths || []).map((p: any) => {
+  const pathsOut: Path[] = (model.paths || []).map((p: any) => {
     const fromLabel = p.fromLabel
     const toLabel = p.toLabel
     const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
@@ -91,4 +93,18 @@ export function convertDocToRuntime(doc: any): { nodes: Node[]; paths: Path[] } 
   })
 
   return { nodes: nodesOut, paths: pathsOut }
+}
+
+/**
+ * Convert entire multi-model document to runtime format
+ * Returns array of models with id, label, nodes, and paths
+ * Models are provided as a named dictionary in the schema
+ */
+export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[] }> {
+  const modelDict = doc.models || {}
+  return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
+    const label = model.label || modelId
+    const { nodes, paths } = convertModelToRuntime(model)
+    return { id: modelId, label, nodes, paths }
+  })
 }

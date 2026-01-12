@@ -1,155 +1,167 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://example.com/schemas/OpenMx-visual-web-tool/graph.schema.json",
-  "title": "Visual Web Tool - Graph Schema",
-  "description": "Schema describing a graph of nodes and paths with optional basic visual layout hints.",
+  "title": "Visual Web Tool - Graph Schema (Multi-Model)",
+  "description": "Schema describing multiple graphs (models) of nodes and paths with optional basic visual layout hints and optimization parameters. Models are organized as a named dictionary indexed by model ID.",
   "type": "object",
-  "required": ["schemaVersion", "nodes", "paths"],
+  "required": ["schemaVersion", "models"],
   "properties": {
-    "schemaVersion": { "type": "integer", "minimum": 0 },
-    "meta": { "type": "object", "additionalProperties": true },
-    "optimization": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "meta": { "type": "object", "description": "Global metadata (project-wide)", "additionalProperties": true },
+    "models": {
       "type": "object",
-      "description": "Optional optimization configuration including parameter type definitions and defaults",
-      "properties": {
-        "parameterTypes": {
-          "type": "object",
-          "description": "Semantic categories for path parameters with default priors, bounds, and starting values",
-          "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "prior": {
-                "type": ["object", "null"],
-                "description": "Prior distribution specification (e.g., {\"distribution\": \"normal\", \"mean\": 0, \"sd\": 1})",
-                "additionalProperties": true
-              },
-              "bounds": {
-                "type": ["array", "null"],
-                "items": { "type": ["number", "null"] },
-                "minItems": 2,
-                "maxItems": 2,
-                "description": "Lower and upper bounds [min, max]; null means unbounded"
-              },
-              "start": {
-                "type": ["number", "string", "null"],
-                "description": "Starting value for optimization; 'auto' for automatic initialization"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-
-    "nodes": {
-      "type": "array",
-      "items": {
+      "minProperties": 1,
+      "description": "Dictionary of statistical models indexed by model ID; each model contains its own nodes, paths, and optimization configuration",
+      "additionalProperties": {
         "type": "object",
-        "required": ["label", "type"],
+        "required": ["nodes", "paths"],
         "properties": {
-          "id": { "type": "string" },
-          "label": { "type": "string", "minLength": 1 },
-          "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
-          "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
-          },
-          "visual": {
-            "type": "object",
-            "description": "Optional visual layout hints; coordinates are relative to model origin (user units).",
-            "properties": {
-              "x": { "type": "number" },
-              "y": { "type": "number" },
-              "width": { "type": "number", "exclusiveMinimum": 0 },
-              "height": { "type": "number", "exclusiveMinimum": 0 },
-              "angle": { "type": "number", "description": "rotation angle in degrees" }
-            },
-            "additionalProperties": false
-          },
-          "mappings": {
-            "type": "object",
-            "description": "For dataset nodes: mapping of CSV column names to target node IDs",
-            "additionalProperties": { "type": "string" }
-          },
-          "datasetFile": {
-            "type": "object",
-            "description": "For dataset nodes: metadata about the associated CSV file for verification and loading",
-            "properties": {
-              "fileName": { "type": "string", "description": "Name of the CSV file (relative to examples/ or data/ directory)" },
-              "md5": { "type": "string", "description": "MD5 hash of the file for integrity verification" },
-              "rowCount": { "type": "integer", "minimum": 0, "description": "Number of data rows (excluding header)" },
-              "columnCount": { "type": "integer", "minimum": 1, "description": "Number of columns" },
-              "columns": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "List of column names in the CSV file"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
-      }
-    },
-
-    "paths": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["fromLabel", "toLabel", "numberOfArrows"],
-        "properties": {
-          "id": { "type": "string" },
-          "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
-          "description": { "type": "string", "description": "Optional human-readable description of the path" },
-          "value": { "type": ["number", "null"], "default": 1.0, "description": "Numeric value for the path parameter; defaults to 1.0. For dataset-to-node paths, must be null." },
-          "free": { "type": "string", "enum": ["free", "fixed"], "default": "free", "description": "Whether the path parameter is free to vary or fixed to its value; defaults to 'free'. Note: Should not be specified for paths originating from dataset nodes." },
-          "parameterType": { "type": "string", "description": "Optional semantic category from optimization.parameterTypes; used to apply default priors, bounds, and starting values" },
+          "label": { "type": "string", "description": "Human-readable name for the model" },
+          "meta": { "type": "object", "description": "Model-specific metadata", "additionalProperties": true },
           "optimization": {
             "type": "object",
-            "description": "Optional path-specific optimization overrides; merged with defaults from parameterType",
+            "description": "Optional model-specific optimization configuration including parameter type definitions and defaults",
             "properties": {
-              "prior": {
-                "type": ["object", "null"],
-                "description": "Prior distribution specification (overrides parameterType default)",
-                "additionalProperties": true
-              },
-              "bounds": {
-                "type": ["array", "null"],
-                "items": { "type": ["number", "null"] },
-                "minItems": 2,
-                "maxItems": 2,
-                "description": "Lower and upper bounds [min, max]; null means unbounded (overrides parameterType default)"
-              },
-              "start": {
-                "type": ["number", "string", "null"],
-                "description": "Starting value for optimization; 'auto' for automatic initialization (overrides parameterType default)"
-              }
-            },
-            "additionalProperties": false
-          },
-          "fromLabel": { "type": "string" },
-          "toLabel": { "type": "string" },
-          "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
-          },
-          "visual": {
-            "type": "object",
-            "properties": {
-              "loopSide": { "type": "string", "enum": ["top","right","bottom","left"] },
-              "midpointOffset": {
+              "parameterTypes": {
                 "type": "object",
-                "description": "Optional offset for two-headed covariance arrows; vector (x,y) in user units applied to the straight-line midpoint",
-                "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
-                "additionalProperties": false
+                "description": "Semantic categories for path parameters with default priors, bounds, and starting values",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "prior": {
+                      "type": ["object", "null"],
+                      "description": "Prior distribution specification (e.g., {\"distribution\": \"normal\", \"mean\": 0, \"sd\": 1})",
+                      "additionalProperties": true
+                    },
+                    "bounds": {
+                      "type": ["array", "null"],
+                      "items": { "type": ["number", "null"] },
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "Lower and upper bounds [min, max]; null means unbounded"
+                    },
+                    "start": {
+                      "type": ["number", "string", "null"],
+                      "description": "Starting value for optimization; 'auto' for automatic initialization"
+                    }
+                  },
+                  "additionalProperties": false
+                }
               }
             },
             "additionalProperties": false
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "type"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string", "minLength": 1 },
+                "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
+                "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
+                "tags": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                },
+                "visual": {
+                  "type": "object",
+                  "description": "Optional visual layout hints; coordinates are relative to model origin (user units).",
+                  "properties": {
+                    "x": { "type": "number" },
+                    "y": { "type": "number" },
+                    "width": { "type": "number", "exclusiveMinimum": 0 },
+                    "height": { "type": "number", "exclusiveMinimum": 0 },
+                    "angle": { "type": "number", "description": "rotation angle in degrees" }
+                  },
+                  "additionalProperties": false
+                },
+                "mappings": {
+                  "type": "object",
+                  "description": "For dataset nodes: mapping of CSV column names to target node IDs",
+                  "additionalProperties": { "type": "string" }
+                },
+                "datasetFile": {
+                  "type": "object",
+                  "description": "For dataset nodes: metadata about the associated CSV file for verification and loading",
+                  "properties": {
+                    "fileName": { "type": "string", "description": "Name of the CSV file (relative to examples/ or data/ directory)" },
+                    "md5": { "type": "string", "description": "MD5 hash of the file for integrity verification" },
+                    "rowCount": { "type": "integer", "minimum": 0, "description": "Number of data rows (excluding header)" },
+                    "columnCount": { "type": "integer", "minimum": 1, "description": "Number of columns" },
+                    "columns": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "List of column names in the CSV file"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["fromLabel", "toLabel", "numberOfArrows"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
+                "description": { "type": "string", "description": "Optional human-readable description of the path" },
+                "value": { "type": ["number", "null"], "default": 1.0, "description": "Numeric value for the path parameter; defaults to 1.0. For dataset-to-node paths, must be null." },
+                "free": { "type": "string", "enum": ["free", "fixed"], "default": "free", "description": "Whether the path parameter is free to vary or fixed to its value; defaults to 'free'. Note: Should not be specified for paths originating from dataset nodes." },
+                "parameterType": { "type": "string", "description": "Optional semantic category from optimization.parameterTypes; used to apply default priors, bounds, and starting values" },
+                "optimization": {
+                  "type": "object",
+                  "description": "Optional path-specific optimization overrides; merged with defaults from parameterType",
+                  "properties": {
+                    "prior": {
+                      "type": ["object", "null"],
+                      "description": "Prior distribution specification (overrides parameterType default)",
+                      "additionalProperties": true
+                    },
+                    "bounds": {
+                      "type": ["array", "null"],
+                      "items": { "type": ["number", "null"] },
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "Lower and upper bounds [min, max]; null means unbounded (overrides parameterType default)"
+                    },
+                    "start": {
+                      "type": ["number", "string", "null"],
+                      "description": "Starting value for optimization; 'auto' for automatic initialization (overrides parameterType default)"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "fromLabel": { "type": "string" },
+                "toLabel": { "type": "string" },
+                "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },
+                "tags": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                },
+                "visual": {
+                  "type": "object",
+                  "properties": {
+                    "loopSide": { "type": "string", "enum": ["top","right","bottom","left"] },
+                    "midpointOffset": {
+                      "type": "object",
+                      "description": "Optional offset for two-headed covariance arrows; vector (x,y) in user units applied to the straight-line midpoint",
+                      "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
