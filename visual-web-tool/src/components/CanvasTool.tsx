@@ -2351,9 +2351,49 @@ export default function CanvasTool(): JSX.Element {
               // and the top of the bottom ellipse are not visible; rectangle corners are not rounded.
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+                  {/* Invisible shape for click/hover detection - covers entire cylinder */}
+                  <ellipse
+                    cx={0}
+                    cy={h / 2 + topEllipseRy}
+                    rx={w / 2}
+                    ry={topEllipseRy}
+                    fill="transparent"
+                    stroke="none"
+                    pointerEvents="auto"
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
+                    onMouseEnter={() => (hoverNodeRef.current = n.id)}
+                    onMouseLeave={() => (hoverNodeRef.current = null)}
+                    style={{ cursor: 'grab' }}
+                  />
+                  <rect
+                    x={-w / 2}
+                    y={-h / 2 + topEllipseRy / 2}
+                    width={w}
+                    height={h - topEllipseRy}
+                    fill="transparent"
+                    pointerEvents="auto"
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
+                    onMouseEnter={() => (hoverNodeRef.current = n.id)}
+                    onMouseLeave={() => (hoverNodeRef.current = null)}
+                    style={{ cursor: 'grab' }}
+                  />
+                  <ellipse
+                    cx={0}
+                    cy={-h / 2 + topEllipseRy / 2}
+                    rx={w / 2}
+                    ry={topEllipseRy}
+                    fill="transparent"
+                    stroke="none"
+                    pointerEvents="auto"
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
+                    onMouseEnter={() => (hoverNodeRef.current = n.id)}
+                    onMouseLeave={() => (hoverNodeRef.current = null)}
+                    style={{ cursor: 'grab' }}
+                  />
+
                   {/* bottom ellipse (draw first) */}
                   {/* bottom ellipse placed so its top meets the rectangle bottom */}
-                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} opacity={0.95} />
+                  <ellipse cx={0} cy={h / 2 + topEllipseRy} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} opacity={0.95} pointerEvents="none" />
 
                   {/* rectangle body (no corner rounding, drawn on top of bottom ellipse to hide its top) */}
                   <rect
@@ -2362,19 +2402,16 @@ export default function CanvasTool(): JSX.Element {
                     width={w}
                     height={h - topEllipseRy}
                     fill={DISPLAY_COLORS.fill}
-                    pointerEvents="auto"
-                    onMouseDown={(e) => onNodeMouseDown(e, n)}
-                    onMouseEnter={() => (hoverNodeRef.current = n.id)}
-                    onMouseLeave={() => (hoverNodeRef.current = null)}
-                    style={{ cursor: 'grab' }}
+                    stroke="none"
+                    pointerEvents="none"
                   />
 
                   {/* vertical side strokes (show left/right borders, no bottom border) */}
-                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
-                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
+                  <line x1={-w / 2} y1={-h / 2 + topEllipseRy / 2} x2={-w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="none" />
+                  <line x1={w / 2} y1={-h / 2 + topEllipseRy / 2} x2={w / 2} y2={h / 2+ topEllipseRy} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="none" />
 
                   {/* top ellipse (stroke only) */}
-                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} />
+                  <ellipse cx={0} cy={-h / 2 + topEllipseRy / 2} rx={w / 2} ry={topEllipseRy} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="none" />
 
                   <text
                     x={0}
@@ -2410,7 +2447,7 @@ export default function CanvasTool(): JSX.Element {
                   y={6}
                   textAnchor="middle"
                   style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
-                  onMouseDown={(e) => {
+                  onDoubleClick={(e) => {
                     e.stopPropagation()
                     startEditing('node', n.id, n.label, centerOf(n))
                   }}
