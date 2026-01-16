@@ -26,7 +26,6 @@ The schema now supports **multiple models within a single project**, organized a
 - Users can work with related models in one file
 - Each model has its own nodes, paths, and parameter type definitions
 - Model IDs are used as keys, enabling natural organization
-- Schema version remains at 1 (currently unreleased)
 
 ### Core Data Model
 
@@ -153,7 +152,8 @@ Nodes support `levelOfMeasurement` field (e.g., `'within'`, `'between'`, `'betwe
 - **Label-to-ID mismatch:** IDs auto-derive from labels per-model; ensure slugification logic matches between `runtimeConverter.ts` and `import-graph.js`
 - **Unicode conversion timing:** Applied on load (`convertDocToRuntime()`), not on save; labels are stored in original form in schema
 - **Dataset paths:** Always originate from dataset nodes; checked via `isDatasetPath()` helper
-- **Self-loops:** Use `side` property ('top'|'right'|'bottom'|'left') to avoid overlapping with node
+- **Manifest vs. latent nodes:** Model spec considers all to be 'variable' type; visual distinction handled dynamically in CanvasTool. Nodes are manifest if a dataset path points to them.
+- **Self-loops:** Use `side` property ('top'|'right'|'bottom'|'left') to avoid overlapping with surrounding nodes
 - **Schema drift:** Changes to node/path structure require schema update + CanvasTool adjustments + test examples
 - **Model switching:** When loading a file, the first model (by object key order) is selected automatically via `setCurrentModelId(modelsOut[0].id)`
 

@@ -522,6 +522,7 @@ export default function CanvasTool(): JSX.Element {
   const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
+  const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -1133,6 +1134,110 @@ export default function CanvasTool(): JSX.Element {
     }
   }
 
+  // Helper: Determine popup position to avoid covering selected node/path
+  // Returns position classes like "top-4 right-4" or "top-4 left-4" etc.
+  function getPopupPositionClasses(): string {
+    const POPUP_WIDTH = 420
+    const POPUP_HEIGHT = 300 // approximate
+    const MARGIN = 16
+    const PADDING = 16
+
+    // If nothing selected, default to top-right
+    if (!selectedId || !selectedType || !svgRef.current) {
+      return 'top-4 right-4'
+    }
+
+    try {
+      // Get SVG bounds in viewport
+      const svg = svgRef.current
+      const svgRect = svg.getBoundingClientRect()
+      const containerRect = svg.parentElement?.getBoundingClientRect()
+      if (!containerRect) return 'top-4 right-4'
+
+      // Get selected object position in SVG coords
+      let objX = 0
+      let objY = 0
+      let objWidth = 0
+      let objHeight = 0
+
+      if (selectedType === 'node') {
+        const node = selectedNode
+        if (!node) return 'top-4 right-4'
+
+        objX = node.x
+        objY = node.y
+
+        if (node.type === 'variable') {
+          const renderType = getVariableRenderType(node.id)
+          if (renderType === 'manifest') {
+            objWidth = node.width ?? MANIFEST_DEFAULT_W
+            objHeight = node.height ?? MANIFEST_DEFAULT_H
+          } else {
+            objWidth = LATENT_RADIUS * 2
+            objHeight = LATENT_RADIUS * 2
+          }
+        } else if (node.type === 'dataset') {
+          objWidth = node.width ?? DATASET_DEFAULT_W
+          objHeight = node.height ?? DATASET_DEFAULT_H
+        } else if (node.type === 'constant') {
+          objWidth = 38
+          objHeight = 33
+        }
+      } else if (selectedType === 'path') {
+        const path = selectedPath
+        if (!path) return 'top-4 right-4'
+        const pos = pathLabelPos(path)
+        if (!pos) return 'top-4 right-4'
+        objX = pos.x
+        objY = pos.y
+        objWidth = 60
+        objHeight = 40
+      }
+
+      // Convert SVG coords to screen/viewport coords
+      const pt = svg.createSVGPoint()
+      pt.x = objX
+      pt.y = objY
+      const screenPoint = pt.matrixTransform(svg.getScreenCTM()!)
+
+      // Position relative to container
+      const relX = screenPoint.x - containerRect.left
+      const relY = screenPoint.y - containerRect.top
+
+      // Determine which corner to use
+      // Top-left has better default visibility, so prefer it if object is on the right half
+      // Bottom-left if object is in top-left quadrant
+      // Bottom-right if object is in top-right quadrant (the most common case)
+      // Top-right if object is in bottom area
+
+      const containerWidth = containerRect.width
+      const containerHeight = containerRect.height
+      const isLeft = relX < containerWidth / 2
+      const isTop = relY < containerHeight / 2
+
+      let posClass = 'top-4 right-4' // default
+
+      if (isTop && isLeft) {
+        // Object in top-left: put popup in bottom-right
+        posClass = 'bottom-4 right-4'
+      } else if (isTop && !isLeft) {
+        // Object in top-right: put popup in bottom-left
+        posClass = 'bottom-4 left-4'
+      } else if (!isTop && isLeft) {
+        // Object in bottom-left: put popup in top-right
+        posClass = 'top-4 right-4'
+      } else {
+        // Object in bottom-right: put popup in top-left
+        posClass = 'top-4 left-4'
+      }
+
+      return posClass
+    } catch (e) {
+      // On any error, default to top-right
+      return 'top-4 right-4'
+    }
+  }
+
   // geometry helpers
   function centerOf(n: Node) {
     return { x: n.x, y: n.y }
@@ -1650,149 +1755,9 @@ export default function CanvasTool(): JSX.Element {
           style={{ display: 'none' }}
           onChange={onCsvSelected}
         />
-        {/* Floating popup (top-right of model view) - shows selected item details */}
+        {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
         {(selectedNode || selectedPath) && (
-          <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
-            {/* Header section */}
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                {selectedNode && selectedNode.type === 'dataset' && (
-                  <>
-                    <div className="text-sm font-semibold">Dataset: {selectedNode.label}</div>
-                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">dataset</span></div>
-                  </>
-                )}
-                {selectedNode && selectedNode.type !== 'dataset' && (
-                  <>
-                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
-                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedNode.type}</span></div>
-                  </>
-                )}
-                {selectedPath && (
-                  <>
-                    <div className="text-sm font-semibold">Path: {selectedPath.label || selectedPath.id}</div>
-                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</span></div>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  title="Delete (Del key)"
-                  className="p-1 rounded hover:bg-red-50"
-                  onClick={() => deleteSelected()}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 6h18" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M10 11v6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M14 11v6" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Dataset file metadata */}
-            {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
-              <div className="text-xs space-y-2 mb-3 pb-3 border-b">
-                <div><span className="font-medium">Filename:</span> {selectedNode.dataset.fileName || '--'}</div>
-                {selectedNode.datasetFile && (
-                  <>
-                    <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetFile.md5}</span></div>
-                    <div><span className="font-medium">Row Count:</span> {selectedNode.datasetFile.rowCount}</div>
-                    <div><span className="font-medium">Column Count:</span> {selectedNode.datasetFile.columnCount}</div>
-                  </>
-                )}
-                {selectedNode.levelOfMeasurement && (
-                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
-                )}
-              </div>
-            )}
-
-            {/* Dataset CSV Data - shown when dataset node is selected */}
-            {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
-              <div>
-                {!csvCollapsed ? (
-                  <div className="overflow-y-auto max-h-[70vh]">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-[11px] text-slate-600">
-                          <th className="pb-1">Name</th>
-                          <th className="pb-1">Count</th>
-                          <th className="pb-1">Missing</th>
-                          <th className="pb-1">Numeric</th>
-                          <th className="pb-1">Mean</th>
-                          <th className="pb-1">Std</th>
-                          <th className="pb-1">Min</th>
-                          <th className="pb-1">Max</th>
-                          <th className="pb-1">Distinct</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => {
-                          const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
-                          const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
-                          const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
-                          const min = c.min != null ? String(c.min) : '--'
-                          const max = c.max != null ? String(c.max) : '--'
-                          return (
-                            <tr key={i} className="odd:bg-white even:bg-slate-50">
-                              <td className="py-1">{c.name}</td>
-                              <td className="py-1">{c.count}</td>
-                              <td className="py-1">{c.missing}</td>
-                              <td className="py-1">{c.numericCount ?? 0}</td>
-                              <td className="py-1">{mean}</td>
-                              <td className="py-1">{std}</td>
-                              <td className="py-1">{min}</td>
-                              <td className="py-1">{max}</td>
-                              <td className="py-1">{distinct}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="mt-2">
-                    <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
-                    <div className="text-xs text-slate-700 max-h-40 overflow-auto">
-                      <ul className="list-disc pl-5 space-y-1">
-                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => (
-                          <li key={i}>{c.name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Selected Non-Dataset Node details */}
-            {selectedNode && selectedNode.type !== 'dataset' && (
-              <div className="text-xs space-y-2">
-                <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
-                <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
-                {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
-                  <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
-                )}
-                {selectedNode.levelOfMeasurement && (
-                  <div><span className="font-medium">Level of Measurement:</span> {selectedNode.levelOfMeasurement}</div>
-                )}
-              </div>
-            )}
-
-            {/* Selected Path details */}
-            {selectedPath && (
-              <div className="text-xs space-y-2">
-                <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
-                <div><span className="font-medium">From:</span> {selectedPath.from}</div>
-                <div><span className="font-medium">To:</span> {selectedPath.to}</div>
-              </div>
-            )}
-          </div>
-        )}
-        {/* Floating popup (top-right of model view) - shows selected item details */}
-        {(selectedNode || selectedPath) && (
-          <div className="absolute top-4 right-4 z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3">
+          <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
             {/* Header section */}
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -1939,7 +1904,6 @@ export default function CanvasTool(): JSX.Element {
             {/* Selected Non-Dataset Node details */}
             {selectedNode && selectedNode.type !== 'dataset' && (
               <div className="text-xs space-y-2 border-t pt-3">
-                <div><span className="font-medium">ID:</span> {selectedNode.id}</div>
                 <div>
                   <span className="font-medium">Label:</span>
                   <input
@@ -1985,7 +1949,6 @@ export default function CanvasTool(): JSX.Element {
               <div className="text-xs space-y-3 border-t pt-3">
                 {/* Basic info */}
                 <div className="space-y-2">
-                  <div><span className="font-medium">ID:</span> {selectedPath.id}</div>
                   <div><span className="font-medium">From:</span> {selectedPath.from}</div>
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
                   <div>
@@ -2064,9 +2027,19 @@ export default function CanvasTool(): JSX.Element {
                 {/* Optimization info - hidden for dataset paths */}
                 {!isDatasetPath(selectedPath, nodes) && (
                   <div className="space-y-2 border-t pt-2">
-                    <div className="font-medium text-slate-700">Optimization</div>
+                    {/* Optimization header with toggle */}
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium text-slate-700">Optimization</div>
+                      <button
+                        onClick={() => setOptimizationExpanded(!optimizationExpanded)}
+                        className="text-slate-600 hover:text-slate-900 text-sm cursor-pointer"
+                        title={optimizationExpanded ? 'Collapse details' : 'Expand details'}
+                      >
+                        {optimizationExpanded ? '▼' : '▶'}
+                      </button>
+                    </div>
                     
-                    {/* Parameter Type selector */}
+                    {/* Parameter Type selector - always visible */}
                     <div>
                       <span className="font-medium">Parameter Type:</span>
                       <select
@@ -2081,84 +2054,89 @@ export default function CanvasTool(): JSX.Element {
                       </select>
                     </div>
 
-                    {/* Show effective config */}
-                    {(() => {
-                      const config = getPathOptimizationConfig(selectedPath)
-                      return (
-                        <>
-                          <div className="text-slate-600 italic text-[10px]">Effective config (from type or override):</div>
-                          <div className="pl-2 space-y-1">
-                            <div>
-                              <span className="font-medium">Prior:</span>
-                              <div className="text-[10px] text-slate-600">
-                                {config.prior ? JSON.stringify(config.prior) : '(none)'}
+                    {/* Detailed optimization controls - collapsible */}
+                    {optimizationExpanded && (
+                      <div className="space-y-2">
+                        {/* Show effective config */}
+                        {(() => {
+                          const config = getPathOptimizationConfig(selectedPath)
+                          return (
+                            <>
+                              <div className="text-slate-600 italic text-[10px]">Effective config (from type or override):</div>
+                              <div className="pl-2 space-y-1">
+                                <div>
+                                  <span className="font-medium">Prior:</span>
+                                  <div className="text-[10px] text-slate-600">
+                                    {config.prior ? JSON.stringify(config.prior) : '(none)'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="font-medium">Bounds:</span>
+                                  <div className="text-[10px] text-slate-600">
+                                    {config.bounds ? `[${config.bounds[0] ?? '∞'}, ${config.bounds[1] ?? '∞'}]` : '(none)'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="font-medium">Start:</span>
+                                  <div className="text-[10px] text-slate-600">
+                                    {config.start ? String(config.start) : '(auto)'}
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                            <div>
-                              <span className="font-medium">Bounds:</span>
-                              <div className="text-[10px] text-slate-600">
-                                {config.bounds ? `[${config.bounds[0] ?? '∞'}, ${config.bounds[1] ?? '∞'}]` : '(none)'}
-                              </div>
-                            </div>
-                            <div>
-                              <span className="font-medium">Start:</span>
-                              <div className="text-[10px] text-slate-600">
-                                {config.start ? String(config.start) : '(auto)'}
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      )
-                    })()}
+                            </>
+                          )
+                        })()}
 
-                    {/* Overrides section */}
-                    <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
-                    <div className="pl-2 space-y-2">
-                      <div>
-                        <label className="font-medium block">Override Bounds (JSON):</label>
-                        <input
-                          type="text"
-                          value={selectedPath.optimization?.bounds ? JSON.stringify(selectedPath.optimization.bounds) : ''}
-                          onChange={(e) => {
-                            try {
-                              const val = e.target.value.trim()
-                              if (!val) {
-                                updatePathOptimization(selectedPath.id, { bounds: undefined })
-                              } else {
-                                const parsed = JSON.parse(val)
-                                updatePathOptimization(selectedPath.id, { bounds: parsed })
-                              }
-                            } catch {
-                              // Silently ignore parse errors during typing
-                            }
-                          }}
-                          placeholder="[null, null] or [min, max]"
-                          className="w-full px-2 py-1 border rounded text-[11px] bg-white"
-                        />
+                        {/* Overrides section */}
+                        <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
+                        <div className="pl-2 space-y-2">
+                          <div>
+                            <label className="font-medium block">Override Bounds (JSON):</label>
+                            <input
+                              type="text"
+                              value={selectedPath.optimization?.bounds ? JSON.stringify(selectedPath.optimization.bounds) : ''}
+                              onChange={(e) => {
+                                try {
+                                  const val = e.target.value.trim()
+                                  if (!val) {
+                                    updatePathOptimization(selectedPath.id, { bounds: undefined })
+                                  } else {
+                                    const parsed = JSON.parse(val)
+                                    updatePathOptimization(selectedPath.id, { bounds: parsed })
+                                  }
+                                } catch {
+                                  // Silently ignore parse errors during typing
+                                }
+                              }}
+                              placeholder="[null, null] or [min, max]"
+                              className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-medium block">Override Start (number or 'auto'):</label>
+                            <input
+                              type="text"
+                              value={selectedPath.optimization?.start !== undefined ? String(selectedPath.optimization.start) : ''}
+                              onChange={(e) => {
+                                const val = e.target.value.trim()
+                                if (!val) {
+                                  updatePathOptimization(selectedPath.id, { start: undefined })
+                                } else if (val === 'auto') {
+                                  updatePathOptimization(selectedPath.id, { start: 'auto' })
+                                } else {
+                                  const num = parseFloat(val)
+                                  if (!isNaN(num)) {
+                                    updatePathOptimization(selectedPath.id, { start: num })
+                                  }
+                                }
+                              }}
+                              placeholder="auto"
+                              className="w-full px-2 py-1 border rounded text-[11px] bg-white"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="font-medium block">Override Start (number or 'auto'):</label>
-                        <input
-                          type="text"
-                          value={selectedPath.optimization?.start !== undefined ? String(selectedPath.optimization.start) : ''}
-                          onChange={(e) => {
-                            const val = e.target.value.trim()
-                            if (!val) {
-                              updatePathOptimization(selectedPath.id, { start: undefined })
-                            } else if (val === 'auto') {
-                              updatePathOptimization(selectedPath.id, { start: 'auto' })
-                            } else {
-                              const num = parseFloat(val)
-                              if (!isNaN(num)) {
-                                updatePathOptimization(selectedPath.id, { start: num })
-                              }
-                            }
-                          }}
-                          placeholder="auto"
-                          className="w-full px-2 py-1 border rounded text-[11px] bg-white"
-                        />
-                      </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>

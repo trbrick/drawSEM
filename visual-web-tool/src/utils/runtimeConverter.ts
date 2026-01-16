@@ -97,14 +97,16 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
 
 /**
  * Convert entire multi-model document to runtime format
- * Returns array of models with id, label, nodes, and paths
+ * Returns array of models with id, label, nodes, paths, and parameterTypes
  * Models are provided as a named dictionary in the schema
  */
-export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[] }> {
+export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }> {
   const modelDict = doc.models || {}
   return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
     const label = model.label || modelId
     const { nodes, paths } = convertModelToRuntime(model)
-    return { id: modelId, label, nodes, paths }
+    // Extract parameterTypes from optimization section
+    const parameterTypes = model.optimization?.parameterTypes || {}
+    return { id: modelId, label, nodes, paths, parameterTypes }
   })
 }
