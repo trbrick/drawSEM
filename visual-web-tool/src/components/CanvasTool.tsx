@@ -23,6 +23,8 @@ type Node = {
   y: number
   label: string
   type: NodeType
+  // optional display name (for UI only) - separate from label used for matching/export
+  displayName?: string
   // optional level of measurement (for multilevel models)
   levelOfMeasurement?: string // e.g., 'within', 'between', 'between-person', etc.
   // optional size for manifest nodes
@@ -49,6 +51,8 @@ type Path = {
   side?: 'top' | 'right' | 'bottom' | 'left'
   // optional human-facing label (editable). If null or absent, UI will not display a label.
   label?: string | null
+  // optional display name (for UI only) - separate from label used for matching/export
+  displayName?: string | null
   // numeric value for the path; defaults to 1.0 (null for dataset paths)
   value?: number | null
   // whether the path parameter is free or fixed; defaults to 'free'
@@ -525,6 +529,7 @@ export default function CanvasTool(): JSX.Element {
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
+  const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -617,7 +622,7 @@ export default function CanvasTool(): JSX.Element {
   // Helper function to get path display text based on label mode
   function getPathDisplayText(path: Path): string | null {
     const value = path.value ?? 1.0
-    const label = path.label
+    const label = path.displayName || path.label
     const isFree = (path.free ?? 'free') === 'free'
 
     switch (pathLabelMode) {
@@ -1055,8 +1060,9 @@ export default function CanvasTool(): JSX.Element {
   function handleColumnDrop(columnName: string, dropX: number, dropY: number) {
     if (!selectedNode || selectedNode.type !== 'dataset') return
 
-    // Convert column name to unicode (same as regular node creation)
-    const convertedLabel = convertToUnicode(columnName)
+    // Keep columnName as the simple label for matching/export purposes
+    // Store the unicode-converted version as displayName for UI only
+    const displayName = convertToUnicode(columnName)
 
     // Check if we're dropping on an existing variable node
     const targetNode = nodes.find((n) => {
@@ -1077,17 +1083,20 @@ export default function CanvasTool(): JSX.Element {
         from: selectedNode.id,
         to: targetNode.id,
         twoSided: false,
-        label: convertedLabel,
+        label: columnName,
+        displayName: displayName,
       }
       setPaths((ps) => [...ps, newPath])
     } else {
-      // Create new variable at drop location with converted label
+      // Create new variable at drop location
+      // Keep label as simple columnName for matching, use displayName for UI
       // Match the dataset's levelOfMeasurement to make it render as manifest
       const newNode: Node = {
         id: uid('n_'),
         x: dropX,
         y: dropY,
-        label: convertedLabel,
+        label: columnName,
+        displayName: displayName,
         type: 'variable',
         width: MANIFEST_DEFAULT_W,
         height: MANIFEST_DEFAULT_H,
@@ -1101,7 +1110,8 @@ export default function CanvasTool(): JSX.Element {
         from: selectedNode.id,
         to: newNode.id,
         twoSided: false,
-        label: convertedLabel,
+        label: columnName,
+        displayName: displayName,
       }
       setPaths((ps) => [...ps, newPath])
 
@@ -1943,6 +1953,8 @@ export default function CanvasTool(): JSX.Element {
                               draggable
                               onDragStart={() => setDraggedColumnName(c.name)}
                               onDragEnd={() => setDraggedColumnName(null)}
+                              onMouseEnter={() => setHoveredColumnName(c.name)}
+                              onMouseLeave={() => setHoveredColumnName(null)}
                               className="odd:bg-white even:bg-slate-50 cursor-move hover:bg-blue-100"
                             >
                               <td className="py-1">{c.name}</td>
@@ -2266,6 +2278,7 @@ export default function CanvasTool(): JSX.Element {
           {/* draw paths with layer-based opacity */}
           {paths.map((p) => {
               const isSelected = selectedType === 'path' && selectedId === p.id
+              const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
               const inLayer = isPathInLayer(p)
               const opacity = getElementOpacity(inLayer)
               const zIndex = getElementZIndex(inLayer)
@@ -2274,8 +2287,8 @@ export default function CanvasTool(): JSX.Element {
                   key={p.id}
                   d={pathD(p)}
                   fill="none"
-                  stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
-                  strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : 1.6}
+                  stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
+                  strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
                   markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
                   markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
                   onClick={(e) => {
@@ -2395,6 +2408,8 @@ export default function CanvasTool(): JSX.Element {
           {/* draw nodes */}
           {nodes.map((n) => {
             const isSelected = selectedType === 'node' && n.id === selectedId
+            // Check if this node is connected to a hovered column (via a path from the selected dataset)
+            const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
             const inLayer = isNodeInLayer(n)
             const opacity = getElementOpacity(inLayer)
             const zIndex = getElementZIndex(inLayer)
@@ -2413,8 +2428,8 @@ export default function CanvasTool(): JSX.Element {
                             height={h}
                             rx={4}
                             fill={DISPLAY_COLORS.fill}
-                            stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke}
-                            strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth}
+                            stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
+                            strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)}
                             pointerEvents="auto"
                             onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onMouseEnter={() => (hoverNodeRef.current = n.id)}
@@ -2425,31 +2440,32 @@ export default function CanvasTool(): JSX.Element {
                             x={w / 2}
                             y={h / 2 + 6}
                             textAnchor="middle"
+                            fontWeight={isMatchingHoveredColumn ? 'bold' : 'normal'}
                             style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
                             onDoubleClick={(e) => {
                               e.stopPropagation()
                               startEditing('node', n.id, n.label, centerOf(n))
                             }}
                           >
-                            {n.label}
+                            {n.displayName || n.label}
                           </text>
                         </g>
                       )
               } else if ( renderType === 'latent' ) {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
-                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : DISPLAY_COLORS.stroke} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : DISPLAY_COLORS.defaultStrokeWidth} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
+                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
                     y={6}
                     textAnchor="middle"
-                    style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                    style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text', fontWeight: isMatchingHoveredColumn ? 'bold' : 'normal' }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       startEditing('node', n.id, n.label, centerOf(n))
                     }}
                   >
-                    {n.label}
+                    {n.displayName || n.label}
                   </text>
                 </g>
               )

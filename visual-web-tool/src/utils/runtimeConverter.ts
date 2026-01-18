@@ -33,8 +33,7 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
 
   const nodesOut: Node[] = (model.nodes || []).map((n: any) => {
     const label = n.label || 'node'
-    // Apply Unicode converter when loading (convert LaTeX to Unicode display)
-    const displayLabel = convertToUnicode(label)
+    // Keep label in canonical format; use displayName for UI rendering with unicode
     let base = n.id || slugifyLabel(label)
     base = base.replace(/^p_/, 'n_')
     const id = uniqueId(base)
@@ -44,7 +43,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
       id,
       x: typeof visual.x === 'number' ? visual.x : 0,
       y: typeof visual.y === 'number' ? visual.y : 0,
-      label: displayLabel,
+      label: label,
+      displayName: convertToUnicode(label),
       type: n.type || 'variable'
     }
     if (out.type === 'variable' && !n.tags?.includes('factor')) {
@@ -80,8 +80,9 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const id = mkPathId(idBase)
     const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
     if (side) out.side = side
-    // Apply Unicode converter to path labels when loading (convert LaTeX to Unicode display)
-    out.label = p.label ? convertToUnicode(p.label) : undefined
+    // Keep label in canonical format for matching; use displayName for UI rendering
+    out.label = p.label || undefined
+    if (p.label) out.displayName = convertToUnicode(p.label)
     // Add value (defaults to 1.0, but preserve null for dataset paths)
     out.value = p.value !== undefined ? p.value : 1.0
     out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
