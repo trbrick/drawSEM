@@ -523,6 +523,7 @@ export default function CanvasTool(): JSX.Element {
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
+  const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -1048,6 +1049,75 @@ export default function CanvasTool(): JSX.Element {
     deselectAll()
     setPathSource(null)
     setMode('select')
+  }
+
+  function handleColumnDrop(columnName: string, dropX: number, dropY: number) {
+    if (!selectedNode || selectedNode.type !== 'dataset') return
+
+    // Convert column name to unicode (same as regular node creation)
+    const convertedLabel = convertToUnicode(columnName)
+
+    // Check if we're dropping on an existing variable node
+    const targetNode = nodes.find((n) => {
+      const cx = n.x
+      const cy = n.y
+      const w = n.width ?? 60
+      const h = n.height ?? 60
+      return Math.abs(dropX - cx) < w / 2 && Math.abs(dropY - cy) < h / 2
+    })
+
+    if (targetNode && targetNode.type === 'variable') {
+      // Remove any existing database paths to this node
+      setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
+
+      // Create new database path from dataset to variable with column name as label
+      const newPath: Path = {
+        id: uid('p_'),
+        from: selectedNode.id,
+        to: targetNode.id,
+        twoSided: false,
+        label: convertedLabel,
+      }
+      setPaths((ps) => [...ps, newPath])
+      selectElement(newPath.id, 'path')
+    } else {
+      // Create new variable at drop location with converted label
+      // Match the dataset's levelOfMeasurement to make it render as manifest
+      const newNode: Node = {
+        id: uid('n_'),
+        x: dropX,
+        y: dropY,
+        label: convertedLabel,
+        type: 'variable',
+        width: MANIFEST_DEFAULT_W,
+        height: MANIFEST_DEFAULT_H,
+        levelOfMeasurement: selectedNode.levelOfMeasurement, // Match dataset's level
+      }
+      setNodes((ns) => [...ns, newNode])
+
+      // Create path from dataset to new variable with column name as label
+      const newPath: Path = {
+        id: uid('p_'),
+        from: selectedNode.id,
+        to: newNode.id,
+        twoSided: false,
+        label: convertedLabel,
+      }
+      setPaths((ps) => [...ps, newPath])
+
+      // Add variance path automatically
+      const varianceId = uid('p_')
+      const variance: Path = {
+        id: varianceId,
+        from: newNode.id,
+        to: newNode.id,
+        twoSided: true,
+        label: varianceId,
+      }
+      setPaths((ps) => [...ps, variance])
+
+      selectElement(newNode.id, 'node')
+    }
   }
 
   function onNodeMouseDown(e: React.MouseEvent, n: Node) {
@@ -1870,7 +1940,13 @@ export default function CanvasTool(): JSX.Element {
                           const min = c.min != null ? String(c.min) : '--'
                           const max = c.max != null ? String(c.max) : '--'
                           return (
-                            <tr key={i} className="odd:bg-white even:bg-slate-50">
+                            <tr
+                              key={i}
+                              draggable
+                              onDragStart={() => setDraggedColumnName(c.name)}
+                              onDragEnd={() => setDraggedColumnName(null)}
+                              className="odd:bg-white even:bg-slate-50 cursor-move hover:bg-blue-100"
+                            >
                               <td className="py-1">{c.name}</td>
                               <td className="py-1">{c.count}</td>
                               <td className="py-1">{c.missing}</td>
@@ -2150,6 +2226,19 @@ export default function CanvasTool(): JSX.Element {
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
           onClick={onCanvasClick}
+          onDragOver={(e) => {
+            if (draggedColumnName) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+            }
+          }}
+          onDrop={(e) => {
+            if (!draggedColumnName || selectedNode?.type !== 'dataset') return
+            e.preventDefault()
+            const p = clientToSvg(e as any as React.MouseEvent)
+            handleColumnDrop(draggedColumnName, p.x, p.y)
+            setDraggedColumnName(null)
+          }}
         >
           <defs>
             <marker id="arrow-end" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
