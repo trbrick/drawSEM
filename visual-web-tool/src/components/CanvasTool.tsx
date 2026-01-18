@@ -524,6 +524,7 @@ export default function CanvasTool(): JSX.Element {
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
+  const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -1079,7 +1080,6 @@ export default function CanvasTool(): JSX.Element {
         label: convertedLabel,
       }
       setPaths((ps) => [...ps, newPath])
-      selectElement(newPath.id, 'path')
     } else {
       // Create new variable at drop location with converted label
       // Match the dataset's levelOfMeasurement to make it render as manifest
@@ -1115,8 +1115,6 @@ export default function CanvasTool(): JSX.Element {
         label: varianceId,
       }
       setPaths((ps) => [...ps, variance])
-
-      selectElement(newNode.id, 'node')
     }
   }
 
@@ -2227,9 +2225,18 @@ export default function CanvasTool(): JSX.Element {
           onMouseLeave={onMouseUp}
           onClick={onCanvasClick}
           onDragOver={(e) => {
-            if (draggedColumnName) {
+            if (draggedColumnName && selectedNode?.type === 'dataset') {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
+              // Update preview position as user drags
+              const p = clientToSvg(e as any as React.MouseEvent)
+              setDragPreviewPos({ x: p.x, y: p.y })
+            }
+          }}
+          onDragLeave={(e) => {
+            // Clear preview when leaving the SVG area
+            if (e.target === svgRef.current) {
+              setDragPreviewPos(null)
             }
           }}
           onDrop={(e) => {
@@ -2238,6 +2245,7 @@ export default function CanvasTool(): JSX.Element {
             const p = clientToSvg(e as any as React.MouseEvent)
             handleColumnDrop(draggedColumnName, p.x, p.y)
             setDraggedColumnName(null)
+            setDragPreviewPos(null)
           }}
         >
           <defs>
@@ -2343,6 +2351,44 @@ export default function CanvasTool(): JSX.Element {
               strokeDasharray="6 4"
               markerEnd={mode === 'add-one-path' ? 'url(#arrow-end)' : 'url(#arrow-end)'}
               markerStart={mode === 'add-two-path' ? 'url(#arrow-start)' : undefined}
+            />
+          )}
+
+          {/* drag preview - translucent node while dragging a column */}
+          {dragPreviewPos && draggedColumnName && (
+            <g transform={`translate(${dragPreviewPos.x - MANIFEST_DEFAULT_W / 2}, ${dragPreviewPos.y - MANIFEST_DEFAULT_H / 2})`} style={{ opacity: 0.4, pointerEvents: 'none' }}>
+              <rect
+                width={MANIFEST_DEFAULT_W}
+                height={MANIFEST_DEFAULT_H}
+                rx={4}
+                fill={DISPLAY_COLORS.fill}
+                stroke={DISPLAY_COLORS.stroke}
+                strokeWidth={DISPLAY_COLORS.defaultStrokeWidth}
+              />
+              <text
+                x={MANIFEST_DEFAULT_W / 2}
+                y={MANIFEST_DEFAULT_H / 2 + 6}
+                textAnchor="middle"
+                style={{ userSelect: 'none', pointerEvents: 'none' }}
+              >
+                {convertToUnicode(draggedColumnName)}
+              </text>
+            </g>
+          )}
+
+          {/* drag preview path - shows connection while dragging column */}
+          {dragPreviewPos && draggedColumnName && selectedNode?.type === 'dataset' && (
+            <line
+              x1={selectedNode.x}
+              y1={selectedNode.y}
+              x2={dragPreviewPos.x}
+              y2={dragPreviewPos.y}
+              stroke="#888"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              opacity={0.5}
+              markerEnd="url(#arrow-end)"
+              style={{ pointerEvents: 'none' }}
             />
           )}
 
