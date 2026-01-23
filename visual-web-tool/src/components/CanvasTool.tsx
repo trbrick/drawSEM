@@ -6,6 +6,7 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
+import { GraphExporter, GraphSchema } from '../core/types'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -96,7 +97,13 @@ const DISPLAY_Z_INDEX = {
 
 type OffLayerVisibility = 'transparent' | 'invisible'
 
-export default function CanvasTool(): JSX.Element {
+interface CanvasToolProps {
+  exporter: GraphExporter
+  initialSchema?: GraphSchema
+  onModelChange?: (schema: GraphSchema) => void
+}
+
+export default function CanvasTool({ exporter, initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
   // Multi-model state
   const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
@@ -325,16 +332,21 @@ export default function CanvasTool(): JSX.Element {
     let mounted = true
     ;(async () => {
       try {
-        // Fetch the example JSON from the public examples directory
-        const url = '/examples/graph.example.json'
-        console.log('[JSON Import] Attempting to fetch from:', url)
-        const res = await fetch(url)
-        if (!res.ok) {
-          console.warn('[JSON Import] HTTP error:', res.status, res.statusText)
-          return
+        let g: any = initialSchema
+        
+        // If initialSchema not provided, fetch the example JSON from the public examples directory
+        if (!initialSchema) {
+          const url = '/examples/graph.example.json'
+          console.log('[JSON Import] Attempting to fetch from:', url)
+          const res = await fetch(url)
+          if (!res.ok) {
+            console.warn('[JSON Import] HTTP error:', res.status, res.statusText)
+            return
+          }
+          g = await res.json()
         }
-        const g: any = await res.json()
-        console.log('[JSON Import] Successfully fetched and parsed JSON:', g)
+        
+        console.log('[JSON Import] Successfully loaded JSON:', g)
         if (!g) {
           console.warn('[JSON Import] JSON is empty')
           return
@@ -374,7 +386,7 @@ export default function CanvasTool(): JSX.Element {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [initialSchema])
 
   // Auto-load CSV files for dataset nodes that have datasetFile metadata
   React.useEffect(() => {
@@ -509,7 +521,31 @@ export default function CanvasTool(): JSX.Element {
     }
   }, [nodes.filter((n) => n.type === 'dataset').map((n) => n.datasetFile?.fileName).join(',')])
 
-  // Helper: compute MD5 hash using browser crypto API (via sha1 for simplicity, or use library)
+  // Call onModelChange callback whenever the current model changes (for Shiny integration)
+  React.useEffect(() => {
+    if (onModelChange && currentModel) {
+      try {
+        // Build a GraphSchema from current model state
+        // Note: This is simplified - in a full implementation you'd convert the full runtime state back to schema
+        const modelSchema: GraphSchema = {
+          schemaVersion: 1,
+          models: {
+            [currentModel.id]: {
+              label: currentModel.label,
+              nodes: currentModel.nodes,
+              paths: currentModel.paths,
+              optimization: {
+                parameterTypes: currentModel.parameterTypes
+              }
+            }
+          }
+        }
+        onModelChange(modelSchema)
+      } catch (e) {
+        console.error('[onModelChange] Error calling callback:', e)
+      }
+    }
+  }, [currentModel, onModelChange])
   // For now, we'll use a simple hash or accept the verification for demo purposes
   const computeMD5 = async (data: string): Promise<string> => {
     // Simple implementation: use TextEncoder + crypto.subtle
@@ -681,35 +717,34 @@ export default function CanvasTool(): JSX.Element {
   function handleCsvImportClick() {
     csvFileInputRef.current?.click()
   }
+
   async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files && e.target.files[0]
     if (!f) return
     try {
       const text = await f.text()
-      const doc: any = JSON.parse(text)
-
-      // validate using AJV and the bundled schema
-      const ajv = new Ajv({ allErrors: true, strict: false })
-      const validate = ajv.compile(schema as object)
-      const ok = validate(doc)
-      if (!ok) {
-        const errs = (validate.errors || []).map((er) => `${er.instancePath || '/'}: ${er.message}`)
-        setImportErrors(errs)
-        return
-      }
-
-      // convert validated document to runtime CanvasTool shape (multi-model)
-      const modelsOut = convertDocToRuntime(doc)
       
-      // apply into runtime state
-      setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
-      if (modelsOut.length > 0) {
-        setCurrentModelId(modelsOut[0].id)
+      // Use exporter.load() to validate and load the schema
+      try {
+        const loadedSchema = await exporter.load(text)
+        
+        // convert validated document to runtime CanvasTool shape (multi-model)
+        const modelsOut = convertDocToRuntime(loadedSchema)
+        
+        // apply into runtime state
+        setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+        if (modelsOut.length > 0) {
+          setCurrentModelId(modelsOut[0].id)
+        }
+        deselectAll()
+        setPathSource(null)
+        setTempLine(null)
+        setImportErrors(null)
+      } catch (err: any) {
+        // If exporter.load fails, show the error
+        const errorMsg = err && err.message ? err.message : String(err)
+        setImportErrors([errorMsg])
       }
-      deselectAll()
-      setPathSource(null)
-      setTempLine(null)
-      setImportErrors(null)
     } catch (err: any) {
       setImportErrors([err && err.message ? err.message : String(err)])
     } finally {
