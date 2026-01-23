@@ -18,6 +18,9 @@
 
 ## IDEs
 /.vscode/
+
+## Working/Notes directory (not tracked)
+/Noise files/
 .idea/
 
 ## Packages
