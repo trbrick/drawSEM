@@ -6,7 +6,8 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
-import { GraphExporter, GraphSchema } from '../core/types'
+import { GraphSchema } from '../core/types'
+import { useExporter } from '../context/ExporterContext'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -98,12 +99,12 @@ const DISPLAY_Z_INDEX = {
 type OffLayerVisibility = 'transparent' | 'invisible'
 
 interface CanvasToolProps {
-  exporter: GraphExporter
   initialSchema?: GraphSchema
   onModelChange?: (schema: GraphSchema) => void
 }
 
-export default function CanvasTool({ exporter, initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
+export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
+  const exporter = useExporter()
   // Multi-model state
   const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
