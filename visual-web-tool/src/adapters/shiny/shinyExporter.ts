@@ -291,6 +291,41 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
         )
       }
     },
+
+    /**
+     * Signal to R that the tool is ready to accept commands
+     */
+    signalReady(): void {
+      shiny.setInputValue('graph_tool_ready', {
+        timestamp: Date.now(),
+      })
+    },
+
+    /**
+     * Register callback for model updates from R
+     * R can push a new model via window.Shiny.setInputValue('update_model', {...})
+     */
+    onModelReceived(callback: (schema: GraphSchema) => void): void {
+      shiny.addCustomMessageHandler('update_model', async (data: any) => {
+        try {
+          const schema = data.schema
+          if (!isGraphSchema(schema)) {
+            throw new ShinyExporterError(
+              'Invalid schema received from R',
+              'INVALID_SCHEMA',
+              { received: data }
+            )
+          }
+          callback(schema)
+        } catch (error) {
+          console.error('Error handling model update from R:', error)
+          shiny.setInputValue('graph_tool_error', {
+            message: error instanceof Error ? error.message : String(error),
+            timestamp: Date.now(),
+          })
+        }
+      })
+    },
   }
 }
 

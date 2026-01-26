@@ -7,7 +7,7 @@ import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 import { GraphSchema } from '../core/types'
-import { useAdapter } from '../context/ExporterContext'
+import { useAdapter, useAdapterOptional } from '../context/ExporterContext'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -105,6 +105,7 @@ interface CanvasToolProps {
 
 export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
   const adapter = useAdapter()
+  const adapterOptional = useAdapterOptional()
   // Multi-model state
   const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
@@ -335,8 +336,13 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
       try {
         let g: any = initialSchema
         
-        // If initialSchema not provided, fetch the example JSON from the public examples directory
-        if (!initialSchema) {
+        // If initialSchema not provided, check if running in Shiny mode with window.graphToolConfig
+        if (!initialSchema && typeof window !== 'undefined' && window.graphToolConfig?.initialModel) {
+          g = window.graphToolConfig.initialModel
+        }
+        
+        // If still no schema, fetch the example JSON from the public examples directory
+        if (!g) {
           const url = '/examples/graph.example.json'
           console.log('[JSON Import] Attempting to fetch from:', url)
           const res = await fetch(url)
@@ -388,6 +394,39 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
       mounted = false
     }
   }, [initialSchema])
+
+  // Subscribe to model updates from Shiny (when running as R HTMLWidget)
+  React.useEffect(() => {
+    if (!adapterOptional?.onModelReceived) {
+      return
+    }
+    
+    // Register callback to handle model updates from R
+    adapterOptional.onModelReceived((schema: GraphSchema) => {
+      console.log('[Shiny] Received model update from R:', schema)
+      try {
+        if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
+          const modelsOut = convertDocToRuntime(schema as any)
+          setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          if (modelsOut.length > 0) {
+            setCurrentModelId(modelsOut[0].id)
+          }
+        }
+      } catch (e) {
+        console.error('[Shiny] Error processing model update:', e)
+      }
+    })
+  }, [adapterOptional])
+
+  // Signal readiness to Shiny after models are loaded
+  React.useEffect(() => {
+    if (models.length === 0 || !adapterOptional?.signalReady) {
+      return
+    }
+    
+    console.log('[Shiny] Signaling readiness to R with', models.length, 'model(s)')
+    adapterOptional.signalReady()
+  }, [models, adapterOptional])
 
   // Auto-load CSV files for dataset nodes that have datasetFile metadata
   React.useEffect(() => {

@@ -333,4 +333,203 @@ describe('ShinyExporter', () => {
       }
     })
   })
+
+  describe('signalReady()', () => {
+    it('should call setInputValue with graph_tool_ready', () => {
+      const exporter = createShinyAdapter()
+
+      exporter.signalReady?.()
+
+      expect(mockShiny.setInputValue).toHaveBeenCalledWith(
+        'graph_tool_ready',
+        expect.objectContaining({
+          timestamp: expect.any(Number),
+        })
+      )
+    })
+
+    it('should include timestamp in ready signal', () => {
+      const exporter = createShinyAdapter()
+      const beforeTime = Date.now()
+
+      exporter.signalReady?.()
+
+      const callArgs = mockShiny.setInputValue.mock.calls[0]
+      const timestamp = callArgs[1].timestamp
+
+      expect(timestamp).toBeGreaterThanOrEqual(beforeTime)
+      expect(timestamp).toBeLessThanOrEqual(Date.now())
+    })
+
+    it('should be callable multiple times', () => {
+      const exporter = createShinyAdapter()
+
+      exporter.signalReady?.()
+      exporter.signalReady?.()
+      exporter.signalReady?.()
+
+      expect(mockShiny.setInputValue).toHaveBeenCalledTimes(3)
+      expect(mockShiny.setInputValue).toHaveBeenCalledWith(
+        'graph_tool_ready',
+        expect.objectContaining({
+          timestamp: expect.any(Number),
+        })
+      )
+    })
+  })
+
+  describe('onModelReceived()', () => {
+    it('should register custom message handler for update_model', () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn()
+
+      exporter.onModelReceived?.(callback)
+
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledWith('update_model', expect.any(Function))
+    })
+
+    it('should call callback when valid model is received', async () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn()
+
+      let capturedHandler: Function | null = null
+      mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
+        if (type === 'update_model') {
+          capturedHandler = handler
+        }
+      })
+
+      exporter.onModelReceived?.(callback)
+
+      // Simulate R sending a model update
+      await capturedHandler?.({ schema: validSchema })
+
+      expect(callback).toHaveBeenCalledWith(validSchema)
+    })
+
+    it('should validate schema before calling callback', async () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn()
+
+      let capturedHandler: Function | null = null
+      mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
+        if (type === 'update_model') {
+          capturedHandler = handler
+        }
+      })
+
+      exporter.onModelReceived?.(callback)
+
+      // Send invalid schema
+      const invalidSchema = { foo: 'bar' }
+      await capturedHandler?.({ schema: invalidSchema })
+
+      // Callback should not be called for invalid schema
+      expect(callback).not.toHaveBeenCalled()
+    })
+
+    it('should report errors to R via graph_tool_error input', async () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn()
+
+      let capturedHandler: Function | null = null
+      mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
+        if (type === 'update_model') {
+          capturedHandler = handler
+        }
+      })
+
+      exporter.onModelReceived?.(callback)
+
+      // Send invalid schema
+      const invalidSchema = { foo: 'bar' }
+      await capturedHandler?.({ schema: invalidSchema })
+
+      // Should have reported error to R
+      expect(mockShiny.setInputValue).toHaveBeenCalledWith(
+        'graph_tool_error',
+        expect.objectContaining({
+          message: expect.any(String),
+          timestamp: expect.any(Number),
+        })
+      )
+    })
+
+    it('should handle errors from callback gracefully', async () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn().mockImplementation(() => {
+        throw new Error('Callback error')
+      })
+
+      let capturedHandler: Function | null = null
+      mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
+        if (type === 'update_model') {
+          capturedHandler = handler
+        }
+      })
+
+      exporter.onModelReceived?.(callback)
+
+      // Send valid schema but callback throws
+      await capturedHandler?.({ schema: validSchema })
+
+      // Should have reported error to R even though callback threw
+      expect(mockShiny.setInputValue).toHaveBeenCalledWith(
+        'graph_tool_error',
+        expect.objectContaining({
+          message: 'Callback error',
+          timestamp: expect.any(Number),
+        })
+      )
+    })
+
+    it('should support multiple callbacks via separate registrations', () => {
+      const exporter = createShinyAdapter()
+      const callback1 = vi.fn()
+      const callback2 = vi.fn()
+
+      exporter.onModelReceived?.(callback1)
+      exporter.onModelReceived?.(callback2)
+
+      // Both should register handlers
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledTimes(2)
+    })
+
+    it('should work with real schema conversion', async () => {
+      const exporter = createShinyAdapter()
+      const callback = vi.fn()
+
+      let capturedHandler: Function | null = null
+      mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
+        if (type === 'update_model') {
+          capturedHandler = handler
+        }
+      })
+
+      exporter.onModelReceived?.(callback)
+
+      // Send a more complex valid schema
+      const complexSchema: GraphSchema = {
+        schemaVersion: 1,
+        models: {
+          model1: {
+            label: 'Complex Model',
+            nodes: [
+              { label: 'X', type: 'constant' },
+              { label: 'Y', type: 'variable' },
+              { label: 'Z', type: 'variable' },
+            ],
+            paths: [
+              { fromLabel: 'X', toLabel: 'Y', numberOfArrows: 1 },
+              { fromLabel: 'Y', toLabel: 'Z', numberOfArrows: 2 },
+            ],
+          },
+        },
+      }
+
+      await capturedHandler?.({ schema: complexSchema })
+
+      expect(callback).toHaveBeenCalledWith(complexSchema)
+    })
+  })
 })

@@ -146,6 +146,19 @@ export interface GraphAdapter {
     format: 'openmx' | 'lavaan' | 'blavaan',
     options?: ExportOptions
   ): Promise<string>
+
+  /**
+   * Optional: Signal to parent (Shiny) that adapter is ready to accept commands
+   * Called by CanvasTool after initialization completes
+   */
+  signalReady?(): void
+
+  /**
+   * Optional: Register callback for model updates from parent (Shiny)
+   * Adapter calls this callback when R pushes a new model to JS
+   * @param callback function to call when model is received
+   */
+  onModelReceived?(callback: (schema: GraphSchema) => void): void
 }
 
 /**
