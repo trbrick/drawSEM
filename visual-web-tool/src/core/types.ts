@@ -124,7 +124,7 @@ export interface DatasetFileMetadata {
  * Exporter interface - all backends implement this
  * Note: All methods work with GraphSchema as the exchange format
  */
-export interface GraphExporter {
+export interface GraphAdapter {
   /**
    * Load a GraphSchema from source (file, URL, Shiny, etc.)
    * Must validate before returning using existing validators

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createLocalExporter, ExporterError } from '../../src/adapters/standalone/localExporter'
+import { createLocalAdapter, ExporterError } from '../../src/adapters/standalone/localExporter'
 import { GraphSchema } from '../../src/core/types'
 
 // Valid test schema
@@ -22,11 +22,11 @@ const validSchema: GraphSchema = {
 }
 
 describe('LocalExporter', () => {
-  let exporter: ReturnType<typeof createLocalExporter>
+  let exporter: ReturnType<typeof createLocalAdapter>
   let fetchMock: any
 
   beforeEach(() => {
-    exporter = createLocalExporter()
+    exporter = createLocalAdapter()
     // Mock fetch on window
     fetchMock = vi.fn()
     window.fetch = fetchMock as any

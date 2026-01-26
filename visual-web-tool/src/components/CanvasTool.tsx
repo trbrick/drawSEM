@@ -7,7 +7,7 @@ import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 import { GraphSchema } from '../core/types'
-import { useExporter } from '../context/ExporterContext'
+import { useAdapter } from '../context/ExporterContext'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -104,7 +104,7 @@ interface CanvasToolProps {
 }
 
 export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
-  const exporter = useExporter()
+  const adapter = useAdapter()
   // Multi-model state
   const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
@@ -725,9 +725,9 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     try {
       const text = await f.text()
       
-      // Use exporter.load() to validate and load the schema
+      // Use adapter.load() to validate and load the schema
       try {
-        const loadedSchema = await exporter.load(text)
+        const loadedSchema = await adapter.load(text)
         
         // convert validated document to runtime CanvasTool shape (multi-model)
         const modelsOut = convertDocToRuntime(loadedSchema)
@@ -742,7 +742,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
         setTempLine(null)
         setImportErrors(null)
       } catch (err: any) {
-        // If exporter.load fails, show the error
+        // If adapter.load fails, show the error
         const errorMsg = err && err.message ? err.message : String(err)
         setImportErrors([errorMsg])
       }

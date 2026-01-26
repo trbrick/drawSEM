@@ -4,7 +4,7 @@
  * Handles bidirectional communication between Shiny server and the visual tool widget
  */
 
-import { GraphSchema, GraphExporter, ExportOptions, isGraphSchema } from '../../core/types'
+import { GraphSchema, GraphAdapter, ExportOptions, isGraphSchema } from '../../core/types'
 
 /**
  * Error class for Shiny-specific errors
@@ -54,7 +54,7 @@ declare global {
  * @returns GraphExporter instance configured for Shiny mode
  * @throws ShinyExporterError if Shiny is not available
  */
-export function createShinyExporter(messageTimeout = 30000): GraphExporter {
+export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
   // Verify Shiny is available
   if (!window.Shiny) {
     throw new ShinyExporterError(
@@ -315,12 +315,12 @@ export function isShinyContext(): boolean {
  * @returns GraphExporter configured for current context
  * @throws ShinyExporterError if not in Shiny context
  */
-export function createConditionalShinyExporter(messageTimeout?: number): GraphExporter {
+export function createConditionalShinyAdapter(messageTimeout?: number): GraphAdapter {
   if (!isShinyContext()) {
     throw new ShinyExporterError(
       'Not in a Shiny context. Create exporter only when window.Shiny is available.',
       'NOT_SHINY_CONTEXT'
     )
   }
-  return createShinyExporter(messageTimeout)
+  return createShinyAdapter(messageTimeout)
 }

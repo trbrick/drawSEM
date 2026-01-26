@@ -4,7 +4,7 @@
  * Supports: JSON file loading/saving, POST-based export to /api/export endpoint
  */
 
-import { GraphSchema, GraphExporter, ExportOptions, isGraphSchema } from '../../core/types'
+import { GraphSchema, GraphAdapter, ExportOptions, isGraphSchema } from '../../core/types'
 import { validateGraph } from '../../validateGraph'
 
 /**
@@ -27,7 +27,7 @@ export class ExporterError extends Error {
  *
  * @returns GraphExporter instance configured for standalone/development use
  */
-export function createLocalExporter(): GraphExporter {
+export function createLocalAdapter(): GraphAdapter {
   return {
     /**
      * Load a GraphSchema from various sources
@@ -286,4 +286,4 @@ export function createLocalExporter(): GraphExporter {
 /**
  * Convenience export for direct usage
  */
-export const localExporter = createLocalExporter()
+export const localAdapter = createLocalAdapter()
