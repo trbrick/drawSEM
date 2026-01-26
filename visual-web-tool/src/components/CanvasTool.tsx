@@ -7,7 +7,7 @@ import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 import { GraphSchema } from '../core/types'
-import { useAdapter, useAdapterOptional } from '../context/ExporterContext'
+import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 

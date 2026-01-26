@@ -1,8 +1,8 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { AdapterContext } from './context/ExporterContext'
-import { createLocalAdapter } from './adapters/standalone/localExporter'
+import { AdapterContext } from './context/AdapterContext'
+import { createLocalAdapter } from './adapters/standalone/localAdapter'
 import './index.css'
 
 const el = document.getElementById('root')

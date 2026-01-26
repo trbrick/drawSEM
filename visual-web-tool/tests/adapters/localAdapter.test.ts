@@ -1,9 +1,9 @@
 /**
- * Unit tests for standalone local exporter adapter
+ * Unit tests for standalone local adapter
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createLocalAdapter, ExporterError } from '../../src/adapters/standalone/localExporter'
+import { createLocalAdapter, AdapterError } from '../../src/adapters/standalone/localAdapter'
 import { GraphSchema } from '../../src/core/types'
 
 // Valid test schema
@@ -21,7 +21,7 @@ const validSchema: GraphSchema = {
   },
 }
 
-describe('LocalExporter', () => {
+describe('LocalAdapter', () => {
   let exporter: ReturnType<typeof createLocalAdapter>
   let fetchMock: any
 
@@ -72,27 +72,27 @@ describe('LocalExporter', () => {
       expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('should throw ExporterError on fetch failure', async () => {
+    it('should throw AdapterError on fetch failure', async () => {
       fetchMock.mockResolvedValueOnce(new Response('Not Found', { status: 404 }))
 
-      await expect(exporter.load('https://example.com/missing.json')).rejects.toThrow(ExporterError)
+      await expect(exporter.load('https://example.com/missing.json')).rejects.toThrow(AdapterError)
     })
 
-    it('should throw ExporterError on invalid JSON', async () => {
-      await expect(exporter.load('{ invalid json')).rejects.toThrow(ExporterError)
+    it('should throw AdapterError on invalid JSON', async () => {
+      await expect(exporter.load('{ invalid json')).rejects.toThrow(AdapterError)
     })
 
-    it('should throw ExporterError on invalid schema', async () => {
+    it('should throw AdapterError on invalid schema', async () => {
       const invalidSchema = { foo: 'bar' }
-      await expect(exporter.load(JSON.stringify(invalidSchema))).rejects.toThrow(ExporterError)
+      await expect(exporter.load(JSON.stringify(invalidSchema))).rejects.toThrow(AdapterError)
     })
 
-    it('should include error code in ExporterError', async () => {
+    it('should include error code in AdapterError', async () => {
       try {
         await exporter.load('invalid json {')
       } catch (error) {
-        expect(error).toBeInstanceOf(ExporterError)
-        expect((error as ExporterError).code).toBe('PARSE_ERROR')
+        expect(error).toBeInstanceOf(AdapterError)
+        expect((error as AdapterError).code).toBe('PARSE_ERROR')
       }
     })
   })
@@ -157,16 +157,16 @@ describe('LocalExporter', () => {
       vi.unstubAllGlobals()
     })
 
-    it('should throw ExporterError on invalid schema', async () => {
+    it('should throw AdapterError on invalid schema', async () => {
       const invalidSchema = { foo: 'bar' } as any
-      await expect(exporter.save(invalidSchema)).rejects.toThrow(ExporterError)
+      await expect(exporter.save(invalidSchema)).rejects.toThrow(AdapterError)
     })
 
     it('should include error code INVALID_SCHEMA', async () => {
       try {
         await exporter.save({ models: {} } as any)
       } catch (error) {
-        expect((error as ExporterError).code).toBe('INVALID_SCHEMA')
+        expect((error as AdapterError).code).toBe('INVALID_SCHEMA')
       }
     })
   })
@@ -212,56 +212,56 @@ describe('LocalExporter', () => {
       expect(body.options.includeComments).toBe(true)
     })
 
-    it('should throw ExporterError on server error', async () => {
+    it('should throw AdapterError on server error', async () => {
       const mockResponse = new Response('Export failed', { status: 500, statusText: 'Internal Server Error' })
       fetchMock.mockResolvedValueOnce(mockResponse)
 
-      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(ExporterError)
+      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(AdapterError)
     })
 
-    it('should throw ExporterError with EXPORT_SERVER_ERROR code on 5xx', async () => {
+    it('should throw AdapterError with EXPORT_SERVER_ERROR code on 5xx', async () => {
       const mockResponse = new Response('Error', { status: 500, statusText: 'Server Error' })
       fetchMock.mockResolvedValueOnce(mockResponse)
 
       try {
         await exporter.export(validSchema, 'openmx')
       } catch (error) {
-        expect((error as ExporterError).code).toBe('EXPORT_SERVER_ERROR')
+        expect((error as AdapterError).code).toBe('EXPORT_SERVER_ERROR')
       }
     })
 
-    it('should throw ExporterError on invalid schema', async () => {
+    it('should throw AdapterError on invalid schema', async () => {
       const invalidSchema = { foo: 'bar' } as any
-      await expect(exporter.export(invalidSchema, 'openmx')).rejects.toThrow(ExporterError)
+      await expect(exporter.export(invalidSchema, 'openmx')).rejects.toThrow(AdapterError)
     })
 
-    it('should throw ExporterError on invalid format', async () => {
-      await expect(exporter.export(validSchema, 'invalid-format' as any)).rejects.toThrow(ExporterError)
+    it('should throw AdapterError on invalid format', async () => {
+      await expect(exporter.export(validSchema, 'invalid-format' as any)).rejects.toThrow(AdapterError)
     })
 
-    it('should throw ExporterError with INVALID_FORMAT code', async () => {
+    it('should throw AdapterError with INVALID_FORMAT code', async () => {
       try {
         await exporter.export(validSchema, 'invalid' as any)
       } catch (error) {
-        expect((error as ExporterError).code).toBe('INVALID_FORMAT')
+        expect((error as AdapterError).code).toBe('INVALID_FORMAT')
       }
     })
 
-    it('should throw ExporterError on empty response', async () => {
+    it('should throw AdapterError on empty response', async () => {
       const mockResponse = new Response('', { status: 200 })
       fetchMock.mockResolvedValueOnce(mockResponse)
 
-      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(ExporterError)
+      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(AdapterError)
     })
   })
 
   describe('error handling', () => {
-    it('ExporterError should have code and details properties', async () => {
+    it('AdapterError should have code and details properties', async () => {
       try {
         await exporter.load('invalid')
       } catch (error) {
-        expect(error).toBeInstanceOf(ExporterError)
-        expect((error as ExporterError).code).toBeDefined()
+        expect(error).toBeInstanceOf(AdapterError)
+        expect((error as AdapterError).code).toBeDefined()
       }
     })
 
@@ -271,7 +271,7 @@ describe('LocalExporter', () => {
       try {
         await exporter.load('https://example.com/missing.json')
       } catch (error) {
-        expect((error as ExporterError).details).toBeDefined()
+        expect((error as AdapterError).details).toBeDefined()
       }
     })
   })

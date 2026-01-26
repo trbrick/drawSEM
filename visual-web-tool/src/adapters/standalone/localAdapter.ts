@@ -1,6 +1,6 @@
 /**
- * Standalone File Exporter Adapter
- * Implements GraphExporter for browser-based file I/O and local development
+ * Standalone File Adapter
+ * Implements GraphAdapter for browser-based file I/O and local development
  * Supports: JSON file loading/saving, POST-based export to /api/export endpoint
  */
 
@@ -8,24 +8,24 @@ import { GraphSchema, GraphAdapter, ExportOptions, isGraphSchema } from '../../c
 import { validateGraph } from '../../validateGraph'
 
 /**
- * Error class for exporter-specific errors
+ * Error class for adapter-specific errors
  */
-export class ExporterError extends Error {
+export class AdapterError extends Error {
   constructor(
     message: string,
     public readonly code: string,
     public readonly details?: unknown
   ) {
     super(message)
-    this.name = 'ExporterError'
+    this.name = 'AdapterError'
   }
 }
 
 /**
- * Create a local file exporter for standalone mode
+ * Create a local file adapter for standalone mode
  * Handles JSON file loading, saving via download, and export to /api/export endpoint
  *
- * @returns GraphExporter instance configured for standalone/development use
+ * @returns GraphAdapter instance configured for standalone/development use
  */
 export function createLocalAdapter(): GraphAdapter {
   return {
@@ -44,7 +44,7 @@ export function createLocalAdapter(): GraphAdapter {
           // Remote URL
           const response = await fetch(source)
           if (!response.ok) {
-            throw new ExporterError(
+            throw new AdapterError(
               `Failed to fetch from ${source}: ${response.statusText}`,
               'FETCH_FAILED',
               { status: response.status, statusText: response.statusText }
@@ -55,7 +55,7 @@ export function createLocalAdapter(): GraphAdapter {
           // Local examples directory
           const response = await fetch(source)
           if (!response.ok) {
-            throw new ExporterError(
+            throw new AdapterError(
               `Example file not found: ${source}`,
               'NOT_FOUND',
               { path: source }
@@ -69,7 +69,7 @@ export function createLocalAdapter(): GraphAdapter {
 
         // Validate against schema
         if (!isGraphSchema(jsonData)) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Loaded data is not a valid GraphSchema',
             'INVALID_SCHEMA',
             { receivedKeys: jsonData && typeof jsonData === 'object' ? Object.keys(jsonData) : typeof jsonData }
@@ -79,7 +79,7 @@ export function createLocalAdapter(): GraphAdapter {
         // Run AJV validation for detailed error reporting
         const validation = validateGraph(jsonData)
         if (!validation.ok) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Schema validation failed',
             'VALIDATION_FAILED',
             { errors: validation.errors }
@@ -88,14 +88,14 @@ export function createLocalAdapter(): GraphAdapter {
 
         return jsonData as GraphSchema
       } catch (error) {
-        // Re-throw ExporterError as-is
-        if (error instanceof ExporterError) {
+        // Re-throw AdapterError as-is
+        if (error instanceof AdapterError) {
           throw error
         }
 
         // Handle JSON parse errors
         if (error instanceof SyntaxError) {
-          throw new ExporterError(
+          throw new AdapterError(
             `Invalid JSON: ${error.message}`,
             'PARSE_ERROR',
             { originalError: error.message }
@@ -103,7 +103,7 @@ export function createLocalAdapter(): GraphAdapter {
         }
 
         // Handle other errors
-        throw new ExporterError(
+        throw new AdapterError(
           `Failed to load schema: ${error instanceof Error ? error.message : String(error)}`,
           'UNKNOWN_ERROR',
           { originalError: error }
@@ -119,7 +119,7 @@ export function createLocalAdapter(): GraphAdapter {
       try {
         // Validate before saving
         if (!isGraphSchema(schema)) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Invalid GraphSchema provided for saving',
             'INVALID_SCHEMA',
             { receivedKeys: Object.keys(schema) }
@@ -128,7 +128,7 @@ export function createLocalAdapter(): GraphAdapter {
 
         const validation = validateGraph(schema)
         if (!validation.ok) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Schema validation failed before saving',
             'VALIDATION_FAILED',
             { errors: validation.errors }
@@ -157,11 +157,11 @@ export function createLocalAdapter(): GraphAdapter {
         // Clean up
         URL.revokeObjectURL(url)
       } catch (error) {
-        if (error instanceof ExporterError) {
+        if (error instanceof AdapterError) {
           throw error
         }
 
-        throw new ExporterError(
+        throw new AdapterError(
           `Failed to save schema: ${error instanceof Error ? error.message : String(error)}`,
           'SAVE_FAILED',
           { originalError: error }
@@ -186,7 +186,7 @@ export function createLocalAdapter(): GraphAdapter {
       try {
         // Validate schema
         if (!isGraphSchema(schema)) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Invalid GraphSchema provided for export',
             'INVALID_SCHEMA',
             { receivedKeys: Object.keys(schema) }
@@ -195,7 +195,7 @@ export function createLocalAdapter(): GraphAdapter {
 
         const validation = validateGraph(schema)
         if (!validation.ok) {
-          throw new ExporterError(
+          throw new AdapterError(
             'Schema validation failed before export',
             'VALIDATION_FAILED',
             { errors: validation.errors }
@@ -204,7 +204,7 @@ export function createLocalAdapter(): GraphAdapter {
 
         // Validate format
         if (!['openmx', 'lavaan', 'blavaan'].includes(format)) {
-          throw new ExporterError(
+          throw new AdapterError(
             `Invalid export format: ${format}`,
             'INVALID_FORMAT',
             { format, validFormats: ['openmx', 'lavaan', 'blavaan'] }
@@ -238,7 +238,7 @@ export function createLocalAdapter(): GraphAdapter {
             errorDetails = `HTTP ${response.status}: ${response.statusText}`
           }
 
-          throw new ExporterError(
+          throw new AdapterError(
             `Export server returned error: ${response.statusText}`,
             'EXPORT_SERVER_ERROR',
             { status: response.status, details: errorDetails }
@@ -249,7 +249,7 @@ export function createLocalAdapter(): GraphAdapter {
         const code = await response.text()
 
         if (!code || typeof code !== 'string') {
-          throw new ExporterError(
+          throw new AdapterError(
             'Export server returned empty or invalid response',
             'EMPTY_RESPONSE',
             { responseLength: code?.length }
@@ -258,14 +258,14 @@ export function createLocalAdapter(): GraphAdapter {
 
         return code
       } catch (error) {
-        // Re-throw ExporterError as-is
-        if (error instanceof ExporterError) {
+        // Re-throw AdapterError as-is
+        if (error instanceof AdapterError) {
           throw error
         }
 
         // Handle network errors
         if (error instanceof TypeError) {
-          throw new ExporterError(
+          throw new AdapterError(
             `Network error during export: ${error.message}`,
             'NETWORK_ERROR',
             { originalError: error.message }
@@ -273,7 +273,7 @@ export function createLocalAdapter(): GraphAdapter {
         }
 
         // Handle other errors
-        throw new ExporterError(
+        throw new AdapterError(
           `Failed to export schema: ${error instanceof Error ? error.message : String(error)}`,
           'UNKNOWN_ERROR',
           { originalError: error }
@@ -287,3 +287,6 @@ export function createLocalAdapter(): GraphAdapter {
  * Convenience export for direct usage
  */
 export const localAdapter = createLocalAdapter()
+
+// Export as ExporterError for backward compatibility (deprecated)
+export const ExporterError = AdapterError

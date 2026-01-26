@@ -1,8 +1,8 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { AdapterContext } from './context/ExporterContext'
-import { createShinyAdapter } from './adapters/shiny/shinyExporter'
+import { AdapterContext } from './context/AdapterContext'
+import { createShinyAdapter } from './adapters/shiny/shinyAdapter'
 import './index.css'
 
 const el = document.getElementById('root')
