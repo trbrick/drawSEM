@@ -1,28 +1,23 @@
-## Node
-/node_modules/
-/npm-debug.log*
-/yarn-debug.log*
-/yarn-error.log*
+## Node.js (visual-web-tool only)
+visual-web-tool/node_modules/
+visual-web-tool/dist/
+visual-web-tool/*.map
 
-## Vite / build
-/dist/
-/.vite/
-/.cache/
-
-## local env files
-.env
-.env.*.local
+## R package artifacts
+.Rhistory
+.RData
+.Rproj.user/
+*.tar.gz
+*.Rcheck/
 
 ## OS
 .DS_Store
 
 ## IDEs
-/.vscode/
+.vscode/
+.idea/
 
 ## Working/Notes directory (not tracked)
 /Noise files/
-.idea/
 
-## Packages
-/visual-web-tool/node_modules/
-/visual-web-tool/dist/
+## Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)

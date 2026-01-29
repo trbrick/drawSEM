@@ -1,0 +1,12 @@
+# HTMLWidgets binding for graphTool visual editor
+# https://www.htmlwidgets.org/develop_package.html
+
+dependencies:
+  - name: graphTool-app
+    version: 1.0.0
+    src: htmlwidgets/lib/app
+    script:
+      - widget.js
+    stylesheet:
+      - widget.css
+    head: null

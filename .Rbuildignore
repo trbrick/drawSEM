@@ -1,0 +1,17 @@
+# TypeScript/Vite source code and development files
+^visual-web-tool/node_modules/
+^visual-web-tool/dist/
+^visual-web-tool/.env.*
+^visual-web-tool/package-lock.json
+^visual-web-tool/\.git
+^visual-web-tool/\.gitignore
+^visual-web-tool/vite.config.ts
+^visual-web-tool/vitest.config.ts
+^visual-web-tool/tsconfig.json
+
+# Development files
+^\.gitignore
+^\.github/
+^Noise files/
+
+# Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)
