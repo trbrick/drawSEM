@@ -2,6 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+/**
+ * Widget-specific Vite config for htmlwidgets UMD build.
+ * Used with: npm run build:widget
+ * 
+ * Outputs UMD module to inst/htmlwidgets/lib/app/
+ */
 export default defineConfig({
   plugins: [react()],
   build: {

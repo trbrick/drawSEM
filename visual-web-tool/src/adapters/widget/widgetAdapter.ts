@@ -1,22 +1,22 @@
 /**
- * Shiny Adapter
- * Implements GraphAdapter for R Shiny integration via message passing
- * Handles bidirectional communication between Shiny server and the visual tool widget
+ * Widget Adapter
+ * Implements GraphAdapter for htmlwidgets integration via message passing
+ * Handles bidirectional communication between R (Shiny, Quarto, RMarkdown) and the visual tool widget
  */
 
 import { GraphSchema, GraphAdapter, ExportOptions, isGraphSchema } from '../../core/types'
 
 /**
- * Error class for Shiny-specific errors
+ * Error class for widget adapter errors
  */
-export class ShinyAdapterError extends Error {
+export class WidgetAdapterError extends Error {
   constructor(
     message: string,
     public readonly code: string,
     public readonly details?: unknown
   ) {
     super(message)
-    this.name = 'ShinyAdapterError'
+    this.name = 'WidgetAdapterError'
   }
 }
 
@@ -52,12 +52,12 @@ declare global {
  *
  * @param messageTimeout Maximum time to wait for async message responses (default: 30000ms)
  * @returns GraphAdapter instance configured for Shiny mode
- * @throws ShinyAdapterError if Shiny is not available
+ * @throws WidgetAdapterError if Shiny is not available
  */
-export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
+export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
   // Verify Shiny is available
   if (!window.Shiny) {
-    throw new ShinyAdapterError(
+    throw new WidgetAdapterError(
       'Shiny is not available in window.Shiny. Are you running inside a Shiny app?',
       'SHINY_NOT_AVAILABLE',
       { hasWindow: typeof window !== 'undefined' }
@@ -81,7 +81,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
           const initialModel = window.graphToolConfig.initialModel
 
           if (!isGraphSchema(initialModel)) {
-            throw new ShinyAdapterError(
+            throw new WidgetAdapterError(
               'Initial model from R is not a valid GraphSchema',
               'INVALID_SCHEMA',
               {
@@ -99,7 +99,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
           const timeoutId = setTimeout(() => {
             pendingHandlers.delete(handlerId)
             reject(
-              new ShinyAdapterError(
+              new WidgetAdapterError(
                 `Timeout waiting for graph model from Shiny server (${messageTimeout}ms)`,
                 'MESSAGE_TIMEOUT',
                 { timeout: messageTimeout }
@@ -113,7 +113,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
 
             try {
               if (!isGraphSchema(data)) {
-                throw new ShinyAdapterError(
+                throw new WidgetAdapterError(
                   'Model received from Shiny server is not a valid GraphSchema',
                   'INVALID_SCHEMA',
                   { receivedKeys: data && typeof data === 'object' ? Object.keys(data) : typeof data }
@@ -132,11 +132,11 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
           shiny.setInputValue('graph_load_request', { timestamp: Date.now() })
         })
       } catch (error) {
-        if (error instanceof ShinyAdapterError) {
+        if (error instanceof WidgetAdapterError) {
           throw error
         }
 
-        throw new ShinyAdapterError(
+        throw new WidgetAdapterError(
           `Failed to load schema from Shiny: ${error instanceof Error ? error.message : String(error)}`,
           'LOAD_FAILED',
           { originalError: error }
@@ -151,7 +151,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
     async save(schema: GraphSchema): Promise<void> {
       try {
         if (!isGraphSchema(schema)) {
-          throw new ShinyAdapterError(
+          throw new WidgetAdapterError(
             'Invalid GraphSchema provided for saving',
             'INVALID_SCHEMA',
             { receivedKeys: Object.keys(schema) }
@@ -162,11 +162,11 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
         // R can observe changes via reactive() or observeEvent()
         shiny.setInputValue('graph_model', schema)
       } catch (error) {
-        if (error instanceof ShinyAdapterError) {
+        if (error instanceof WidgetAdapterError) {
           throw error
         }
 
-        throw new ShinyAdapterError(
+        throw new WidgetAdapterError(
           `Failed to save schema to Shiny: ${error instanceof Error ? error.message : String(error)}`,
           'SAVE_FAILED',
           { originalError: error }
@@ -191,7 +191,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
       try {
         // Validate schema
         if (!isGraphSchema(schema)) {
-          throw new ShinyAdapterError(
+          throw new WidgetAdapterError(
             'Invalid GraphSchema provided for export',
             'INVALID_SCHEMA',
             { receivedKeys: Object.keys(schema) }
@@ -200,7 +200,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
 
         // Validate format
         if (!['openmx', 'lavaan', 'blavaan'].includes(format)) {
-          throw new ShinyAdapterError(
+          throw new WidgetAdapterError(
             `Invalid export format: ${format}`,
             'INVALID_FORMAT',
             { format, validFormats: ['openmx', 'lavaan', 'blavaan'] }
@@ -213,7 +213,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
           const timeoutId = setTimeout(() => {
             pendingHandlers.delete(handlerId)
             reject(
-              new ShinyAdapterError(
+              new WidgetAdapterError(
                 `Timeout waiting for export result from Shiny server (${messageTimeout}ms)`,
                 'MESSAGE_TIMEOUT',
                 { timeout: messageTimeout, format }
@@ -230,7 +230,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
               const response = data as Record<string, unknown>
 
               if (!response || typeof response !== 'object') {
-                throw new ShinyAdapterError(
+                throw new WidgetAdapterError(
                   'Invalid response type from Shiny export handler',
                   'INVALID_RESPONSE',
                   { receivedType: typeof response }
@@ -238,7 +238,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
               }
 
               if (response.error) {
-                throw new ShinyAdapterError(
+                throw new WidgetAdapterError(
                   `Export failed on R server: ${response.error}`,
                   'EXPORT_SERVER_ERROR',
                   { serverError: response.error }
@@ -246,7 +246,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
               }
 
               if (!response.code || typeof response.code !== 'string') {
-                throw new ShinyAdapterError(
+                throw new WidgetAdapterError(
                   'Export server returned empty or invalid code',
                   'EMPTY_RESPONSE',
                   { hasCode: 'code' in response, codeType: typeof response.code }
@@ -271,20 +271,20 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
           })
         })
       } catch (error) {
-        if (error instanceof ShinyAdapterError) {
+        if (error instanceof WidgetAdapterError) {
           throw error
         }
 
         // Handle network/communication errors
         if (error instanceof TypeError) {
-          throw new ShinyAdapterError(
+          throw new WidgetAdapterError(
             `Communication error during export: ${error.message}`,
             'COMMUNICATION_ERROR',
             { originalError: error.message }
           )
         }
 
-        throw new ShinyAdapterError(
+        throw new WidgetAdapterError(
           `Failed to export schema via Shiny: ${error instanceof Error ? error.message : String(error)}`,
           'UNKNOWN_ERROR',
           { originalError: error }
@@ -310,7 +310,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
         try {
           const schema = data.schema
           if (!isGraphSchema(schema)) {
-            throw new ShinyAdapterError(
+            throw new WidgetAdapterError(
               'Invalid schema received from R',
               'INVALID_SCHEMA',
               { received: data }
@@ -333,7 +333,7 @@ export function createShinyAdapter(messageTimeout = 30000): GraphAdapter {
  * Helper function to detect if running in Shiny context
  * Useful for conditional initialization
  */
-export function isShinyContext(): boolean {
+export function isWidgetContext(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof window.Shiny !== 'undefined' &&
@@ -348,17 +348,17 @@ export function isShinyContext(): boolean {
  *
  * @param messageTimeout Optional timeout for message responses
  * @returns GraphAdapter configured for current context
- * @throws ShinyAdapterError if not in Shiny context
+ * @throws WidgetAdapterError if not in widget context
  */
-export function createConditionalShinyAdapter(messageTimeout?: number): GraphAdapter {
-  if (!isShinyContext()) {
-    throw new ShinyAdapterError(
-      'Not in a Shiny context. Create adapter only when window.Shiny is available.',
+export function createConditionalWidgetAdapter(messageTimeout?: number): GraphAdapter {
+  if (!isWidgetContext()) {
+    throw new WidgetAdapterError(
+      'Not in a widget context. Create adapter only when window.Shiny is available.',
       'NOT_SHINY_CONTEXT'
     )
   }
-  return createShinyAdapter(messageTimeout)
+  return createWidgetAdapter(messageTimeout)
 }
 
-// Export as ShinyExporterError for backward compatibility (deprecated)
-export const ShinyExporterError = ShinyAdapterError
+// Export as WidgetAdapterError (primary name)
+export const ShinyAdapterError = WidgetAdapterError // backward compatibility alias

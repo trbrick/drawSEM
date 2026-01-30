@@ -1,9 +1,9 @@
 /**
- * Unit tests for Shiny exporter adapter
+ * Unit tests for Widget adapter
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createShinyAdapter, createConditionalShinyAdapter, isShinyContext, ShinyAdapterError } from '../../src/adapters/shiny/shinyAdapter'
+import { createWidgetAdapter, createConditionalWidgetAdapter, isWidgetContext, WidgetAdapterError } from '../../src/adapters/widget/widgetAdapter'
 import { GraphSchema } from '../../src/core/types'
 
 // Valid test schema
@@ -27,7 +27,7 @@ const mockShiny = {
   setInputValue: vi.fn(),
 }
 
-describe('ShinyAdapter', () => {
+describe('WidgetAdapter', () => {
   beforeEach(() => {
     // Setup Shiny in window
     window.Shiny = mockShiny as any
@@ -44,30 +44,30 @@ describe('ShinyAdapter', () => {
     delete (window as any).graphToolConfig
   })
 
-  describe('isShinyContext()', () => {
+  describe('isWidgetContext()', () => {
     it('should return true when Shiny is available', () => {
-      expect(isShinyContext()).toBe(true)
+      expect(isWidgetContext()).toBe(true)
     })
 
     it('should return false when Shiny is not available', () => {
       delete (window as any).Shiny
-      expect(isShinyContext()).toBe(false)
+      expect(isWidgetContext()).toBe(false)
     })
 
     it('should return false when Shiny methods are missing', () => {
       window.Shiny = {} as any
-      expect(isShinyContext()).toBe(false)
+      expect(isWidgetContext()).toBe(false)
     })
   })
 
-  describe('createShinyAdapter()', () => {
-    it('should throw ShinyAdapterError when Shiny is not available', () => {
+  describe('createWidgetAdapter()', () => {
+    it('should throw WidgetAdapterError when Shiny is not available', () => {
       delete (window as any).Shiny
-      expect(() => createShinyAdapter()).toThrow(ShinyAdapterError)
+      expect(() => createWidgetAdapter()).toThrow(WidgetAdapterError)
     })
 
     it('should return exporter when Shiny is available', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       expect(exporter).toBeDefined()
       expect(exporter.load).toBeDefined()
       expect(exporter.save).toBeDefined()
@@ -83,7 +83,7 @@ describe('ShinyAdapter', () => {
 
     it('should return initialModel from window.graphToolConfig if available', async () => {
       window.graphToolConfig = { initialModel: validSchema }
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       const result = await exporter.load('')
 
@@ -91,15 +91,15 @@ describe('ShinyAdapter', () => {
       expect(mockShiny.addCustomMessageHandler).not.toHaveBeenCalled()
     })
 
-    it('should throw ShinyAdapterError if initialModel is invalid', async () => {
+    it('should throw WidgetAdapterError if initialModel is invalid', async () => {
       window.graphToolConfig = { initialModel: { foo: 'bar' } as any }
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
-      await expect(exporter.load()).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.load()).rejects.toThrow(WidgetAdapterError)
     })
 
     it('should request model via message handler if no initialModel', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       // Mock the handler to simulate R sending back data
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
@@ -112,52 +112,52 @@ describe('ShinyAdapter', () => {
       expect(result).toEqual(validSchema)
     })
 
-    it('should throw ShinyAdapterError on message timeout', async () => {
-      const exporter = createShinyAdapter(100) // 100ms timeout
+    it('should throw WidgetAdapterError on message timeout', async () => {
+      const exporter = createWidgetAdapter(100) // 100ms timeout
 
-      await expect(exporter.load()).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.load()).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError with MESSAGE_TIMEOUT code on timeout', async () => {
-      const exporter = createShinyAdapter(50)
+    it('should throw WidgetAdapterError with MESSAGE_TIMEOUT code on timeout', async () => {
+      const exporter = createWidgetAdapter(50)
 
       try {
         await exporter.load('')
       } catch (error) {
-        expect((error as ShinyAdapterError).code).toBe('MESSAGE_TIMEOUT')
+        expect((error as WidgetAdapterError).code).toBe('MESSAGE_TIMEOUT')
       }
     })
   })
 
   describe('save()', () => {
     it('should call setInputValue with graph_model and schema', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       await exporter.save(validSchema)
 
       expect(mockShiny.setInputValue).toHaveBeenCalledWith('graph_model', validSchema)
     })
 
-    it('should throw ShinyAdapterError on invalid schema', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError on invalid schema', async () => {
+      const exporter = createWidgetAdapter()
       const invalidSchema = { foo: 'bar' } as any
 
-      await expect(exporter.save(invalidSchema)).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.save(invalidSchema)).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError with INVALID_SCHEMA code', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError with INVALID_SCHEMA code', async () => {
+      const exporter = createWidgetAdapter()
       const invalidSchema = { models: {} } as any
 
       try {
         await exporter.save(invalidSchema)
       } catch (error) {
-        expect((error as ShinyAdapterError).code).toBe('INVALID_SCHEMA')
+        expect((error as WidgetAdapterError).code).toBe('INVALID_SCHEMA')
       }
     })
 
     it('should handle multiple saves correctly', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       await exporter.save(validSchema)
       await exporter.save(validSchema)
@@ -168,7 +168,7 @@ describe('ShinyAdapter', () => {
 
   describe('export()', () => {
     it('should send export_request via setInputValue', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       // Setup handler to simulate R response
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
@@ -190,7 +190,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should support all three export formats', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
         if (type.startsWith('export_')) {
@@ -205,31 +205,31 @@ describe('ShinyAdapter', () => {
       expect(mockShiny.setInputValue).toHaveBeenCalledTimes(3)
     })
 
-    it('should throw ShinyAdapterError on invalid format', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError on invalid format', async () => {
+      const exporter = createWidgetAdapter()
 
-      await expect(exporter.export(validSchema, 'invalid' as any)).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.export(validSchema, 'invalid' as any)).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError with INVALID_FORMAT code', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError with INVALID_FORMAT code', async () => {
+      const exporter = createWidgetAdapter()
 
       try {
         await exporter.export(validSchema, 'invalid' as any)
       } catch (error) {
-        expect((error as ShinyAdapterError).code).toBe('INVALID_FORMAT')
+        expect((error as WidgetAdapterError).code).toBe('INVALID_FORMAT')
       }
     })
 
-    it('should throw ShinyAdapterError on invalid schema', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError on invalid schema', async () => {
+      const exporter = createWidgetAdapter()
       const invalidSchema = { foo: 'bar' } as any
 
-      await expect(exporter.export(invalidSchema, 'openmx')).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.export(invalidSchema, 'openmx')).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError when R returns error', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError when R returns error', async () => {
+      const exporter = createWidgetAdapter()
 
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
         if (type.startsWith('export_')) {
@@ -237,11 +237,11 @@ describe('ShinyAdapter', () => {
         }
       })
 
-      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError with EXPORT_SERVER_ERROR code on R error', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError with EXPORT_SERVER_ERROR code on R error', async () => {
+      const exporter = createWidgetAdapter()
 
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
         if (type.startsWith('export_')) {
@@ -252,12 +252,12 @@ describe('ShinyAdapter', () => {
       try {
         await exporter.export(validSchema, 'openmx')
       } catch (error) {
-        expect((error as ShinyAdapterError).code).toBe('EXPORT_SERVER_ERROR')
+        expect((error as WidgetAdapterError).code).toBe('EXPORT_SERVER_ERROR')
       }
     })
 
-    it('should throw ShinyAdapterError on empty response code', async () => {
-      const exporter = createShinyAdapter()
+    it('should throw WidgetAdapterError on empty response code', async () => {
+      const exporter = createWidgetAdapter()
 
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
         if (type.startsWith('export_')) {
@@ -265,17 +265,17 @@ describe('ShinyAdapter', () => {
         }
       })
 
-      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError on message timeout', async () => {
-      const exporter = createShinyAdapter(50)
+    it('should throw WidgetAdapterError on message timeout', async () => {
+      const exporter = createWidgetAdapter(50)
 
-      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(ShinyAdapterError)
+      await expect(exporter.export(validSchema, 'openmx')).rejects.toThrow(WidgetAdapterError)
     })
 
     it('should include export options in request', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       mockShiny.addCustomMessageHandler.mockImplementation((type: string, handler: Function) => {
         if (type.startsWith('export_')) {
@@ -291,52 +291,52 @@ describe('ShinyAdapter', () => {
     })
   })
 
-  describe('createConditionalShinyAdapter()', () => {
+  describe('createConditionalWidgetAdapter()', () => {
     it('should create exporter when in Shiny context', () => {
-      const exporter = createConditionalShinyAdapter()
+      const exporter = createConditionalWidgetAdapter()
       expect(exporter).toBeDefined()
     })
 
-    it('should throw ShinyAdapterError when not in Shiny context', () => {
+    it('should throw WidgetAdapterError when not in Shiny context', () => {
       delete (window as any).Shiny
-      expect(() => createConditionalShinyAdapter()).toThrow(ShinyAdapterError)
+      expect(() => createConditionalWidgetAdapter()).toThrow(WidgetAdapterError)
     })
 
-    it('should throw ShinyAdapterError with NOT_SHINY_CONTEXT code', () => {
+    it('should throw WidgetAdapterError with NOT_SHINY_CONTEXT code', () => {
       delete (window as any).Shiny
       try {
-        createConditionalShinyAdapter()
+        createConditionalWidgetAdapter()
       } catch (error) {
-        expect((error as ShinyAdapterError).code).toBe('NOT_SHINY_CONTEXT')
+        expect((error as WidgetAdapterError).code).toBe('NOT_SHINY_CONTEXT')
       }
     })
   })
 
   describe('error handling', () => {
-    it('ShinyAdapterError should have code and details properties', () => {
+    it('WidgetAdapterError should have code and details properties', () => {
       delete (window as any).Shiny
       try {
-        createShinyAdapter()
+        createWidgetAdapter()
       } catch (error) {
-        expect(error).toBeInstanceOf(ShinyAdapterError)
-        expect((error as ShinyAdapterError).code).toBeDefined()
+        expect(error).toBeInstanceOf(WidgetAdapterError)
+        expect((error as WidgetAdapterError).code).toBeDefined()
       }
     })
 
     it('should provide error details for debugging', async () => {
-      const exporter = createShinyAdapter(100)
+      const exporter = createWidgetAdapter(100)
 
       try {
         await exporter.load('')
       } catch (error) {
-        expect((error as ShinyAdapterError).details).toBeDefined()
+        expect((error as WidgetAdapterError).details).toBeDefined()
       }
     })
   })
 
   describe('signalReady()', () => {
     it('should call setInputValue with graph_tool_ready', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       exporter.signalReady?.()
 
@@ -349,7 +349,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should include timestamp in ready signal', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const beforeTime = Date.now()
 
       exporter.signalReady?.()
@@ -362,7 +362,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should be callable multiple times', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
 
       exporter.signalReady?.()
       exporter.signalReady?.()
@@ -380,7 +380,7 @@ describe('ShinyAdapter', () => {
 
   describe('onModelReceived()', () => {
     it('should register custom message handler for update_model', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn()
 
       exporter.onModelReceived?.(callback)
@@ -389,7 +389,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should call callback when valid model is received', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn()
 
       let capturedHandler: Function | null = null
@@ -408,7 +408,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should validate schema before calling callback', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn()
 
       let capturedHandler: Function | null = null
@@ -429,7 +429,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should report errors to R via graph_tool_error input', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn()
 
       let capturedHandler: Function | null = null
@@ -456,7 +456,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should handle errors from callback gracefully', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn().mockImplementation(() => {
         throw new Error('Callback error')
       })
@@ -484,7 +484,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should support multiple callbacks via separate registrations', () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback1 = vi.fn()
       const callback2 = vi.fn()
 
@@ -496,7 +496,7 @@ describe('ShinyAdapter', () => {
     })
 
     it('should work with real schema conversion', async () => {
-      const exporter = createShinyAdapter()
+      const exporter = createWidgetAdapter()
       const callback = vi.fn()
 
       let capturedHandler: Function | null = null
