@@ -1,6 +1,7 @@
 ## Node.js (visual-web-tool only)
 visual-web-tool/node_modules/
 visual-web-tool/dist/
+visual-web-tool/.vite
 visual-web-tool/*.map
 
 ## R package artifacts
@@ -9,15 +10,23 @@ visual-web-tool/*.map
 .Rproj.user/
 *.tar.gz
 *.Rcheck/
+.Rproj
 
 ## OS
 .DS_Store
+Thumbs.db
 
 ## IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
 
 ## Working/Notes directory (not tracked)
 /Noise files/
 
+## Generated schema files (regenerated during R package build, not committed to git)
+inst/extdata/*.json
+
 ## Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)
+

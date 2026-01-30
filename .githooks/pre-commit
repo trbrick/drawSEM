@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Check if web-tool source files changed
+if git diff --cached --name-only | grep -qE 'visual-web-tool/src|visual-web-tool/vite'; then
+    echo "Detected web tool changes. Rebuilding widget..."
+    
+    cd visual-web-tool
+    npm run build:widget
+    cd ..
+    
+    # Stage the built assets
+    git add inst/htmlwidgets/lib/app/widget.js
+    git add inst/htmlwidgets/lib/app/widget.css 2>/dev/null || true
+    
+    echo "Widget rebuilt and staged"
+fi
+
+exit 0

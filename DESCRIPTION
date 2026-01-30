@@ -1,0 +1,19 @@
+Package: OpenMxWebUI
+Title: Interactive Visual Model Editor for Structural Equation Modeling, starting with OpenMx
+Version: 0.1.0
+Author: Timothy R. Brick <tbrick@psu.edu>
+Maintainer: Timothy R. Brick <tbrick@psu.edu>
+Description: Interactive visual tool for building structural equation models (SEMs) 
+  in OpenMx (and eventually lavaan and blavaan). Edit models graphically, validate schemas, 
+  and export to R objects to run.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Imports:
+  htmlwidgets,
+  jsonlite
+Suggests:
+  testthat (>= 3.0.0),
+  OpenMx
+Config/testthat/edition: 3

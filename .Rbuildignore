@@ -1,17 +1,16 @@
-# TypeScript/Vite source code and development files
-^visual-web-tool/node_modules/
-^visual-web-tool/dist/
-^visual-web-tool/.env.*
-^visual-web-tool/package-lock.json
-^visual-web-tool/\.git
-^visual-web-tool/\.gitignore
-^visual-web-tool/vite.config.ts
-^visual-web-tool/vitest.config.ts
-^visual-web-tool/tsconfig.json
+# Exclude entire TypeScript directory (only inst/htmlwidgets/lib/app/ needed for R)
+^visual-web-tool/.*$
 
 # Development files
+^\.vscode.*                   # Editor configs
+^\.github.*                   # GitHub workflows (optional)
 ^\.gitignore
-^\.github/
 ^Noise files/
+^notes/.*
+^\.eslintrc.*
+
+# Git hooks (keep in git, but exclude from tarball if needed)
+# ^\.githooks.*
 
 # Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)
+

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Check if web-tool source files changed in the merge
+if git diff HEAD@{1} --name-only | grep -qE 'visual-web-tool/'; then
+    echo "Detected web tool changes after merge. Rebuilding widget..."
+    
+    cd visual-web-tool
+    npm run build:widget
+    cd ..
+    
+    echo "Widget rebuilt"
+fi
+
+exit 0
