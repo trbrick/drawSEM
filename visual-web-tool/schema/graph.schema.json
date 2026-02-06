@@ -70,6 +70,7 @@
                 "id": { "type": "string" },
                 "label": { "type": "string", "minLength": 1 },
                 "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
+                "variableCharacteristic": { "type": "string", "enum": ["manifest", "latent"], "description": "For variable nodes: 'manifest' if connected to data, 'latent' if not. When specified, locks the node to this display type, overriding auto-inference from database paths. Omit to use auto-inferred type (manifest if dataset path exists, latent otherwise)." },
                 "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
                 "tags": {
                   "type": "array",

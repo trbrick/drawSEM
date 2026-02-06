@@ -8,7 +8,8 @@ export interface Node {
   x: number
   y: number
   label: string
-  type: 'manifest' | 'latent' | 'constant' | 'dataset'
+  type: 'variable' | 'constant' | 'dataset'
+  variableCharacteristic?: 'manifest' | 'latent'
   levelOfMeasurement?: string
   width?: number
   height?: number

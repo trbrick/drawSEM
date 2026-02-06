@@ -27,6 +27,8 @@ type Node = {
   type: NodeType
   // optional display name (for UI only) - separate from label used for matching/export
   displayName?: string
+  // for variable nodes: optional lock to manifest/latent; omit to auto-infer from database paths
+  variableCharacteristic?: 'manifest' | 'latent'
   // optional level of measurement (for multilevel models)
   levelOfMeasurement?: string // e.g., 'within', 'between', 'between-person', etc.
   // optional size for manifest nodes
@@ -165,6 +167,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([])
 
   // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
@@ -638,12 +641,20 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     }
   }, [nodes])
 
-  // Helper: determine if a variable node should render as manifest (has incoming dataset path at same level)
+  // Helper: determine if a variable node should render as manifest or latent
+  // If variableCharacteristic is set, use that (it acts as a "lock")
+  // Otherwise, auto-infer: manifest if has incoming dataset path at same level, latent otherwise
   // Returns 'manifest' or 'latent' for rendering purposes
   const getVariableRenderType = (nodeId: string): 'manifest' | 'latent' => {
     const node = nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'variable') return 'latent'
     
+    // If variableCharacteristic is explicitly set, use it (locked)
+    if (node.variableCharacteristic) {
+      return node.variableCharacteristic
+    }
+    
+    // Otherwise, auto-infer from database paths
     // Check if there's an incoming path from a dataset node at the same level
     const incomingDatasetPath = paths.find((p) => {
       if (p.to !== nodeId) return false
@@ -655,6 +666,100 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     
     return incomingDatasetPath ? 'manifest' : 'latent'
   }
+
+  // Helper: check if a variable node has an incoming dataset path
+  const hasDatasetPath = (nodeId: string): boolean => {
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'variable') return false
+    
+    return paths.some((p) => {
+      if (p.to !== nodeId) return false
+      const sourceNode = nodes.find((n) => n.id === p.from)
+      if (!sourceNode || sourceNode.type !== 'dataset') return false
+      // Check level match
+      return sourceNode.levelOfMeasurement === node.levelOfMeasurement
+    })
+  }
+
+  // Helper: get validation errors for a variable node
+  const getVariableValidationErrors = (nodeId: string): string[] => {
+    const errors: string[] = []
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'variable') return errors
+    
+    const hasPath = hasDatasetPath(nodeId)
+    const renderType = getVariableRenderType(nodeId)
+    
+    // Check for manifest without dataset path
+    if (renderType === 'manifest' && !hasPath) {
+      errors.push(`"${node.label}" is marked manifest but has no incoming dataset path`)
+    }
+    
+    // Check for non-manifest with dataset path
+    if (renderType !== 'manifest' && hasPath) {
+      errors.push(`"${node.label}" has an incoming dataset path but is not marked manifest`)
+    }
+    
+    return errors
+  }
+
+  // Helper: toggle variable characteristic on double-click
+  const toggleVariableCharacteristic = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId)
+    if (!node || node.type !== 'variable') return
+    
+    const currentDisplay = getVariableRenderType(nodeId)
+    const hasPath = hasDatasetPath(nodeId)
+    
+    if (!node.variableCharacteristic) {
+      // No lock: set characteristic to opposite of current display
+      const opposite = currentDisplay === 'manifest' ? 'latent' : 'manifest'
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === nodeId ? { ...n, variableCharacteristic: opposite } : n
+        )
+      )
+    } else {
+      // Locked: test if removing the lock would change display
+      const autoInferredDisplay = hasPath ? 'manifest' : 'latent'
+      
+      if (autoInferredDisplay !== node.variableCharacteristic) {
+        // Removing lock would change display: remove it
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId ? { ...n, variableCharacteristic: undefined } : n
+          )
+        )
+      } else {
+        // Removing lock wouldn't change display: toggle to other option
+        const newCharacteristic = node.variableCharacteristic === 'manifest' ? 'latent' : 'manifest'
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId ? { ...n, variableCharacteristic: newCharacteristic } : n
+          )
+        )
+      }
+    }
+  }
+
+  // Helper: collect all validation warnings for the current model
+  const getAllValidationWarnings = (): string[] => {
+    const warnings: string[] = []
+    
+    // Check each variable node for manifest/latent inconsistencies
+    nodes.forEach((node) => {
+      if (node.type !== 'variable') return
+      const nodeErrors = getVariableValidationErrors(node.id)
+      warnings.push(...nodeErrors)
+    })
+    
+    return warnings
+  }
+
+  // Update validation warnings whenever nodes or paths change
+  React.useEffect(() => {
+    setValidationWarnings(getAllValidationWarnings())
+  }, [nodes, paths])
 
   const selectedNode = React.useMemo(() => {
     if (selectedType !== 'node' || !selectedId) return null
@@ -1923,7 +2028,33 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                 {selectedNode && selectedNode.type === 'variable' && (
                   <>
                     <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
-                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{getVariableRenderType(selectedNode.id)}</span></div>
+                    <div className="text-xs text-slate-600 mt-1">
+                      Display Type: <span className="font-medium">{getVariableRenderType(selectedNode.id)}</span>
+                    </div>
+                    <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
+                      <span>Variable Characteristic:</span>
+                      <select
+                        value={selectedNode.variableCharacteristic || 'auto'}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setNodes((ns) =>
+                            ns.map((n) =>
+                              n.id === selectedNode.id
+                                ? {
+                                    ...n,
+                                    variableCharacteristic: val === 'auto' ? undefined : (val as 'manifest' | 'latent')
+                                  }
+                                : n
+                            )
+                          )
+                        }}
+                        className="px-2 py-1 border rounded text-xs bg-white"
+                      >
+                        <option value="auto">Auto (inferred)</option>
+                        <option value="manifest">Manifest</option>
+                        <option value="latent">Latent</option>
+                      </select>
+                    </div>
                   </>
                 )}
                 {selectedNode && selectedNode.type === 'constant' && (
@@ -2509,6 +2640,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                             onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onMouseEnter={() => (hoverNodeRef.current = n.id)}
                             onMouseLeave={() => (hoverNodeRef.current = null)}
+                            onDoubleClick={(e) => { e.stopPropagation(); toggleVariableCharacteristic(n.id) }}
                             style={{ cursor: 'grab' }}
                           />
                           <text
@@ -2529,7 +2661,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
               } else if ( renderType === 'latent' ) {
               return (
                 <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
-                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} style={{ cursor: 'grab' }} />
+                  <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} onDoubleClick={(e) => { e.stopPropagation(); toggleVariableCharacteristic(n.id) }} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
                     y={6}
@@ -2702,6 +2834,29 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
             <button
               onClick={() => setErrorMessage(null)}
               className="text-red-600 hover:text-red-900 font-bold text-lg ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Validation warnings notification - non-interfering, at bottom */}
+      {validationWarnings.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-amber-50 border-t-2 border-amber-300 px-4 py-3 text-sm text-amber-800 shadow-md" style={{ zIndex: errorMessage ? 40 : 50 }}>
+          <div className="flex items-start gap-2">
+            <span className="text-amber-600 font-bold text-lg">⚠</span>
+            <div className="flex-1">
+              <strong>Model validation issues:</strong>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                {validationWarnings.map((warning, idx) => (
+                  <li key={idx}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+            <button
+              onClick={() => setValidationWarnings([])}
+              className="text-amber-600 hover:text-amber-900 font-bold text-lg ml-2 flex-shrink-0"
             >
               ✕
             </button>
