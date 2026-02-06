@@ -10,7 +10,6 @@ visual-web-tool/*.map
 .Rproj.user/
 *.tar.gz
 *.Rcheck/
-.Rproj
 
 ## OS
 .DS_Store

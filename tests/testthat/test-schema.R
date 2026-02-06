@@ -1,5 +1,6 @@
 test_that("validateSchema accepts valid schema list", {
   schema <- list(
+    schemaVersion = 1,
     models = list(
       model1 = list(
         nodes = list(),

@@ -20,8 +20,18 @@
           "meta": { "type": "object", "description": "Model-specific metadata", "additionalProperties": true },
           "optimization": {
             "type": "object",
-            "description": "Optional model-specific optimization configuration including parameter type definitions and defaults",
+            "description": "Optional model-specific optimization configuration including parameter type definitions, fit function, and missing data handling",
             "properties": {
+              "fitFunction": {
+                "type": "string",
+                "enum": ["ML", "WLS", "DWLS", "ULS", "GLS"],
+                "description": "Fit function for parameter estimation. Defaults to ML if not specified."
+              },
+              "missingness": {
+                "type": "string",
+                "enum": ["FIML", "listwise", "pairwise"],
+                "description": "Strategy for handling missing data. This is a hint; the backend may use different strategies for different data types (e.g., covariance matrices have no missing data). Defaults to FIML for raw data if not specified."
+              },
               "parameterTypes": {
                 "type": "object",
                 "description": "Semantic categories for path parameters with default priors, bounds, and starting values",

@@ -21,7 +21,7 @@ loadSchema <- function(filepath) {
   }
   
   tryCatch(
-    jsonlite::read_json(filepath),
+    jsonlite::read_json(filepath, simplifyVector = FALSE, simplifyDataFrame = FALSE),
     error = function(e) {
       stop("Failed to parse JSON: ", conditionMessage(e), call. = FALSE)
     }
@@ -59,69 +59,11 @@ saveSchema <- function(schema, filepath, pretty = TRUE) {
   invisible(filepath)
 }
 
-#' Validate a Graph Schema
-#'
-#' @param schema A list or JSON string representing a schema.
-#' @param verbose Logical. If TRUE, message on success (default: TRUE).
-#'
-#' @return Invisibly returns TRUE if valid. Throws error if invalid.
-#'
-#' @details
-#' Checks that the schema has required top-level fields:
-#' `models`, `expansions`, `levelMap`, `backends`.
-#'
-#' Does NOT validate against the formal JSON schema (that's done in TypeScript).
-#' This is a minimal R-side check for basic structure.
-#'
-#' @examples
-#' \dontrun{
-#' schema <- loadSchema("model.json")
-#' validateSchema(schema)  # Message: "Schema valid"
-#' }
-#'
-#' @export
-validateSchema <- function(schema, verbose = TRUE) {
-  # Handle JSON string input
-  if (is.character(schema)) {
-    schema <- tryCatch(
-      jsonlite::fromJSON(schema),
-      error = function(e) {
-        stop("Invalid JSON string: ", conditionMessage(e), call. = FALSE)
-      }
-    )
-  }
-  
-  if (!is.list(schema)) {
-    stop("schema must be a list or JSON string", call. = FALSE)
-  }
-  
-  # Check required fields
-  required_fields <- c("models", "expansions", "levelMap")
-  missing_fields <- setdiff(required_fields, names(schema))
-  
-  if (length(missing_fields) > 0) {
-    stop(
-      "Schema missing required fields: ",
-      paste(missing_fields, collapse = ", "),
-      call. = FALSE
-    )
-  }
-  
-  # Check models is non-empty list
-  if (!is.list(schema$models) || length(schema$models) == 0) {
-    stop("schema$models must be a non-empty list", call. = FALSE)
-  }
-  
-  if (verbose) {
-    message("Schema valid (", length(schema$models), " model(s))")
-  }
-  
-  invisible(TRUE)
-}
+
 
 #' Get Schema Path
 #' @keywords internal
 #' @export
 getSchemaPath <- function() {
-  system.file("extdata", "graph.schema.json", package = "visualWebTool")
+  system.file("extdata", "graph.schema.json", package = "OpenMxWebUI")
 }
