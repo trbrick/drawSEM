@@ -54,7 +54,7 @@ test_that("GraphModel schema getter/setter works", {
   )
   gm <- new("GraphModel", schema = schema)
 
-  expect_equal(schema(gm), schema)
+  expect_equal(gm$schema, schema)
 
   new_schema <- list(
     schemaVersion = 1,
@@ -64,8 +64,8 @@ test_that("GraphModel schema getter/setter works", {
     )
   )
 
-  schema(gm) <- new_schema
-  expect_equal(length(schema(gm)$models), 2)
+  gm$schema <- new_schema
+  expect_equal(length(gm$schema$models), 2)
 })
 
 test_that("GraphModel data getter/setter works", {
@@ -76,10 +76,10 @@ test_that("GraphModel data getter/setter works", {
   gm <- new("GraphModel", schema = schema)
 
   test_data <- list(sample = data.frame(x = c(1, 2, 3), y = c(4, 5, 6)))
-  data(gm) <- test_data
+  gm$data <- test_data
 
-  expect_equal(length(data(gm)), 1)
-  expect_equal(nrow(data(gm)$sample), 3)
+  expect_equal(length(gm$data), 1)
+  expect_equal(nrow(gm$data$sample), 3)
 })
 
 test_that("GraphModel metadata getter/setter works", {
@@ -90,9 +90,9 @@ test_that("GraphModel metadata getter/setter works", {
   gm <- new("GraphModel", schema = schema)
 
   test_metadata <- list(unsupported = list(), fitInfo = NULL)
-  metadata(gm) <- test_metadata
+  gm$metadata <- test_metadata
 
-  expect_equal(metadata(gm)$unsupported, list())
+  expect_equal(gm$metadata$unsupported, list())
 })
 
 test_that("GraphModel show method displays information", {
@@ -117,7 +117,7 @@ test_that("GraphModel with multiple models", {
   )
 
   gm <- new("GraphModel", schema = schema)
-  expect_length(schema(gm)$models, 3)
+  expect_length(gm$schema$models, 3)
   expect_output(show(gm), "3 model")
 })
 

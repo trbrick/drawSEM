@@ -220,7 +220,7 @@ validateOptimizationParams <- function(schema) {
       path <- model$paths[[i]]
       
       # Skip data mapping paths (no parameter semantics)
-      if (!is.null(path$parameterType) && path$parameterType == "dataMapping") {
+      if (!is.null(path$parameterType) && isTRUE(path$parameterType == "dataMapping")) {
         next
       }
       

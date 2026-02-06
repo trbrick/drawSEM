@@ -531,3 +531,205 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
   
   gm
 }
+#' Convert MxRAMModel to GraphModel
+#'
+#' Convert an OpenMx RAM model to a GraphModel for visualization and manipulation.
+#'
+#' @param x An MxRAMModel object (from OpenMx)
+#'
+#' @return A GraphModel object with schema extracted from the model structure
+#'
+#' @details
+#' Extracts the model structure, parameters, and data from an MxRAMModel:
+#' - Manifest and latent variables become nodes
+#' - Asymmetric (A) and symmetric (S) matrix paths become graph edges
+#' - Current parameter values and free/fixed status are preserved
+#' - Data from the model is linked by reference
+#' - Fit function type is extracted (ML, WLS, etc.)
+#' - Unsupported features (constraints, algebras, thresholds) are warned about
+#'
+#' @examples
+#' \dontrun{
+#' library(OpenMx)
+#' # Fit an MxModel
+#' fit <- mxRun(myModel)
+#' # Convert to GraphModel for visualization
+#' gm <- as.GraphModel(fit)
+#' graphTool(gm)
+#' }
+#'
+#' @export
+#' @rdname as.GraphModel
+setMethod(
+  "as.GraphModel",
+  "MxRAMModel",
+  function(x) {
+    # Get model name
+    model_name <- x$name %||% "model1"
+    
+    # Get manifest and latent variables
+    manifest_vars <- x$manifestVars %||% c()
+    latent_vars <- x$latentVars %||% c()
+    
+    # Create nodes for all variables
+    nodes <- list()
+    
+    # Add manifest variable nodes
+    for (var in manifest_vars) {
+      nodes[[length(nodes) + 1]] <- list(
+        label = var,
+        type = "variable",
+        levelOfMeasurement = "individual"
+      )
+    }
+    
+    # Add latent variable nodes
+    for (var in latent_vars) {
+      nodes[[length(nodes) + 1]] <- list(
+        label = var,
+        type = "variable"
+      )
+    }
+    
+    # Add constant node (for means)
+    nodes[[length(nodes) + 1]] <- list(
+      label = "1",
+      type = "constant"
+    )
+    
+    # Extract paths from A and S matrices
+    paths <- list()
+    
+    # Helper to add path from matrix
+    add_paths_from_matrix <- function(matrix_name, num_arrows) {
+      mat <- x[[matrix_name]]
+      if (is.null(mat)) return(NULL)
+      
+      row_names <- rownames(mat$values) %||% seq_len(nrow(mat$values))
+      col_names <- colnames(mat$values) %||% seq_len(ncol(mat$values))
+      
+      path_list <- list()
+      for (i in seq_len(nrow(mat$values))) {
+        for (j in seq_len(ncol(mat$values))) {
+          val <- mat$values[i, j]
+          if (!is.na(val) && val != 0) {
+            label <- mat$labels[i, j] %||% NA
+            free <- mat$free[i, j] %||% FALSE
+            
+            path_list[[length(path_list) + 1]] <- list(
+              fromLabel = col_names[j],
+              toLabel = row_names[i],
+              numberOfArrows = num_arrows,
+              value = val,
+              free = if (free) "free" else "fixed",
+              label = label,
+              parameterType = NA_character_
+            )
+          }
+        }
+      }
+      path_list
+    }
+    
+    # Extract asymmetric (A) paths - single headed arrows
+    a_paths <- add_paths_from_matrix("A", 1)
+    if (!is.null(a_paths)) paths <- c(paths, a_paths)
+    
+    # Extract symmetric (S) paths - double headed arrows
+    s_paths <- add_paths_from_matrix("S", 2)
+    if (!is.null(s_paths)) paths <- c(paths, s_paths)
+    
+    # Update with fitted values if available (from fitted model)
+    if (!is.null(x$output) && !is.null(x$output$estimate)) {
+      # Update path values with fitted estimates
+      for (i in seq_along(paths)) {
+        param_label <- paths[[i]]$label
+        if (!is.na(param_label) && param_label %in% names(x$output$estimate)) {
+          paths[[i]]$value <- x$output$estimate[param_label]
+        }
+      }
+    }
+    
+    # Extract fit function type
+    fit_func <- x$fitfunction
+    fit_function <- "ML"
+    if (!is.null(fit_func)) {
+      class_name <- class(fit_func)[1]
+      if (grepl("WLS", class_name)) fit_function <- "WLS"
+      else if (grepl("DWLS", class_name)) fit_function <- "DWLS"
+      else if (grepl("ULS", class_name)) fit_function <- "ULS"
+      else if (grepl("GLS", class_name)) fit_function <- "GLS"
+    }
+    
+    # Build optimization configuration
+    optimization <- list(
+      fitFunction = fit_function,
+      parameterTypes = list()
+    )
+    
+    # Handle data
+    data_list <- list()
+    data_connections <- list()
+    if (!is.null(x$data)) {
+      data_obj <- x$data
+      # Infer data name from model or use "data"
+      data_name <- "data"
+      if (!is.null(data_obj$observed)) {
+        data_list[[data_name]] <- data_obj$observed
+        data_connections[[data_name]] <- list(
+          status = "user_bound",
+          filepath = NA_character_
+        )
+      }
+    }
+    
+    # Build schema
+    schema <- list(
+      schemaVersion = 1,
+      meta = list(
+        source = "OpenMx",
+        modelName = model_name
+      ),
+      models = list()
+    )
+    
+    schema$models[[model_name]] <- list(
+      label = model_name,
+      nodes = nodes,
+      paths = paths,
+      optimization = optimization
+    )
+    
+    # Issue warnings about unsupported features
+    warnings_list <- c()
+    
+    if (!is.null(x$constraints) && length(x$constraints) > 0) {
+      warnings_list <- c(warnings_list, "Constraints not supported - will be dropped")
+    }
+    
+    if (!is.null(x$algebras) && length(x$algebras) > 0) {
+      warnings_list <- c(warnings_list, "Algebras not supported - will be dropped")
+    }
+    
+    if (!is.null(x$expectation)) {
+      exp_class <- class(x$expectation)[1]
+      if (grepl("Threshold|Ordinal", exp_class)) {
+        warnings_list <- c(warnings_list, "Ordinal/threshold models not supported - will be dropped")
+      }
+    }
+    
+    for (warning_msg in warnings_list) {
+      warning(warning_msg, call. = FALSE)
+    }
+    
+    # Create GraphModel
+    gm <- as.GraphModel(
+      schema,
+      data = data_list
+    )
+    
+    gm@dataConnections <- data_connections
+    
+    gm
+  }
+)
