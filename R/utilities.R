@@ -37,7 +37,8 @@ renameDataColumns <- function(df, mapping) {
 
 #' Infer Manifest Variables from Nodes and Paths
 #'
-#' A variable is manifest if it has incoming paths from dataset nodes.
+#' A variable is manifest if it has variableCharacteristic$type="manifest"
+#' or (if not explicitly set) has incoming paths from dataset nodes.
 #'
 #' @param nodes List of node specifications
 #' @param paths List of path specifications
@@ -54,8 +55,28 @@ inferManifestVariables <- function(nodes, paths) {
   dataset_labels <- dataset_labels[!sapply(dataset_labels, is.null)]
   dataset_labels <- as.character(dataset_labels)
   
-  # Find variables with incoming paths FROM dataset nodes
+  # Build set of manifest variables from:
+  # 1. Explicit variableCharacteristic$type="manifest" 
+  # 2. Inferred from incoming dataMapping paths
   manifest <- sapply(
+    nodes,
+    function(n) {
+      # Check if explicitly set
+      if (n$type == "variable") {
+        vc <- n$variableCharacteristic
+        if (!is.null(vc) && !is.null(vc$type) && vc$type == "manifest") {
+          return(n$label)
+        }
+      }
+      NULL
+    }
+  )
+  
+  manifest <- manifest[!sapply(manifest, is.null)]
+  explicit_manifest <- unique(as.character(manifest))
+  
+  # Find variables with incoming dataMapping paths FROM dataset nodes
+  inferred_manifest <- sapply(
     paths,
     function(p) {
       if (p$fromLabel %in% dataset_labels && 
@@ -66,13 +87,17 @@ inferManifestVariables <- function(nodes, paths) {
     }
   )
   
-  manifest <- manifest[!sapply(manifest, is.null)]
-  unique(as.character(manifest))
+  inferred_manifest <- inferred_manifest[!sapply(inferred_manifest, is.null)]
+  inferred_manifest <- unique(as.character(inferred_manifest))
+  
+  # Combine explicit and inferred
+  unique(c(explicit_manifest, inferred_manifest))
 }
 
 #' Infer Latent Variables from Nodes and Manifest Variables
 #'
-#' A variable is latent if it's not manifest.
+#' A variable is latent if it has variableCharacteristic$type="latent"
+#' or (if not explicitly set) is not in the manifest set.
 #'
 #' @param nodes List of node specifications
 #' @param manifest_vars Character vector of manifest variable labels
@@ -81,12 +106,20 @@ inferManifestVariables <- function(nodes, paths) {
 #'
 #' @keywords internal
 inferLatentVariables <- function(nodes, manifest_vars) {
-  # All variable nodes that are NOT manifest
+  # All variable nodes that are either explicitly latent or not manifest
   latent <- sapply(
     nodes,
     function(n) {
-      if (n$type == "variable" && !(n$label %in% manifest_vars)) {
-        return(n$label)
+      if (n$type == "variable") {
+        # Check if explicitly set to latent
+        vc <- n$variableCharacteristic
+        if (!is.null(vc) && !is.null(vc$type) && vc$type == "latent") {
+          return(n$label)
+        }
+        # Otherwise, latent if not in manifest set
+        if (!(n$label %in% manifest_vars)) {
+          return(n$label)
+        }
       }
       NULL
     }
