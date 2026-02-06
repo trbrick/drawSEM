@@ -579,7 +579,7 @@ setMethod(
       nodes[[length(nodes) + 1]] <- list(
         label = var,
         type = "variable",
-        variableCharacteristic = list(type = "manifest"),
+        variableCharacteristics = list(manifestLatent = "manifest"),
         levelOfMeasurement = "individual"
       )
     }
@@ -589,7 +589,7 @@ setMethod(
       nodes[[length(nodes) + 1]] <- list(
         label = var,
         type = "variable",
-        variableCharacteristic = list(type = "latent")
+        variableCharacteristics = list(manifestLatent = "latent")
       )
     }
     

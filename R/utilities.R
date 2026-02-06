@@ -37,7 +37,7 @@ renameDataColumns <- function(df, mapping) {
 
 #' Infer Manifest Variables from Nodes and Paths
 #'
-#' A variable is manifest if it has variableCharacteristic$type="manifest"
+#' A variable is manifest if it has variableCharacteristics$manifestLatent="manifest"
 #' or (if not explicitly set) has incoming paths from dataset nodes.
 #'
 #' @param nodes List of node specifications
@@ -56,15 +56,15 @@ inferManifestVariables <- function(nodes, paths) {
   dataset_labels <- as.character(dataset_labels)
   
   # Build set of manifest variables from:
-  # 1. Explicit variableCharacteristic$type="manifest" 
+  # 1. Explicit variableCharacteristics$manifestLatent="manifest" 
   # 2. Inferred from incoming dataMapping paths
   manifest <- sapply(
     nodes,
     function(n) {
       # Check if explicitly set
       if (n$type == "variable") {
-        vc <- n$variableCharacteristic
-        if (!is.null(vc) && !is.null(vc$type) && vc$type == "manifest") {
+        vc <- n$variableCharacteristics
+        if (!is.null(vc) && !is.null(vc$manifestLatent) && vc$manifestLatent == "manifest") {
           return(n$label)
         }
       }
@@ -96,7 +96,7 @@ inferManifestVariables <- function(nodes, paths) {
 
 #' Infer Latent Variables from Nodes and Manifest Variables
 #'
-#' A variable is latent if it has variableCharacteristic$type="latent"
+#' A variable is latent if it has variableCharacteristics$manifestLatent="latent"
 #' or (if not explicitly set) is not in the manifest set.
 #'
 #' @param nodes List of node specifications
@@ -112,8 +112,8 @@ inferLatentVariables <- function(nodes, manifest_vars) {
     function(n) {
       if (n$type == "variable") {
         # Check if explicitly set to latent
-        vc <- n$variableCharacteristic
-        if (!is.null(vc) && !is.null(vc$type) && vc$type == "latent") {
+        vc <- n$variableCharacteristics
+        if (!is.null(vc) && !is.null(vc$manifestLatent) && vc$manifestLatent == "latent") {
           return(n$label)
         }
         # Otherwise, latent if not in manifest set
