@@ -27,8 +27,12 @@ type Node = {
   type: NodeType
   // optional display name (for UI only) - separate from label used for matching/export
   displayName?: string
-  // for variable nodes: optional lock to manifest/latent; omit to auto-infer from database paths
-  variableCharacteristic?: 'manifest' | 'latent'
+  // for variable nodes: semantic characteristics (manifestLatent, exogeneity, customTags)
+  variableCharacteristics?: {
+    manifestLatent?: 'manifest' | 'latent'
+    exogeneity?: 'exogenous' | 'endogenous'
+    customTags?: string[]
+  }
   // optional level of measurement (for multilevel models)
   levelOfMeasurement?: string // e.g., 'within', 'between', 'between-person', etc.
   // optional size for manifest nodes
@@ -642,16 +646,16 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
   }, [nodes])
 
   // Helper: determine if a variable node should render as manifest or latent
-  // If variableCharacteristic is set, use that (it acts as a "lock")
+  // If variableCharacteristics.manifestLatent is set, use that (it acts as a "lock")
   // Otherwise, auto-infer: manifest if has incoming dataset path at same level, latent otherwise
   // Returns 'manifest' or 'latent' for rendering purposes
   const getVariableRenderType = (nodeId: string): 'manifest' | 'latent' => {
     const node = nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'variable') return 'latent'
     
-    // If variableCharacteristic is explicitly set, use it (locked)
-    if (node.variableCharacteristic) {
-      return node.variableCharacteristic
+    // If manifestLatent is explicitly set, use it (locked)
+    if (node.variableCharacteristics?.manifestLatent) {
+      return node.variableCharacteristics.manifestLatent
     }
     
     // Otherwise, auto-infer from database paths
@@ -703,39 +707,64 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     return errors
   }
 
-  // Helper: toggle variable characteristic on double-click
+  // Helper: toggle variable manifestLatent characteristic on double-click
   const toggleVariableCharacteristic = (nodeId: string) => {
     const node = nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'variable') return
     
     const currentDisplay = getVariableRenderType(nodeId)
     const hasPath = hasDatasetPath(nodeId)
+    const currentManifestLatent = node.variableCharacteristics?.manifestLatent
     
-    if (!node.variableCharacteristic) {
-      // No lock: set characteristic to opposite of current display
+    if (!currentManifestLatent) {
+      // No lock: set manifestLatent to opposite of current display
       const opposite = currentDisplay === 'manifest' ? 'latent' : 'manifest'
       setNodes((ns) =>
         ns.map((n) =>
-          n.id === nodeId ? { ...n, variableCharacteristic: opposite } : n
+          n.id === nodeId 
+            ? { 
+                ...n, 
+                variableCharacteristics: {
+                  ...n.variableCharacteristics,
+                  manifestLatent: opposite
+                }
+              } 
+            : n
         )
       )
     } else {
       // Locked: test if removing the lock would change display
       const autoInferredDisplay = hasPath ? 'manifest' : 'latent'
       
-      if (autoInferredDisplay !== node.variableCharacteristic) {
+      if (autoInferredDisplay !== currentManifestLatent) {
         // Removing lock would change display: remove it
         setNodes((ns) =>
           ns.map((n) =>
-            n.id === nodeId ? { ...n, variableCharacteristic: undefined } : n
+            n.id === nodeId 
+              ? { 
+                  ...n, 
+                  variableCharacteristics: {
+                    ...n.variableCharacteristics,
+                    manifestLatent: undefined
+                  }
+                } 
+              : n
           )
         )
       } else {
         // Removing lock wouldn't change display: toggle to other option
-        const newCharacteristic = node.variableCharacteristic === 'manifest' ? 'latent' : 'manifest'
+        const newCharacteristic = currentManifestLatent === 'manifest' ? 'latent' : 'manifest'
         setNodes((ns) =>
           ns.map((n) =>
-            n.id === nodeId ? { ...n, variableCharacteristic: newCharacteristic } : n
+            n.id === nodeId 
+              ? { 
+                  ...n, 
+                  variableCharacteristics: {
+                    ...n.variableCharacteristics,
+                    manifestLatent: newCharacteristic
+                  }
+                } 
+              : n
           )
         )
       }
@@ -2032,9 +2061,9 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                       Display Type: <span className="font-medium">{getVariableRenderType(selectedNode.id)}</span>
                     </div>
                     <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
-                      <span>Variable Characteristic:</span>
+                      <span>Manifest/Latent:</span>
                       <select
-                        value={selectedNode.variableCharacteristic || 'auto'}
+                        value={selectedNode.variableCharacteristics?.manifestLatent || 'auto'}
                         onChange={(e) => {
                           const val = e.target.value
                           setNodes((ns) =>
@@ -2042,7 +2071,10 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                               n.id === selectedNode.id
                                 ? {
                                     ...n,
-                                    variableCharacteristic: val === 'auto' ? undefined : (val as 'manifest' | 'latent')
+                                    variableCharacteristics: {
+                                      ...n.variableCharacteristics,
+                                      manifestLatent: val === 'auto' ? undefined : (val as 'manifest' | 'latent')
+                                    }
                                   }
                                 : n
                             )

@@ -9,7 +9,11 @@ export interface Node {
   y: number
   label: string
   type: 'variable' | 'constant' | 'dataset'
-  variableCharacteristic?: 'manifest' | 'latent'
+  variableCharacteristics?: {
+    manifestLatent?: 'manifest' | 'latent'
+    exogeneity?: 'exogenous' | 'endogenous'
+    customTags?: string[]
+  }
   levelOfMeasurement?: string
   width?: number
   height?: number

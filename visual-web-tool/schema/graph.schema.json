@@ -70,7 +70,28 @@
                 "id": { "type": "string" },
                 "label": { "type": "string", "minLength": 1 },
                 "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
-                "variableCharacteristic": { "type": "string", "enum": ["manifest", "latent"], "description": "For variable nodes: 'manifest' if connected to data, 'latent' if not. When specified, locks the node to this display type, overriding auto-inference from database paths. Omit to use auto-inferred type (manifest if dataset path exists, latent otherwise)." },
+                "variableCharacteristics": {
+                  "type": "object",
+                  "description": "For variable nodes: semantic characteristics defining how the variable behaves structurally",
+                  "properties": {
+                    "manifestLatent": {
+                      "type": "string",
+                      "enum": ["manifest", "latent"],
+                      "description": "Whether the variable is observed (manifest) or unobserved (latent). When specified, locks the display type, overriding auto-inference from database paths. Omit to auto-infer: manifest if dataset path exists, latent otherwise."
+                    },
+                    "exogeneity": {
+                      "type": "string",
+                      "enum": ["exogenous", "endogenous"],
+                      "description": "Whether the variable is externally determined (exogenous) or internally determined by the model (endogenous)"
+                    },
+                    "customTags": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "User-defined tags for additional classification or metadata"
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
                 "tags": {
                   "type": "array",
