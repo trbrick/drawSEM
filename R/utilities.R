@@ -302,3 +302,18 @@ getConstantNodeLabel <- function(nodes) {
   NULL
 }
 
+#' NULL Coalescing Operator
+#'
+#' Returns the left side if it's not NULL, otherwise returns the right side.
+#'
+#' @param x Left side value
+#' @param y Right side value (default if x is NULL)
+#'
+#' @return x if x is not NULL, otherwise y
+#'
+#' @keywords internal
+#' @noRd
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+

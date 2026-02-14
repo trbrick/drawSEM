@@ -2,28 +2,74 @@
 % Please edit documentation in R/schema.R
 \name{saveSchema}
 \alias{saveSchema}
-\title{Save a Graph Schema to JSON File}
+\title{Save a Graph Schema to JSON File with Optional Data Export}
 \usage{
-saveSchema(schema, filepath, pretty = TRUE)
+saveSchema(
+  g,
+  filepath,
+  ...,
+  dataPath = ".",
+  dataFile = NULL,
+  writeData = NA,
+  strictData = NA,
+  pretty = TRUE
+)
 }
 \arguments{
-\item{schema}{A list representing the schema.}
+\item{g}{An S4 GraphModel object.}
 
 \item{filepath}{Character. Path where JSON should be written.}
 
-\item{pretty}{Logical. If TRUE, format with indentation (default: TRUE).}
+\item{..., }{Additional arguments (reserved for future use).}
+
+\item{dataPath}{Character. Directory where data files should be saved.
+Defaults to "." (current working directory).}
+
+\item{dataFile}{Character or NULL. Filename for exported data. If NULL and data exists,
+inferred from schema filename (e.g., "schema.json" → "schema.csv").}
+
+\item{writeData}{Logical or NA. If TRUE, always write data files. If FALSE, never write.
+If NA (default), write if file doesn't exist, warn if exists.}
+
+\item{strictData}{Logical or NA. If TRUE (error mode), fail if data missing when writeData specified.
+If FALSE (warning mode), warn but continue. If NA (default), same as FALSE with warning.}
+
+\item{pretty}{Logical. If TRUE (default), format JSON with indentation.}
 }
 \value{
 Invisibly returns the filepath (for chaining).
 }
 \description{
-Save a Graph Schema to JSON File
+Save a Graph Schema to JSON File with Optional Data Export
+}
+\details{
+Data export strategy depends on the writeData parameter:
+\itemize{
+\item TRUE: Always overwrite existing files
+\item FALSE: Never export data (only schema)
+\item NA (default): Write if file doesn't exist, warn if it does
+}
+
+Relative paths in the schema are stored relative to the schema directory.
+Absolute paths are stored as-is but may break if the schema is moved.
+
+When writeData is requested but data is missing from the GraphModel:
+\itemize{
+\item strictData=TRUE: Error (fail fast)
+\item strictData=FALSE or NA: Warning (continue with schema-only save)
+}
 }
 \examples{
 \dontrun{
-schema <- loadSchema("model.json")
-# ... modify schema ...
-saveSchema(schema, "model_modified.json")
+# Create and save with auto data export (first save only)
+g <- as.GraphModel(schema, data = list(mydata = df))
+saveSchema(g, "model.json")  # Exports data if file doesn't exist
+
+# Save again with forced update
+saveSchema(g, "model.json", writeData = TRUE)
+
+# Save schema only, no data export
+saveSchema(g, "model.json", writeData = FALSE)
 }
 
 }

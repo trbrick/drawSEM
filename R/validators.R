@@ -142,14 +142,20 @@ validatePathReferences <- function(schema) {
     for (i in seq_along(model$paths)) {
       path <- model$paths[[i]]
       
-      if (is.null(path$fromLabel) || !nzchar(as.character(path$fromLabel))) {
+      # Handle jsonlite list-wrapping of string values
+      fromLabel <- path$fromLabel
+      if (is.list(fromLabel)) fromLabel <- unlist(fromLabel)
+      toLabel <- path$toLabel
+      if (is.list(toLabel)) toLabel <- unlist(toLabel)
+      
+      if (is.null(fromLabel) || !nzchar(as.character(fromLabel))) {
         stop(
           sprintf("Model '%s': path %d missing or empty 'fromLabel'", model_id, i),
           call. = FALSE
         )
       }
       
-      if (is.null(path$toLabel) || !nzchar(as.character(path$toLabel))) {
+      if (is.null(toLabel) || !nzchar(as.character(toLabel))) {
         stop(
           sprintf("Model '%s': path %d missing or empty 'toLabel'", model_id, i),
           call. = FALSE
@@ -157,39 +163,42 @@ validatePathReferences <- function(schema) {
       }
       
       # Check nodes exist
-      if (!(path$fromLabel %in% node_labels)) {
+      if (!(fromLabel %in% node_labels)) {
         stop(
           sprintf(
             "Model '%s': path %d references non-existent node '%s'",
-            model_id, i, path$fromLabel
+            model_id, i, fromLabel
           ),
           call. = FALSE
         )
       }
       
-      if (!(path$toLabel %in% node_labels)) {
+      if (!(toLabel %in% node_labels)) {
         stop(
           sprintf(
             "Model '%s': path %d references non-existent node '%s'",
-            model_id, i, path$toLabel
+            model_id, i, toLabel
           ),
           call. = FALSE
         )
       }
       
-      # Check numberOfArrows
-      if (is.null(path$numberOfArrows) || !is.numeric(path$numberOfArrows)) {
+      # Check numberOfArrows (unlist in case jsonlite wrapped it)
+      num_arrows <- path$numberOfArrows
+      if (is.list(num_arrows)) num_arrows <- unlist(num_arrows)
+      
+      if (is.null(num_arrows) || !is.numeric(num_arrows)) {
         stop(
           sprintf("Model '%s': path %d missing or invalid 'numberOfArrows'", model_id, i),
           call. = FALSE
         )
       }
       
-      if (!(path$numberOfArrows %in% c(0, 1, 2))) {
+      if (!(num_arrows %in% c(0, 1, 2))) {
         stop(
           sprintf(
             "Model '%s': path %d: numberOfArrows must be 0, 1, or 2 (got %d)",
-            model_id, i, path$numberOfArrows
+            model_id, i, num_arrows
           ),
           call. = FALSE
         )

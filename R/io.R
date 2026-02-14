@@ -1,6 +1,179 @@
 #' @include GraphModel-class.R GraphModel-methods.R validators.R utilities.R converters.R
 NULL
 
+# ============================================================================
+# Helper Functions for Data Persistence
+# ============================================================================
+
+#' Infer Column Types from Data Frame
+#'
+#' Maps R data types to JSON-appropriate type names for roundtrip serialization.
+#'
+#' @param df A data.frame
+#'
+#' @return A named character vector where names are column names and values are
+#'   JSON types ("number", "string", "boolean", "ordinal")
+#'
+#' @noRd
+inferColumnTypes <- function(df) {
+  types <- sapply(df, function(col) {
+    if (is.numeric(col)) {
+      "number"
+    } else if (is.logical(col)) {
+      "boolean"
+    } else if (is.factor(col) || is.ordered(col)) {
+      "ordinal"
+    } else {
+      "string"  # Default for character and others
+    }
+  }, USE.NAMES = TRUE)
+  
+  return(types)
+}
+
+#' Convert Data Frame to JSON-Compatible Format
+#'
+#' Serializes a data.frame into an array of row objects with metadata about
+#' column types and names.
+#'
+#' @param df A data.frame to serialize
+#'
+#' @return A list with elements:
+#'   - `columnTypes`: Named character vector of JSON types
+#'   - `object`: Array of row objects (list of lists) for JSON serialization
+#'
+#' @noRd
+dataFrameToJSON <- function(df) {
+  if (!is.data.frame(df) || nrow(df) == 0) {
+    return(list(
+      columnTypes = inferColumnTypes(df),
+      object = list()
+    ))
+  }
+  
+  # Get column types
+  columnTypes <- inferColumnTypes(df)
+  
+  # Convert each row to a named list
+  rows <- lapply(seq_len(nrow(df)), function(i) {
+    row_as_list <- as.list(df[i, , drop = TRUE])
+    # Ensure all values are properly unboxed
+    lapply(row_as_list, function(x) if (length(x) == 1) x[[1]] else x)
+  })
+  
+  list(
+    columnTypes = columnTypes,
+    object = rows
+  )
+}
+
+#' Convert JSON Data to Data Frame
+#'
+#' Deserializes JSON array-of-objects back into a data.frame with proper type
+#' coercion based on columnTypes metadata.
+#'
+#' @param jsonObject A list (from JSON array-of-objects)
+#' @param columnTypes A named character vector of JSON types
+#'
+#' @return A data.frame with columns in the correct order and types
+#'
+#' @noRd
+jsonToDataFrame <- function(jsonObject, columnTypes) {
+  if (length(jsonObject) == 0) {
+    # Empty data frame
+    df <- data.frame()
+    return(df)
+  }
+  
+  # Convert list of objects to data frame
+  df <- as.data.frame(do.call(rbind, jsonObject), stringsAsFactors = FALSE)
+  
+  # Apply type coercion based on columnTypes
+  for (col_name in names(columnTypes)) {
+    if (col_name %in% names(df)) {
+      json_type <- columnTypes[[col_name]]
+      
+      if (json_type == "number") {
+        df[[col_name]] <- as.numeric(df[[col_name]])
+      } else if (json_type == "boolean") {
+        df[[col_name]] <- as.logical(df[[col_name]])
+      } else if (json_type == "ordinal") {
+        df[[col_name]] <- as.factor(df[[col_name]])
+      } else if (json_type == "string") {
+        df[[col_name]] <- as.character(df[[col_name]])
+      }
+    }
+  }
+  
+  return(df)
+}
+
+#' Resolve Data File Path
+#'
+#' Resolves a file path relative to schema directory, with support for absolute
+#' paths and override dataPath argument.
+#'
+#' @param location The path from the schema (may be relative or absolute)
+#' @param schemaDir The directory containing the schema file
+#' @param dataPath User-specified override path (defaults to ".")
+#'
+#' @return An absolute file path
+#'
+#' @noRd
+resolveDataPath <- function(location, schemaDir, dataPath = ".") {
+  # If location is NULL/NA/empty, return NULL
+  if (is.null(location) || is.na(location) || !nzchar(location)) {
+    return(NULL)
+  }
+  
+  # Check if path is absolute (starts with / or drive letter on Windows)
+  is_absolute <- grepl("^(/|[A-Za-z]:)", location)
+  
+  if (is_absolute) {
+    return(normalizePath(location, mustWork = FALSE))
+  }
+  
+  # If dataPath is ".", use schemaDir
+  if (dataPath == ".") {
+    return(normalizePath(file.path(schemaDir, location), mustWork = FALSE))
+  }
+  
+  # Otherwise, resolve relative to dataPath
+  return(normalizePath(file.path(dataPath, location), mustWork = FALSE))
+}
+
+#' Normalize Schema from JSON Parsing
+#'
+#' Fixes jsonlite quirks where scalar values are wrapped in lists.
+#' Recursively unlists single-element lists that should be scalars.
+#'
+#' @param obj A list potentially containing wrapped scalar values
+#'
+#' @return The normalized list with scalar values unwrapped
+#'
+#' @keywords internal
+#' @noRd
+normalizeSchemaFromJSON <- function(obj) {
+  if (!is.list(obj)) {
+    return(obj)
+  }
+  
+  # Recursively normalize all elements
+  obj <- lapply(obj, function(x) {
+    if (is.list(x) && length(x) == 1 && !is.list(x[[1]])) {
+      # Single-element list containing a scalar - unwrap it
+      return(x[[1]])
+    } else if (is.list(x)) {
+      # Recursively normalize nested lists
+      return(normalizeSchemaFromJSON(x))
+    } else {
+      return(x)
+    }
+  })
+  
+  return(obj)
+}
+
 #' Create GraphModel from Schema
 #'
 #' S4 method to construct a GraphModel object from a JSON schema.
@@ -52,8 +225,19 @@ setMethod(
     # Parse input into schema list
     if (is.character(x)) {
       if (file.exists(x)) {
-        # It's a file path
-        schema <- loadSchema(x)
+        # It's a file path - use loadSchema which handles everything
+        # loadSchema returns a complete GraphModel, so just return it
+        gm <- loadSchema(x)
+        
+        # Optionally merge in user-provided metadata and data
+        if (!is.null(metadata) && length(metadata) > 0) {
+          gm@metadata <- c(gm@metadata, metadata)
+        }
+        if (!is.null(data) && is.list(data) && length(data) > 0) {
+          gm@data <- c(gm@data, data)
+        }
+        
+        return(gm)
       } else {
         # Try to parse as JSON string
         schema <- tryCatch(
@@ -69,9 +253,18 @@ setMethod(
       }
     } else if (is.list(x)) {
       schema <- x
+    } else if (is(x, "GraphModel")) {
+      # If already a GraphModel, optionally merge metadata/data and return
+      if (!is.null(metadata) && length(metadata) > 0) {
+        x@metadata <- c(x@metadata, metadata)
+      }
+      if (!is.null(data) && is.list(data) && length(data) > 0) {
+        x@data <- c(x@data, data)
+      }
+      return(x)
     } else {
       stop(
-        "x must be a schema list, JSON string, or file path",
+        "x must be a schema list, JSON string, file path, or GraphModel",
         call. = FALSE
       )
     }
@@ -325,10 +518,16 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
   # Build output list
   output <- list(
     schemaVersion = graph_obj@schema$schemaVersion,
-    meta = graph_obj@schema$meta,
-    models = graph_obj@schema$models,
-    metadata = graph_obj@metadata
+    models = graph_obj@schema$models
   )
+  
+  # Add optional meta field if present in schema
+  if (!is.null(graph_obj@schema$meta)) {
+    output$meta <- graph_obj@schema$meta
+  }
+  
+  # Add metadata
+  output$metadata <- graph_obj@metadata
   
   # Write to file
   tryCatch(
@@ -390,152 +589,106 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
     stop("File not found: ", filepath, call. = FALSE)
   }
   
-  schema <- loadSchema(filepath)
+  # Load graph model using loadSchema (which handles all data loading)
+  gm <- loadSchema(filepath, dataPath = datapath)
   
-  # Extract metadata if present
-  metadata <- schema$meta %||% list()
-  
-  # Initialize data list (to be populated below)
-  bound_data <- list()
-  connections <- list()
-  
-  # If user provided data, validate and use it
+  # If user provided data, merge it into the model's data
   if (!is.null(data) && is.list(data) && length(data) > 0) {
-    bound_data <- data
-    # Mark user-provided data as "user_bound"
+    # Merge user-provided data with schema-loaded data
+    gm@data <- c(gm@data, data)
+    
+    # Update dataConnections for user-provided data
     for (dataset_name in names(data)) {
-      connections[[dataset_name]] <- list(
+      gm@dataConnections[[dataset_name]] <- list(
         status = "user_bound",
         filepath = NA_character_
       )
     }
   }
   
-  # Extract all dataset nodes from all models in schema
-  all_datasets <- list()
-  if (!is.null(schema$models)) {
-    for (model_id in names(schema$models)) {
-      model <- schema$models[[model_id]]
-      dataset_nodes <- Filter(function(n) n$type == "dataset", model$nodes %||% list())
-      for (node in dataset_nodes) {
-        dataset_label <- node$label
-        if (!(dataset_label %in% names(all_datasets))) {
-          all_datasets[[dataset_label]] <- list(
-            node = node,
-            datasetFile = node$datasetFile %||% list()
-          )
-        }
-      }
-    }
-  }
-  
-  # Try to eagerly load files from schema for datasets not already bound
-  for (dataset_label in names(all_datasets)) {
-    # Skip if already bound by user
-    if (dataset_label %in% names(bound_data)) {
-      next
-    }
-    
-    dataset_info <- all_datasets[[dataset_label]]
-    datasetFile <- dataset_info$datasetFile
-    
-    # If schema specifies a file, try to find and load it
-    if (!is.null(datasetFile$fileName)) {
-      file_path <- file.path(datapath, datasetFile$fileName)
-      
-      if (file.exists(file_path)) {
-        # File exists, try to load and validate
-        tryCatch(
-          {
-            df <- read.csv(file_path, stringsAsFactors = FALSE)
-            
-            # Validate columns match schema
-            schema_cols <- datasetFile$columns %||% c()
-            file_cols <- colnames(df)
-            
-            if (length(schema_cols) > 0) {
-              missing_cols <- setdiff(schema_cols, file_cols)
-              if (length(missing_cols) > 0) {
-                # Column mismatch - mark as unconnected for lazy load
-                warning(
-                  sprintf(
-                    "Dataset '%s': File '%s' missing columns: %s. Will attempt lazy load at model-build time.",
-                    dataset_label, datasetFile$fileName, paste(missing_cols, collapse = ", ")
-                  ),
-                  call. = FALSE
-                )
-                connections[[dataset_label]] <- list(
-                  status = "lazy",
-                  filepath = file_path,
-                  columns = file_cols
-                )
-              } else {
-                # Columns match - eager load successful
-                bound_data[[dataset_label]] <- df
-                connections[[dataset_label]] <- list(
-                  status = "eager",
-                  filepath = file_path,
-                  columns = file_cols
-                )
-              }
-            } else {
-              # No schema columns specified, just load it
-              bound_data[[dataset_label]] <- df
-              connections[[dataset_label]] <- list(
-                status = "eager",
-                filepath = file_path,
-                columns = file_cols
-              )
-            }
-          },
-          error = function(e) {
-            # File exists but couldn't be read - mark for lazy load
-            warning(
-              sprintf(
-                "Dataset '%s': Failed to read file '%s': %s. Will attempt lazy load at model-build time.",
-                dataset_label, file_path, conditionMessage(e)
-              ),
-              call. = FALSE
-            )
-            connections[[dataset_label]] <<- list(
-              status = "lazy",
-              filepath = file_path
-            )
-          }
-        )
-      } else {
-        # File not found - mark as unconnected, will attempt lazy load later
-        connections[[dataset_label]] <- list(
-          status = "lazy",
-          filepath = file_path
-        )
-      }
-    } else {
-      # No file specified in schema
-      connections[[dataset_label]] <- list(
-        status = "unconnected",
-        filepath = NA_character_
-      )
-    }
-  }
-  
-  # Create GraphModel
-  gm <- as.GraphModel(
-    schema,
-    metadata = metadata,
-    data = bound_data
-  )
-  
-  # Store connection state
-  gm@dataConnections <- connections
-  
+  # Return the GraphModel
   gm
 }
-#' Convert MxRAMModel to GraphModel
+#' Infer Parameter Type from Path Structure
 #'
-#' Convert an OpenMx RAM model to a GraphModel for visualization and manipulation.
+#' Determine semantic parameter type based on path endpoints and node types.
 #'
-#' @param x An MxRAMModel object (from OpenMx)
+#' @param from_label Source node label
+#' @param to_label Target node label
+#' @param num_arrows Path arrows (1 or 2)
+#' @param manifest_vars Character vector of manifest variable labels
+#' @param latent_vars Character vector of latent variable labels
+#'
+#' @return Character; parameter type ("loading", "regression", "covariance", "variance", "mean", "dataMapping")
+#'
+#' @keywords internal
+#' @noRd
+inferParameterTypeFromStructure <- function(from_label, to_label, num_arrows, manifest_vars, latent_vars) {
+  is_manifest_from <- from_label %in% manifest_vars
+  is_manifest_to <- to_label %in% manifest_vars
+  is_latent_from <- from_label %in% latent_vars
+  is_latent_to <- to_label %in% latent_vars
+  is_constant_from <- from_label == "1"
+  
+  # Single-headed arrows
+  if (num_arrows == 1) {
+    if (is_constant_from) return("mean")
+    if (is_latent_from && is_manifest_to) return("loading")
+    if (is_manifest_from && is_manifest_to) return("regression")
+    if (is_latent_from && is_latent_to) return("regression")
+    return("regression")  # Default
+  }
+  
+  # Double-headed arrows (covariances/variances)
+  if (num_arrows == 2) {
+    if (is_constant_from) return("mean")
+    if (identical(from_label, to_label)) return("variance")
+    return("covariance")
+  }
+  
+  return("parameter")  # Fallback
+}
+
+#' Extract Optimization Hints from MxMatrix
+#'
+#' Extract starting values and bounds from OpenMx matrix specification.
+#'
+#' @param matrix MxMatrix object
+#' @param row_idx Matrix row index
+#' @param col_idx Matrix column index
+#'
+#' @return List with start, bounds (or NULL if defaults)
+#'
+#' @keywords internal
+#' @noRd
+extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
+  opt_list <- list()
+  
+  # Extract starting value
+  start_val <- matrix$values[row_idx, col_idx]
+  if (!is.na(start_val)) {
+    opt_list$start <- start_val
+  }
+  
+  # Extract bounds if available
+  bounds <- matrix$lbound[row_idx, col_idx]
+  ubound <- matrix$ubound[row_idx, col_idx]
+  if (!is.na(bounds) || !is.na(ubound)) {
+    opt_list$bounds <- c(
+      if (is.na(bounds)) NULL else bounds,
+      if (is.na(ubound)) NULL else ubound
+    )
+  }
+  
+  # Return NULL if no optimization info, otherwise the list
+  if (length(opt_list) == 0) NULL else opt_list
+}
+
+#' Convert MxModel to GraphModel
+#'
+#' Convert an OpenMx model to a GraphModel for visualization and manipulation.
+#'
+#' @param x An MxModel object (from OpenMx)
 #'
 #' @return A GraphModel object with schema extracted from the model structure
 #'
@@ -544,6 +697,8 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
 #' - Manifest and latent variables become nodes
 #' - Asymmetric (A) and symmetric (S) matrix paths become graph edges
 #' - Current parameter values and free/fixed status are preserved
+#' - Parameter types inferred from path structure (loading, regression, etc.)
+#' - Optimization hints (start values, bounds) extracted at path level
 #' - Data from the model is linked by reference
 #' - Fit function type is extracted (ML, WLS, etc.)
 #' - Unsupported features (constraints, algebras, thresholds) are warned about
@@ -562,7 +717,7 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
 #' @rdname as.GraphModel
 setMethod(
   "as.GraphModel",
-  "MxRAMModel",
+  "MxModel",
   function(x) {
     # Get model name
     model_name <- x$name %||% "model1"
@@ -570,6 +725,58 @@ setMethod(
     # Get manifest and latent variables
     manifest_vars <- x$manifestVars %||% c()
     latent_vars <- x$latentVars %||% c()
+    
+    # Get A and S matrix names from expectation (they are stored as strings in the expectation)
+    a_name <- x$expectation$A %||% "A"
+    s_name <- x$expectation$S %||% "S"
+    m_name <- x$expectation$M
+    
+    # If manifest_vars is empty, try to extract from matrix dimnames
+    if (length(manifest_vars) == 0 && !is.null(x[[a_name]])) {
+      manifest_vars <- colnames(x[[a_name]]$values) %||% c()
+    }
+    
+    all_vars <- c(manifest_vars, latent_vars)
+    
+    # Handle data first (before creating nodes) so dataset_node is available
+    data_list <- list()
+    data_connections <- list()
+    dataset_node <- NULL
+    
+    if (!is.null(x$data)) {
+      data_obj <- x$data
+      # Infer data name from model or use "data"
+      data_name <- "data"
+      if (!is.null(data_obj$observed)) {
+        df <- data_obj$observed
+        data_list[[data_name]] <- df
+        data_connections[[data_name]] <- list(
+          status = "user_bound",
+          filepath = NA_character_
+        )
+        
+        # Create dataset node with embedded datasetSource
+        data_as_json <- dataFrameToJSON(df)
+        
+        dataset_node <- list(
+          id = "dataset_primary",
+          label = data_name,
+          type = "dataset",
+          datasetSource = list(
+            type = "embedded",
+            format = "json",
+            encoding = "UTF-8",
+            columnTypes = data_as_json$columnTypes,
+            object = data_as_json$object,
+            rowCount = nrow(df)
+          ),
+          mappings = setNames(
+            names(df),
+            names(df)
+          )
+        )
+      }
+    }
     
     # Create nodes for all variables
     nodes <- list()
@@ -593,11 +800,16 @@ setMethod(
       )
     }
     
-    # Add constant node (for means)
+    # Add constant node (for means) - use "one" to match OpenMx variable names
     nodes[[length(nodes) + 1]] <- list(
-      label = "1",
+      label = "one",
       type = "constant"
     )
+    
+    # Add dataset node if data exists
+    if (!is.null(dataset_node)) {
+      nodes[[length(nodes) + 1]] <- dataset_node
+    }
     
     # Extract paths from A and S matrices
     paths <- list()
@@ -618,14 +830,30 @@ setMethod(
             label <- mat$labels[i, j] %||% NA
             free <- mat$free[i, j] %||% FALSE
             
+            from_label <- col_names[j]
+            to_label <- row_names[i]
+            
+            # Infer parameter type from structure
+            param_type <- inferParameterTypeFromStructure(
+              from_label, to_label, num_arrows,
+              manifest_vars, latent_vars
+            )
+            
+            # Extract optimization info (start, bounds)
+            opt_info <- extractOptimizationFromMatrix(mat, i, j)
+            if (is.null(opt_info)) {
+              opt_info <- list()
+            }
+            
             path_list[[length(path_list) + 1]] <- list(
-              fromLabel = col_names[j],
-              toLabel = row_names[i],
+              fromLabel = from_label,
+              toLabel = to_label,
               numberOfArrows = num_arrows,
               value = val,
               free = if (free) "free" else "fixed",
               label = label,
-              parameterType = NA_character_
+              parameterType = param_type,
+              optimization = opt_info
             )
           }
         }
@@ -634,12 +862,56 @@ setMethod(
     }
     
     # Extract asymmetric (A) paths - single headed arrows
-    a_paths <- add_paths_from_matrix("A", 1)
+    a_paths <- add_paths_from_matrix(a_name, 1)
     if (!is.null(a_paths)) paths <- c(paths, a_paths)
     
     # Extract symmetric (S) paths - double headed arrows
-    s_paths <- add_paths_from_matrix("S", 2)
+    s_paths <- add_paths_from_matrix(s_name, 2)
     if (!is.null(s_paths)) paths <- c(paths, s_paths)
+    
+    # Extract means from M vector - create paths from "one" (constant) to variables
+    m_paths <- NULL
+    m_name <- x$expectation$M
+    if (!is.null(m_name) && is.character(m_name) && !is.na(m_name)) {
+      m_mat <- x[[m_name]]
+      if (!is.null(m_mat)) {
+        # M is a matrix object with $values, $labels, $free
+        m_values <- m_mat$values
+        m_labels <- m_mat$labels %||% matrix(NA, nrow = nrow(m_values), ncol = ncol(m_values))
+        m_free <- m_mat$free %||% matrix(FALSE, nrow = nrow(m_values), ncol = ncol(m_values))
+        
+        if (!is.null(m_values)) {
+          # M is typically 1 x p (1 row, p columns for p manifest variables)
+          m_paths <- list()
+          for (j in seq_len(ncol(m_values))) {
+            val <- m_values[1, j]
+            if (!is.na(val) && val != 0) {
+              # Map to correct manifest variable
+              var_name <- manifest_vars[j] %||% paste0("V", j)
+              label <- m_labels[1, j] %||% NA
+              free <- m_free[1, j] %||% FALSE
+              
+              opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
+              if (is.null(opt_info)) {
+                opt_info <- list()
+              }
+              
+              m_paths[[length(m_paths) + 1]] <- list(
+                fromLabel = "one",
+                toLabel = var_name,
+                numberOfArrows = 1,
+                value = val,
+                free = if (free) "free" else "fixed",
+                label = label,
+                parameterType = "mean",
+                optimization = opt_info
+              )
+            }
+          }
+        }
+      }
+    }
+    if (!is.null(m_paths)) paths <- c(paths, m_paths)
     
     # Update with fitted values if available (from fitted model)
     if (!is.null(x$output) && !is.null(x$output$estimate)) {
@@ -663,27 +935,18 @@ setMethod(
       else if (grepl("GLS", class_name)) fit_function <- "GLS"
     }
     
-    # Build optimization configuration
-    optimization <- list(
-      fitFunction = fit_function,
-      parameterTypes = list()
+    # Build optimization configuration with semantic parameter type definitions
+    # These are empty skeletons - hints are stored at path level, not type level
+    semantic_param_types <- c("loading", "regression", "covariance", "variance", "mean", "dataMapping")
+    param_types_skeleton <- setNames(
+      lapply(semantic_param_types, function(x) list()),
+      semantic_param_types
     )
     
-    # Handle data
-    data_list <- list()
-    data_connections <- list()
-    if (!is.null(x$data)) {
-      data_obj <- x$data
-      # Infer data name from model or use "data"
-      data_name <- "data"
-      if (!is.null(data_obj$observed)) {
-        data_list[[data_name]] <- data_obj$observed
-        data_connections[[data_name]] <- list(
-          status = "user_bound",
-          filepath = NA_character_
-        )
-      }
-    }
+    optimization <- list(
+      fitFunction = fit_function,
+      parameterTypes = param_types_skeleton
+    )
     
     # Build schema
     schema <- list(

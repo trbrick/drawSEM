@@ -179,3 +179,10 @@ Nodes support `levelOfMeasurement` field (e.g., `'within'`, `'between'`, `'betwe
 - Import script: [scripts/import-graph.js](../scripts/import-graph.js)
 - Converters: [src/utils/converters.ts](../src/utils/converters.ts) (Unicode), [src/utils/runtimeConverter.ts](../src/utils/runtimeConverter.ts) (schema↔runtime)
 
+## Copilot Instructions
+- Apply to all files: `**/*`
+- Focus on maintaining consistency between schema and runtime formats, especially around multi-model structure and node/path properties.
+- When suggesting code, prioritize clarity in state management within the CanvasTool component.
+- Ensure any new features or changes respect the existing architecture and data flow.
+- Ask for clarification whenever answers are unclear
+- Do not check in generated code without testing and pausing for human review. Always ensure that generated code is consistent with the current architecture and does not introduce breaking changes without proper handling.

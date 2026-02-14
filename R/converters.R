@@ -163,23 +163,63 @@ buildMxData <- function(model, data) {
   }
   
   dataset_node <- dataset_nodes[[1]]
-  # Use label as the data identifier (nodes don't have id field in our schema)
+  # Use label as the data identifier
   dataset_label <- dataset_node$label
   
-  # Get the actual data
-  if (!(dataset_label %in% names(data))) {
-    stop(
-      sprintf(
-        "Dataset '%s' not found in provided data",
-        dataset_label
-      ),
-      call. = FALSE
-    )
+  # Get the actual data based on datasetSource type
+  df <- NULL
+  
+  if (!is.null(dataset_node$datasetSource)) {
+    ds <- dataset_node$datasetSource
+    
+    if (ds$type == "embedded" && !is.null(ds$object)) {
+      # Load embedded data from schema
+      df <- jsonToDataFrame(ds$object, ds$columnTypes)
+    } else if (ds$type == "file" && !is.null(ds$location)) {
+      # Check if data exists in GraphModel@data (already loaded)
+      if (dataset_label %in% names(data) && is.data.frame(data[[dataset_label]])) {
+        df <- data[[dataset_label]]
+      } else if (dataset_label %in% names(data) && is.character(data[[dataset_label]])) {
+        # Data path was stored, load it now
+        filepath <- data[[dataset_label]]
+        df <- tryCatch(
+          read.csv(filepath, stringsAsFactors = FALSE),
+          error = function(e) {
+            stop(
+              sprintf("Failed to load data file '%s': %s", filepath, conditionMessage(e)),
+              call. = FALSE
+            )
+          }
+        )
+      } else {
+        stop(
+          sprintf("Data not found for file-based dataset '%s'", dataset_label),
+          call. = FALSE
+        )
+      }
+    }
+  } else {
+    # Fallback: check if data is in the data list
+    if (dataset_label %in% names(data)) {
+      df <- data[[dataset_label]]
+    }
   }
   
-  df <- data[[dataset_label]]
+  # If still no data, try to get it from the data list
+  if (is.null(df)) {
+    if (!(dataset_label %in% names(data))) {
+      stop(
+        sprintf(
+          "Dataset '%s' not found in provided data",
+          dataset_label
+        ),
+        call. = FALSE
+      )
+    }
+    df <- data[[dataset_label]]
+  }
   
-  # Handle file paths
+  # Handle file paths (legacy support)
   if (is.character(df)) {
     tryCatch(
       df <- read.csv(df, stringsAsFactors = FALSE),
@@ -199,15 +239,11 @@ buildMxData <- function(model, data) {
     )
   }
   
-  # Build column mapping from data mapping paths
+  # Build column mapping from dataset node's mappings field (structural approach)
   mapping <- list()
-  for (path in model$paths) {
-    if (!is.null(path$parameterType) && path$parameterType == "dataMapping" && path$fromLabel == dataset_node$label) {
-      # Map: CSV column (path label) -> variable name (path toLabel)
-      csv_col <- path$label
-      var_name <- path$toLabel
-      mapping[[var_name]] <- csv_col
-    }
+  if (!is.null(dataset_node$mappings) && length(dataset_node$mappings) > 0) {
+    # mappings is a named list where names are CSV columns and values are variable node IDs/labels
+    mapping <- dataset_node$mappings
   }
   
   # If no explicit mappings, use all columns as-is
@@ -228,8 +264,31 @@ buildMxData <- function(model, data) {
     
     df <- df[, vars_in_data, drop = FALSE]
   } else {
-    # Rename columns to match variable names
-    df <- renameDataColumns(df, mapping)
+    # Handle column mappings: names = CSV columns, values = variable names
+    # Select only the mapped columns and rename them
+    csv_cols <- names(mapping)
+    var_names <- unlist(mapping)
+    
+    # Filter out any NA values in the mapping
+    valid_mask <- !is.na(var_names)
+    csv_cols <- csv_cols[valid_mask]
+    var_names <- var_names[valid_mask]
+    
+    # Check that all CSV columns exist in the data
+    missing_cols <- setdiff(csv_cols, colnames(df))
+    if (length(missing_cols) > 0) {
+      stop(
+        sprintf(
+          "Data columns not found: %s",
+          paste(missing_cols, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+    
+    # Select and rename columns
+    df <- df[, csv_cols, drop = FALSE]
+    colnames(df) <- var_names
   }
   
   # Create mxData

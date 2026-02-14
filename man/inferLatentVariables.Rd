@@ -15,6 +15,7 @@ inferLatentVariables(nodes, manifest_vars)
 Character vector of latent variable labels
 }
 \description{
-A variable is latent if it's not manifest.
+A variable is latent if it has variableCharacteristics$manifestLatent="latent"
+or (if not explicitly set) is not in the manifest set.
 }
 \keyword{internal}

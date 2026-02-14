@@ -15,6 +15,7 @@ inferManifestVariables(nodes, paths)
 Character vector of manifest variable labels
 }
 \description{
-A variable is manifest if it has incoming paths from dataset nodes.
+A variable is manifest if it has variableCharacteristics$manifestLatent="manifest"
+or (if not explicitly set) has incoming paths from dataset nodes.
 }
 \keyword{internal}

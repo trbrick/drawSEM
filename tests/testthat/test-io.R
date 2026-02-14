@@ -150,7 +150,8 @@ test_that("exportSchema saves schema to JSON file", {
   expect_true(file.exists(temp_file))
 
   loaded <- jsonlite::read_json(temp_file)
-  expect_equal(loaded$schemaVersion, 1)
+  # jsonlite wraps scalar values in lists when simplifyVector=FALSE
+  expect_equal(unlist(loaded$schemaVersion), 1)
   expect_true("model1" %in% names(loaded$models))
 })
 

@@ -169,8 +169,8 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
   gm <- as.GraphModel(schema, data = list(sample = test_data))
 
   expect_s4_class(gm, "GraphModel")
-  expect_true("sample" %in% names(data(gm)))
-  expect_equal(nrow(data(gm)$sample), 5)
+  expect_true("sample" %in% names(gm$data))
+  expect_equal(nrow(gm$data$sample), 5)
 })
 
 test_that("End-to-end: Manifest/latent variable inference works correctly", {
@@ -184,7 +184,7 @@ test_that("End-to-end: Manifest/latent variable inference works correctly", {
           list(label = "x1", type = "variable"),
           list(label = "x2", type = "variable"),
           list(label = "x3", type = "variable"),
-          list(label = "data", type = "dataset")
+          list(label = "sample", type = "dataset")
         ),
         paths = list(
           # Data paths for x1, x2 only
@@ -291,7 +291,7 @@ test_that("End-to-end: Schema with unsupported features warns user", {
     "Unsupported features detected"
   )
 
-  unsupported <- metadata(gm)$unsupported
+  unsupported <- gm$metadata$unsupported
   expect_true(unsupported$zeroHeadedPaths)
 })
 
@@ -316,6 +316,6 @@ test_that("End-to-end: Multiple models in schema are preserved", {
 
   gm <- as.GraphModel(schema)
 
-  expect_equal(length(schema(gm)$models), 3)
-  expect_true(all(c("model1", "model2", "model3") %in% names(schema(gm)$models)))
+  expect_equal(length(gm$schema$models), 3)
+  expect_true(all(c("model1", "model2", "model3") %in% names(gm$schema$models)))
 })

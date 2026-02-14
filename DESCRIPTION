@@ -14,6 +14,8 @@ Imports:
   methods,
   htmlwidgets,
   jsonlite,
+  digest,
+  tools,
   OpenMx (>= 2.21)
 Suggests:
   testthat (>= 3.0.0)
@@ -22,8 +24,9 @@ Collate:
     'GraphModel-class.R'
     'GraphModel-methods.R'
     'converters.R'
-    'graphTool.R'
     'utilities.R'
     'validators.R'
     'io.R'
+    'fitting.R'
+    'graphTool.R'
     'schema.R'

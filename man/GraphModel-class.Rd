@@ -36,7 +36,9 @@ Typical workflow:
 See the graph.schema.json for full specification.}
 
 \item{\code{data}}{A named list where names are dataset node IDs and values are data.frames or
-file paths (character strings). Used by the converter to build mxData objects.}
+file paths (character strings). For embedded data, data.frames are stored directly.
+For file-based data, file paths are resolved at load time based on schema location
+and dataPath argument. Used by the converter to build mxData objects.}
 
 \item{\code{metadata}}{A list for storing UI state and other non-schema information. May contain:
 \itemize{

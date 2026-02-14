@@ -2,27 +2,57 @@
 % Please edit documentation in R/schema.R
 \name{loadSchema}
 \alias{loadSchema}
-\title{Load a Graph Schema from JSON File}
+\title{Load a Graph Schema from JSON File with Optional Data Loading}
 \usage{
-loadSchema(filepath)
+loadSchema(filepath, ..., loadData = NA, dataPath = ".")
 }
 \arguments{
 \item{filepath}{Character. Path to JSON file containing schema.}
+
+\item{...}{Additional arguments passed to read.csv() when loading file-based data.}
+
+\item{loadData}{Logical or NA. If TRUE, force load all data files. If FALSE, mark as lazy.
+If NA (default), auto-load files < 10MB, lazy-load larger files.}
+
+\item{dataPath}{Character. Path to prepend to relative data paths in schema.
+Defaults to "." (current working directory).}
 }
 \value{
-A list representing the schema (JSON structure).
+An S4 GraphModel object with schema and data loaded (if applicable).
 }
 \description{
-Load a Graph Schema from JSON File
+Load a Graph Schema from JSON File with Optional Data Loading
 }
 \details{
-The schema defines the structure of a structural equation model:
-nodes, paths, constraints, data sources, etc.
+The schema defines the structure of a structural equation model with optional
+data source references.
+
+For file-based data sources, paths are resolved relative to either:
+\itemize{
+\item The schema file directory (if path is relative)
+\item An absolute path (if path starts with / or drive letter)
+\item The dataPath argument (overrides schema directory)
+}
+
+Embedded data is always loaded into R objects.
+
+The loadData parameter controls file loading strategy:
+\itemize{
+\item TRUE: Always load files immediately
+\item FALSE: Never load, mark for lazy loading
+\item NA (default): Load if file < 10MB, else lazy-load
+}
 }
 \examples{
 \dontrun{
-schema <- loadSchema("model.json")
-validateSchema(schema)
+# Load with default smart loading
+g <- loadSchema("model.json")
+
+# Force load all data
+g <- loadSchema("model.json", loadData = TRUE)
+
+# Load with custom CSV options
+g <- loadSchema("model.json", stringsAsFactors = FALSE, na.strings = ".")
 }
 
 }
