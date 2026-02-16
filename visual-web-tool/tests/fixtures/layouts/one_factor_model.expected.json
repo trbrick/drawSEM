@@ -1,0 +1,18 @@
+{
+  "description": "Expected layout for one_factor_model: F→X1-X3 should produce 2 ranks with F at top, X1-X3 below",
+  "expectedRanks": {
+    "F": 1,
+    "X1": 0,
+    "X2": 0,
+    "X3": 0,
+    "1": 2,
+    "data": 2
+  },
+  "expectedOrdering": {
+    "rank_0": ["X1", "X2", "X3"],
+    "rank_1": ["F"],
+    "rank_2": ["1", "data"]
+  },
+  "notes": "Standard confirmatory factor analysis: one latent factor loading on three manifest indicators. Constant and database both target low-rank variables, so both position below."
+}
+

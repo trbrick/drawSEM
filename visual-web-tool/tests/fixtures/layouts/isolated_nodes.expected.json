@@ -1,0 +1,19 @@
+{
+  "description": "Expected layout for isolated_nodes: X→Y→Z (connected), A and B (isolated) should separate into different ranks",
+  "expectedRanks": {
+    "X": 2,
+    "Y": 1,
+    "Z": 0,
+    "A": 2,
+    "B": 2,
+    "1": -1,
+    "data": -1
+  },
+  "expectedOrdering": {
+    "rank_minus1": ["1", "data"],
+    "rank_0": ["Z"],
+    "rank_1": ["Y"],
+    "rank_2": ["X", "A", "B"]
+  },
+  "notes": "Isolated nodes (A, B with no connections) should be grouped with top-rank nodes at the source level. Constant and database target all variables with median rank at source level, so both position above."
+}

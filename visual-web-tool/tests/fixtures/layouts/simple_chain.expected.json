@@ -1,0 +1,18 @@
+{
+  "description": "Expected layout for simple_chain: X→Y→Z should produce 3 ranks with X first, Y in middle, Z last",
+  "expectedRanks": {
+    "X": 2,
+    "Y": 1,
+    "Z": 0,
+    "1": -1,
+    "data": 3
+  },
+  "expectedOrdering": {
+    "rank_0": ["Z"],
+    "rank_1": ["Y"],
+    "rank_2": ["X"],
+    "rank_minus1": ["1"],
+    "rank_3": ["data"]
+  },
+  "notes": "Constants positioned above, databases below main diagonal flow"
+}

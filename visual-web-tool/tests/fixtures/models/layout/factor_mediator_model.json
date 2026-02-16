@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Factor Mediator Model",
+    "description": "Mediation through a latent factor: manifest predictors X1-X2 → latent F → manifest outcomes X3-X5, with error variances on all variables"
+  },
+  "models": {
+    "factor_mediator": {
+      "label": "Factor Mediator Model",
+      "nodes": [
+        {"id": "X1", "label": "X1", "type": "variable", "tags": ["manifest", "predictor"]},
+        {"id": "X2", "label": "X2", "type": "variable", "tags": ["manifest", "predictor"]},
+        {"id": "F", "label": "F", "type": "variable", "tags": ["latent", "mediator"]},
+        {"id": "X3", "label": "X3", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"id": "X4", "label": "X4", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"id": "X5", "label": "X5", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"id": "const", "label": "1", "type": "constant"},
+        {"id": "data", "label": "data", "type": "dataset"}
+      ],
+      "paths": [
+        {"fromLabel": "X1", "toLabel": "F", "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "regression"},
+        {"fromLabel": "X2", "toLabel": "F", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
+        {"fromLabel": "F", "toLabel": "X3", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "loading"},
+        {"fromLabel": "F", "toLabel": "X4", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "loading"},
+        {"fromLabel": "F", "toLabel": "X5", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "loading"},
+        {"fromLabel": "1", "toLabel": "X1", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"fromLabel": "1", "toLabel": "X2", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"fromLabel": "1", "toLabel": "X3", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"fromLabel": "1", "toLabel": "X4", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"fromLabel": "1", "toLabel": "X5", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"fromLabel": "X1", "toLabel": "X1", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance"},
+        {"fromLabel": "X2", "toLabel": "X2", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance"},
+        {"fromLabel": "F", "toLabel": "F", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"fromLabel": "X3", "toLabel": "X3", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"fromLabel": "X4", "toLabel": "X4", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"fromLabel": "X5", "toLabel": "X5", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"fromLabel": "data", "toLabel": "X1", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"fromLabel": "data", "toLabel": "X2", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"fromLabel": "data", "toLabel": "X3", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"fromLabel": "data", "toLabel": "X4", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"fromLabel": "data", "toLabel": "X5", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"}
+      ]
+    }
+  }
+}

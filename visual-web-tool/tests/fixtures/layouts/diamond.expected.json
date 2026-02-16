@@ -1,0 +1,20 @@
+{
+  "description": "Expected layout for diamond: X→Y, X→Z, Y→W, Z→W should produce 3 ranks with convergence pattern",
+  "expectedRanks": {
+    "X": 2,
+    "Y": 1,
+    "Z": 1,
+    "W": 0,
+    "1": -1,
+    "data": 3
+  },
+  "expectedOrdering": {
+    "rank_0": ["W"],
+    "rank_1": ["Y", "Z"],
+    "rank_2": ["X"],
+    "rank_minus1": ["1"],
+    "rank_3": ["data"]
+  },
+  "notes": "Diamond/convergence pattern: Y and Z both depend on X, W depends on both Y and Z"
+}
+

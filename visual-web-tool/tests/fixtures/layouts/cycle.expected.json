@@ -1,0 +1,18 @@
+{
+  "description": "Expected layout for cycle: X→Y→Z→X should place all in same rank (requires special handling)",
+  "expectedRanks": {
+    "X": 2,
+    "Y": 2,
+    "Z": 2,
+    "1": -1,
+    "data": 3
+  },
+  "expectedOrdering": {
+    "rank_2": ["X", "Y", "Z"],
+    "rank_minus1": ["1"],
+    "rank_3": ["data"]
+  },
+  "notes": "Full cycle X→Y→Z→X: all nodes achieve same longest path length (2) representing paths around the cycle without repetition, assigned to same rank. Special handling may be added in future versions."
+}
+
+

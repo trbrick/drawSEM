@@ -1,0 +1,21 @@
+{
+  "description": "Expected layout for factor_mediator_model: X1-X2→F→X3-X5 should produce 3 ranks",
+  "expectedRanks": {
+    "X1": 2,
+    "X2": 2,
+    "F": 1,
+    "X3": 0,
+    "X4": 0,
+    "X5": 0,
+    "1": 3,
+    "data": 3
+  },
+  "expectedOrdering": {
+    "rank_0": ["X3", "X4", "X5"],
+    "rank_1": ["F"],
+    "rank_2": ["X1", "X2"],
+    "rank_3": ["1", "data"]
+  },
+  "notes": "Latent mediator model: manifest predictors X1-X2 affect latent mediator F, which affects manifest outcomes X3-X5. Constant and database both target low-rank (manifest) variables, positioning below."
+}
+

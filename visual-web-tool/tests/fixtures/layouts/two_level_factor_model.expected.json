@@ -1,0 +1,24 @@
+{
+  "description": "Expected layout for two_level_factor_model: F3→F1→X1-X3, F3→F2→X4-X6 should produce 3 ranks",
+  "expectedRanks": {
+    "F3": 2,
+    "F1": 1,
+    "F2": 1,
+    "X1": 0,
+    "X2": 0,
+    "X3": 0,
+    "X4": 0,
+    "X5": 0,
+    "X6": 0,
+    "1": 3,
+    "data": 3
+  },
+  "expectedOrdering": {
+    "rank_0": ["X1", "X2", "X3", "X4", "X5", "X6"],
+    "rank_1": ["F1", "F2"],
+    "rank_2": ["F3"],
+    "rank_3": ["1", "data"]
+  },
+  "notes": "Second-order factor: higher-order latent F3 governs two first-order factors F1 and F2. Constant and database both target low-rank (manifest) variables, positioning below."
+}
+
