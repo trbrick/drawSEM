@@ -12,7 +12,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "test:reports": "node scripts/generate-layout-reports.js",
+    "test:report": "node scripts/generate-layout-reports.js",
     "import:graph": "node scripts/import-graph.js",
     "csv:metadata": "node scripts/csv-metadata.js"
   },

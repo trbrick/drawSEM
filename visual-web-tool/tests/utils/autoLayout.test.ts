@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { autoLayout } from '../../src/utils/autoLayout'
@@ -25,7 +25,7 @@ function loadExpectedLayout(filename: string): any {
 
 // Helper to write layout reports for visual validation
 function writeLayoutReport(filename: string, html: string): void {
-  const reportsDir = join(__dirname, '../../dist/test-reports')
+  const reportsDir = join(__dirname, '../../dist/test-reports/layout')
   try {
     mkdirSync(reportsDir, { recursive: true })
   } catch (e) {
@@ -33,6 +33,32 @@ function writeLayoutReport(filename: string, html: string): void {
   }
   const filepath = join(reportsDir, filename)
   writeFileSync(filepath, html, 'utf-8')
+}
+
+// Helper to update test metadata with run timestamp
+function updateTestMetadata(): void {
+  const reportsDir = join(__dirname, '../../dist/test-reports')
+  try {
+    mkdirSync(reportsDir, { recursive: true })
+  } catch (e) {
+    // Directory may already exist
+  }
+  
+  const metadataPath = join(reportsDir, 'test-metadata.json')
+  let metadata = {}
+  
+  // Read existing metadata if it exists
+  try {
+    const existing = readFileSync(metadataPath, 'utf-8')
+    metadata = JSON.parse(existing)
+  } catch (e) {
+    // File doesn't exist or is invalid, start fresh
+  }
+  
+  // Update layout test timestamp
+  metadata.layoutTestsRunAt = new Date().toISOString()
+  
+  writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8')
 }
 
 describe('RAMPath Layout Algorithm', () => {
@@ -465,5 +491,10 @@ describe('RAMPath Layout Algorithm', () => {
       expect(positions).toBeDefined()
       expect(Object.keys(positions)).toHaveLength(0)
     })
+  })
+
+  // Update metadata after all tests complete
+  afterAll(() => {
+    updateTestMetadata()
   })
 })

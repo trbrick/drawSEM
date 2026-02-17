@@ -178,7 +178,7 @@ export function generateLayoutReport(
   <h1>Layout Report: ${escapeHtml(modelName)}</h1>
   
   <div class="section">
-    <h2>Visualization</h2>
+    <h2 id="visualization">Visualization</h2>
     ${svg}
   </div>
 

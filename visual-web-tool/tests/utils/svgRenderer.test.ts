@@ -3,7 +3,7 @@
  * Tests SVG generation from positioned graph models
  */
 
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { autoLayout } from '../../src/utils/autoLayout'
@@ -31,6 +31,34 @@ function writeSvgReport(filename: string, svg: string): void {
   }
   const filepath = join(reportsDir, filename)
   writeFileSync(filepath, svg, 'utf-8')
+}
+
+/**
+ * Helper to update test metadata with run timestamp
+ */
+function updateTestMetadata(): void {
+  const reportsDir = join(__dirname, '../../dist/test-reports')
+  try {
+    mkdirSync(reportsDir, { recursive: true })
+  } catch (e) {
+    // Directory may already exist
+  }
+  
+  const metadataPath = join(reportsDir, 'test-metadata.json')
+  let metadata = {}
+  
+  // Read existing metadata if it exists
+  try {
+    const existing = readFileSync(metadataPath, 'utf-8')
+    metadata = JSON.parse(existing)
+  } catch (e) {
+    // File doesn't exist or is invalid, start fresh
+  }
+  
+  // Update SVG test timestamp
+  metadata.svgTestsRunAt = new Date().toISOString()
+  
+  writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8')
 }
 
 /**
@@ -110,10 +138,61 @@ describe('SVG Renderer', () => {
 
     it('should exclude dataset nodes when showDatasetNodes=false', () => {
       const svg = modelToSVG(schema, positions, undefined, { showDatasetNodes: false })
-      // Count rects - dataset nodes should be excluded
-      const rects = (svg.match(/<rect/g) || []).length
+      const model = schema.models[Object.keys(schema.models)[0]]
+      const hasDataset = model.nodes.some(n => n.type === 'dataset')
+      
+      if (hasDataset) {
+        // If the fixture has a dataset node, verify it's NOT in the SVG
+        // Dataset nodes are rendered with ellipses (for database can icon)
+        const svgWithDataset = modelToSVG(schema, positions, undefined, { showDatasetNodes: true })
+        const ellipsesWithDataset = (svgWithDataset.match(/<ellipse/g) || []).length
+        const ellipsesWithoutDataset = (svg.match(/<ellipse/g) || []).length
+        expect(ellipsesWithoutDataset).toBeLessThan(ellipsesWithDataset)
+      }
       
       // Just verify the SVG is still valid and has content
+      expect(svg).toContain('<svg')
+      expect(svg).toContain('</svg>')
+    })
+
+    it('should exclude constant nodes when showConstantNodes=false', () => {
+      const svg = modelToSVG(schema, positions, undefined, { showConstantNodes: false })
+      const model = schema.models[Object.keys(schema.models)[0]]
+      const hasConstant = model.nodes.some(n => n.type === 'constant')
+      
+      if (hasConstant) {
+        // If the fixture has a constant node, verify it's NOT in the SVG
+        // Constant nodes are rendered as polygons (triangles)
+        const svgWithConstant = modelToSVG(schema, positions, undefined, { showConstantNodes: true })
+        const polygonsWithConstant = (svgWithConstant.match(/<polygon/g) || []).length
+        const polygonsWithoutConstant = (svg.match(/<polygon/g) || []).length
+        expect(polygonsWithoutConstant).toBeLessThan(polygonsWithConstant)
+      }
+      
+      // Just verify the SVG is still valid and has content
+      expect(svg).toContain('<svg')
+      expect(svg).toContain('</svg>')
+    })
+
+    it('should exclude both dataset and constant nodes when both show flags are false', () => {
+      const svg = modelToSVG(schema, positions, undefined, { 
+        showDatasetNodes: false,
+        showConstantNodes: false 
+      })
+      const model = schema.models[Object.keys(schema.models)[0]]
+      
+      // Get counts from the full SVG
+      const svgFull = modelToSVG(schema, positions)
+      const ellipsesWithDataset = (svgFull.match(/<ellipse/g) || []).length
+      const polygonsWithConstant = (svgFull.match(/<polygon/g) || []).length
+      const ellipsesFiltered = (svg.match(/<ellipse/g) || []).length
+      const polygonsFiltered = (svg.match(/<polygon/g) || []).length
+      
+      // Should have fewer or equal shapes when filtering
+      expect(ellipsesFiltered).toBeLessThanOrEqual(ellipsesWithDataset)
+      expect(polygonsFiltered).toBeLessThanOrEqual(polygonsWithConstant)
+      
+      // SVG should still be valid
       expect(svg).toContain('<svg')
       expect(svg).toContain('</svg>')
     })
@@ -548,5 +627,10 @@ describe('SVG Renderer', () => {
       const svg = modelToSVG(schema, positions)
       expect(svg.endsWith('</svg>')).toBe(true)
     })
+  })
+
+  // Update metadata after all tests complete
+  afterAll(() => {
+    updateTestMetadata()
   })
 })

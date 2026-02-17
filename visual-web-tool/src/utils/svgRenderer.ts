@@ -12,6 +12,7 @@ import {
   DATASET_DEFAULT_W,
   DATASET_DEFAULT_H,
 } from './constants'
+import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
 
 /**
  * Position map interface matching autoLayout output
@@ -32,6 +33,8 @@ export interface SvgExportOptions {
   padding?: number
   /** Show dataset nodes (default: true) */
   showDatasetNodes?: boolean
+  /** Show constant nodes (default: true) */
+  showConstantNodes?: boolean
   /** Path label format: 'labels', 'values', 'both', 'neither', or null */
   pathLabelFormat?: 'labels' | 'values' | 'both' | 'neither' | null
   /** Background color (default: 'white') */
@@ -39,15 +42,9 @@ export interface SvgExportOptions {
 }
 
 /**
- * Display styling constants
+ * Path-specific stroke width (thicker than nodes)
  */
-const DISPLAY_COLORS = {
-  fill: '#fff',
-  stroke: '#000',
-  selectedStroke: '#ff0000',
-  defaultStrokeWidth: 1.5,
-  pathStrokeWidth: 1.6,
-}
+const PATH_STROKE_WIDTH = 1.6
 
 /**
  * Bounding box type
@@ -66,22 +63,13 @@ function normalizeOptions(options?: SvgExportOptions): Required<SvgExportOptions
   return {
     padding: options?.padding ?? 40,
     showDatasetNodes: options?.showDatasetNodes ?? true,
+    showConstantNodes: options?.showConstantNodes ?? true,
     pathLabelFormat: options?.pathLabelFormat ?? 'neither',
     backgroundColor: options?.backgroundColor ?? 'white',
   }
 }
 
-/**
- * Escape XML special characters for safe text embedding
- */
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
+// escapeXml is now imported from nodeRender.ts (shared utility)
 
 /**
  * Get bounding box of a node based on its type and position
@@ -128,24 +116,6 @@ function getNodeBounds(node: Node, pos: { x: number; y: number }): BoundingBox {
     height: triangleSize,
   }
 }
-
-/**
- * Determine if a variable node should render as manifest or latent
- * Port of logic from CanvasTool.getVariableRenderType()
- */
-function getVariableRenderType(node: Node): 'manifest' | 'latent' {
-  if (node.type !== 'variable') return 'manifest'
-  
-  // If locked by visualization hint, use that
-  if (node.visual?.width !== undefined || node.visual?.height !== undefined) {
-    return 'manifest'
-  }
-
-  // Otherwise, treat variables with custom dimensions as manifest, rest as latent
-  // Default behavior: latent (circle) unless explicitly marked
-  return 'latent'
-}
-
 /**
  * Get center of a node
  */
@@ -471,35 +441,10 @@ function getPathLabelPos(
 
 /**
  * Render a single node as SVG
+ * Uses shared node rendering logic from nodeRender.ts for consistency with CanvasTool
  */
 function renderNode(node: Node, pos: { x: number; y: number }): string {
-  if (node.type === 'variable') {
-    const renderType = getVariableRenderType(node)
-    if (renderType === 'latent') {
-      // circle for latent variables
-      return `<circle cx="${pos.x}" cy="${pos.y}" r="${LATENT_RADIUS}" fill="${DISPLAY_COLORS.fill}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${DISPLAY_COLORS.defaultStrokeWidth}" />`
-    }
-    // rounded rectangle for manifest
-    const width = node.visual?.width ?? MANIFEST_DEFAULT_W
-    const height = node.visual?.height ?? MANIFEST_DEFAULT_H
-    const x = pos.x - width / 2
-    const y = pos.y - height / 2
-    return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="4" fill="${DISPLAY_COLORS.fill}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${DISPLAY_COLORS.defaultStrokeWidth}" />`
-  }
-
-  if (node.type === 'dataset') {
-    // rounded rectangle for dataset
-    const width = node.visual?.width ?? DATASET_DEFAULT_W
-    const height = node.visual?.height ?? DATASET_DEFAULT_H
-    const x = pos.x - width / 2
-    const y = pos.y - height / 2
-    return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="4" fill="${DISPLAY_COLORS.fill}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${DISPLAY_COLORS.defaultStrokeWidth}" />`
-  }
-
-  // constant: triangle
-  // Points: top (0, -22), bottom-right (19, 11), bottom-left (-19, 11)
-  const pts = `${pos.x},${pos.y - 22} ${pos.x + 19},${pos.y + 11} ${pos.x - 19},${pos.y + 11}`
-  return `<polygon points="${pts}" fill="${DISPLAY_COLORS.fill}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${DISPLAY_COLORS.defaultStrokeWidth}" />`
+  return renderNodeSvg(node, pos)
 }
 
 /**
@@ -527,7 +472,7 @@ function renderPath(
   const markerEnd = 'url(#arrow-end)'
   const markerStart = path.numberOfArrows === 2 ? 'url(#arrow-start)' : 'none'
 
-  return `<path d="${d}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${DISPLAY_COLORS.pathStrokeWidth}" fill="none" marker-end="${markerEnd}" marker-start="${markerStart}" />`
+  return `<path d="${d}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${PATH_STROKE_WIDTH}" fill="none" marker-end="${markerEnd}" marker-start="${markerStart}" />`
 }
 
 /**
@@ -604,6 +549,7 @@ export function modelToSVG(
   // Filter visible nodes
   const visibleNodes = model.nodes.filter((n) => {
     if (n.type === 'dataset') return opts.showDatasetNodes
+    if (n.type === 'constant') return opts.showConstantNodes
     return true
   })
 
