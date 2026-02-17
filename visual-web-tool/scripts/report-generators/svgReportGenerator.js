@@ -73,9 +73,10 @@ function generateSvgReport(reportsDir) {
       text-decoration: underline;
     }
     .svg-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(600px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
       gap: 2rem;
+      align-items: flex-start;
       margin-top: 2rem;
     }
     .svg-item {
@@ -84,6 +85,7 @@ function generateSvgReport(reportsDir) {
       padding: 1.5rem;
       background: #fafafa;
       transition: all 0.2s ease;
+      width: fit-content;
     }
     .svg-item:hover {
       background: white;
@@ -97,9 +99,8 @@ function generateSvgReport(reportsDir) {
       font-weight: 600;
     }
     .svg-embed {
-      width: 100%;
+      width: auto;
       height: auto;
-      min-height: 400px;
       border: 1px solid #eee;
       border-radius: 4px;
       background: white;
