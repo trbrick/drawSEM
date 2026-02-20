@@ -11,14 +11,6 @@ import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
-type DatasetFile = {
-  fileName: string
-  md5: string
-  rowCount: number
-  columnCount: number
-  columns: string[]
-}
-
 type Node = {
   id: string
   x: number
@@ -46,8 +38,17 @@ type Node = {
   }
   // optional column mappings for dataset nodes: { columnName: targetNodeId }
   mappings?: Record<string, string>
-  // optional file metadata for dataset nodes: used to locate and verify CSV files
-  datasetFile?: DatasetFile
+  // optional dataset source metadata from schema (file-based or embedded)
+  datasetSource?: {
+    type: 'file' | 'embedded'
+    location?: string          // For type='file': path to CSV file
+    format?: string            // 'csv', 'tsv', 'xlsx', 'json'
+    encoding?: string          // e.g., 'UTF-8'
+    columnTypes?: Record<string, string>  // mapping of column names to data types
+    md5?: string              // For integrity verification
+    rowCount?: number         // Number of data rows (excluding header)
+    object?: any[]            // For type='embedded': array of row objects
+  }
 }
 
 type Path = {
@@ -435,13 +436,14 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     adapterOptional.signalReady()
   }, [models, adapterOptional])
 
-  // Auto-load CSV files for dataset nodes that have datasetFile metadata
+  // Auto-load CSV files for dataset nodes that have datasetSource metadata
   React.useEffect(() => {
     let mounted = true
     const loadDatasetFile = async (node: Node) => {
-      if (!node.datasetFile) return
+      if (!node.datasetSource || node.datasetSource.type !== 'file') return
       const nodeId = node.id
-      const fileName = node.datasetFile.fileName
+      const fileName = node.datasetSource.location
+      if (!fileName) return  // location is required for file type
       try {
         // Try to fetch the file from the public examples directory
         const csvUrl = `/examples/${fileName}`
@@ -458,8 +460,8 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
 
         // Verify integrity via MD5 hash
         const hashHex = await computeMD5(csvText)
-        if (hashHex !== node.datasetFile.md5) {
-          const error = `File integrity check failed for ${fileName}. Expected hash ${node.datasetFile.md5}, got ${hashHex}`
+        if (node.datasetSource.md5 && hashHex !== node.datasetSource.md5) {
+          const error = `File integrity check failed for ${fileName}. Expected hash ${node.datasetSource.md5}, got ${hashHex}`
           if (mounted) {
             setDatasetErrors((prev) => new Map(prev).set(nodeId, error))
           }
@@ -484,8 +486,8 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
 
               const headers = (results.data && results.data.length > 0) ? Object.keys(results.data[0]) : []
               
-              // Validate that expected columns exist in the file
-              const expectedCols = node.datasetFile!.columns || []
+              // Validate that expected columns (from datasetSource.columnTypes) exist in the file
+              const expectedCols = node.datasetSource.columnTypes ? Object.keys(node.datasetSource.columnTypes) : []
               const missingCols = expectedCols.filter((col) => !headers.includes(col))
               if (missingCols.length > 0) {
                 const colErr = `Dataset ${fileName} is missing expected columns: ${missingCols.join(', ')}`
@@ -556,9 +558,9 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
       }
     }
     
-    // Load dataset files for all dataset nodes that have datasetFile metadata and haven't been loaded yet
+    // Load dataset files for all dataset nodes that have datasetSource metadata and haven't been loaded yet
     nodes.forEach((n) => {
-      if (n.type === 'dataset' && n.datasetFile && !n.dataset) {
+      if (n.type === 'dataset' && n.datasetSource && !n.dataset) {
         loadDatasetFile(n)
       }
     })
@@ -566,7 +568,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
     return () => {
       mounted = false
     }
-  }, [nodes.filter((n) => n.type === 'dataset').map((n) => n.datasetFile?.fileName).join(',')])
+  }, [nodes.filter((n) => n.type === 'dataset').map((n) => n.datasetSource?.location).join(',')])
 
   // Call onModelChange callback whenever the current model changes (for Shiny integration)
   React.useEffect(() => {
@@ -2121,11 +2123,10 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
             {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
               <div className="text-xs space-y-2 mb-3 pb-3 border-b">
                 <div><span className="font-medium">Filename:</span> {selectedNode.dataset.fileName || '--'}</div>
-                {selectedNode.datasetFile && (
+                {selectedNode.datasetSource && (
                   <>
-                    <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetFile.md5}</span></div>
-                    <div><span className="font-medium">Row Count:</span> {selectedNode.datasetFile.rowCount}</div>
-                    <div><span className="font-medium">Column Count:</span> {selectedNode.datasetFile.columnCount}</div>
+                    {selectedNode.datasetSource.md5 && <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetSource.md5}</span></div>}
+                    {selectedNode.datasetSource.rowCount && <div><span className="font-medium">Row Count:</span> {selectedNode.datasetSource.rowCount}</div>}
                   </>
                 )}
                 <div>
@@ -2159,6 +2160,18 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
               </div>
             )}
 
+            {/* Warning when dataset node exists but data hasn't been loaded */}
+            {selectedNode && selectedNode.type === 'dataset' && !selectedNode.dataset?.columns && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-[11px] space-y-1 mt-3">
+                <div><strong>⚠ No Data Loaded</strong></div>
+                <div>The CSV data for this dataset has not been imported yet.</div>
+                {selectedNode.datasetSource && (
+                  <div>Expected file: <span className="font-mono text-[10px] break-all">{selectedNode.datasetSource.location}</span></div>
+                )}
+                <div className="pt-1">Use the "⛁ Add Dataset" button in the toolbar to import or reload the CSV file.</div>
+              </div>
+            )}
+
             {/* Dataset CSV Data - shown when dataset node is selected */}
             {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
               <div>
@@ -2179,7 +2192,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                         </tr>
                       </thead>
                       <tbody>
-                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => {
+                        {(selectedNode?.dataset?.columns || []).map((c: any, i: number) => {
                           const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
                           const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
                           const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
@@ -2215,7 +2228,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
                     <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
                     <div className="text-xs text-slate-700 max-h-40 overflow-auto">
                       <ul className="list-disc pl-5 space-y-1">
-                        {((selectedNode?.type === 'dataset' ? selectedNode?.dataset : datasetNode?.dataset)?.columns || []).map((c: any, i: number) => (
+                        {(selectedNode?.dataset?.columns || []).map((c: any, i: number) => (
                           <li key={i}>{c.name}</li>
                         ))}
                       </ul>

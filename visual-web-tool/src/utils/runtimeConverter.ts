@@ -57,7 +57,7 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     // Copy optional fields
     if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
     if (n.mappings) out.mappings = n.mappings
-    if (n.datasetFile) out.datasetFile = n.datasetFile
+    if (n.datasetSource) out.datasetSource = n.datasetSource
     return out
   })
 

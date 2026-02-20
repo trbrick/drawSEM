@@ -38,7 +38,7 @@ export interface Node {
   tags?: string[]                      // Classification tags
   visual?: VisualProperties
   mappings?: Record<string, string>    // CSV column → node ID mappings (dataset only)
-  datasetFile?: DatasetFileMetadata    // For dataset nodes
+  datasetSource?: DatasetSource        // For dataset nodes: metadata and source of data
 }
 
 /**
@@ -110,14 +110,18 @@ export interface PathVisualProperties {
 }
 
 /**
- * Dataset file metadata for CSV integration
+ * Dataset source metadata - file-based or embedded data
+ * Matches the datasetSource structure in graph.schema.json
  */
-export interface DatasetFileMetadata {
-  fileName: string
-  md5?: string                         // For integrity verification
-  rowCount?: number
-  columnCount?: number
-  columns?: string[]
+export interface DatasetSource {
+  type: 'file' | 'embedded'           // Whether data is stored in file or embedded
+  location?: string                   // For type='file': path to data file
+  format?: string                     // 'csv' | 'tsv' | 'xlsx' | 'json'
+  encoding?: string                   // Character encoding (e.g., 'UTF-8')
+  columnTypes?: Record<string, string> // Column name → data type mapping
+  md5?: string                        // For integrity verification
+  rowCount?: number                   // Number of data rows (excluding header)
+  object?: any[]                      // For type='embedded': array of row objects
 }
 
 /**

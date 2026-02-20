@@ -23,12 +23,15 @@ export interface Node {
     columns: any[]
   }
   mappings?: Record<string, string>
-  datasetFile?: {
-    fileName: string
-    md5: string
-    rowCount: number
-    columnCount: number
-    columns: string[]
+  datasetSource?: {
+    type: 'file' | 'embedded'
+    location?: string          // For type='file': path to CSV file
+    format?: string            // 'csv', 'tsv', 'xlsx', 'json'
+    encoding?: string          // e.g., 'UTF-8'
+    columnTypes?: Record<string, string>  // column name → data type
+    md5?: string              // For integrity verification
+    rowCount?: number         // Number of data rows (excluding header)
+    object?: any[]            // For type='embedded': array of row objects
   }
 }
 
