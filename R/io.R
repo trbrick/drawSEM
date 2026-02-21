@@ -214,9 +214,15 @@ normalizeSchemaFromJSON <- function(obj) {
 #'
 #' @export
 #' @rdname as.GraphModel
-if (!isGeneric("as.GraphModel")) {
-  setGeneric("as.GraphModel", function(x, ...) standardGeneric("as.GraphModel"))
-}
+NULL
+
+#' @importFrom methods setGeneric setMethod 
+# Create the generic
+setGeneric(
+  "as.GraphModel", 
+  function(x, ...) standardGeneric("as.GraphModel"),
+  useAsDefault = FALSE
+)
 
 setMethod(
   "as.GraphModel",
@@ -352,9 +358,7 @@ setMethod(
 #' @rdname as.MxModel
 NULL
 
-if (!isGeneric("as.MxModel")) {
-  setGeneric("as.MxModel", function(x, ...) standardGeneric("as.MxModel"))
-}
+setGeneric("as.MxModel", function(x, ...) standardGeneric("as.MxModel"), useAsDefault = FALSE)
 
 setMethod(
   "as.MxModel",
@@ -463,10 +467,8 @@ setMethod(
 #'
 #' @export
 #' @rdname mxRun
-# Check if mxRun generic exists, if not create it
-if (!isGeneric("mxRun")) {
-  setGeneric("mxRun", function(model, ...) standardGeneric("mxRun"))
-}
+# Create mxRun generic
+setGeneric("mxRun", function(model, ...) standardGeneric("mxRun"), useAsDefault = FALSE)
 
 setMethod(
   "mxRun",

@@ -2,6 +2,12 @@
 # https://www.htmlwidgets.org/develop_package.html
 
 dependencies:
+  - name: graphTool-binding
+    version: 1.0.0
+    src: htmlwidgets
+    script:
+      - graphTool.js
+    
   - name: graphTool-app
     version: 1.0.0
     src: htmlwidgets/lib/app
@@ -9,4 +15,3 @@ dependencies:
       - widget.js
     stylesheet:
       - widget.css
-    head: null
