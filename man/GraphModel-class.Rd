@@ -7,9 +7,10 @@
 \description{
 The \code{GraphModel} class is the central object for the OpenMx WebUI package. It stores:
 \itemize{
-\item \strong{schema:} The structural definition (nodes, paths, optimization parameters) as a list
+\item \strong{schema:} The structural definition (nodes, paths, optimization parameters) as a list.
+Node positions are integrated as \code{node.visual.x} and \code{node.visual.y} properties.
 \item \strong{data:} Named list of data.frames or file paths for datasets referenced in the schema
-\item \strong{metadata:} UI state (node positions, colors, labels, unsupported features)
+\item \strong{metadata:} UI state and non-schema features (colors, labels, unsupported features)
 \item \strong{lastBuiltModel:} Cached mxModel object (or NULL if not yet built)
 }
 
@@ -33,6 +34,7 @@ Typical workflow:
 
 \describe{
 \item{\code{schema}}{A list representing the graph schema. Must have \code{schemaVersion} and \code{models} keys.
+Node positions are stored directly in \code{models[[k]]$nodes[[i]]$visual$x/y}.
 See the graph.schema.json for full specification.}
 
 \item{\code{data}}{A named list where names are dataset node IDs and values are data.frames or
@@ -43,8 +45,9 @@ and dataPath argument. Used by the converter to build mxData objects.}
 \item{\code{metadata}}{A list for storing UI state and other non-schema information. May contain:
 \itemize{
 \item \code{unsupported}: A list of features not yet supported by the converter
-\item \code{positions}: Visual node positions (for round-tripping through the GUI)
 \item \code{colors}, \code{labels}: UI styling information
+Note: Node positions are NOT stored here; they are integrated in the schema
+as \code{node.visual.x/y} properties.
 }}
 
 \item{\code{lastBuiltModel}}{The cached backend-specific model object (typically an mxModel). Set when

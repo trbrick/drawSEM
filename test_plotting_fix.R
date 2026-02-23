@@ -11,19 +11,17 @@ schema <- list(
   models = list(
     model1 = list(
       nodes = list(
-        list(id = "X", label = "X", type = "variable", tags = list("manifest")),
-        list(id = "Y", label = "Y", type = "variable", tags = list("manifest"))
+        list(id = "X", label = "X", type = "variable", tags = list("manifest"), visual=list(x=50,y=200)),
+        list(id = "Y", label = "Y", type = "variable", tags = list("manifest"), visual=list(x=50,y=50))
       ),
       paths = list(
         list(
-          from = "X", to = "Y", arrows = 1,
           fromLabel = "X", toLabel = "Y", numberOfArrows = 1,
           parameterType = "Loading"
         )
       )
     )
-  ),
-  graph = list()
+  )
 )
 
 gm <- as.GraphModel(schema)
@@ -42,7 +40,7 @@ plot(gm)
 #
 # cat("\n4. Testing plot() method dispatch\n")
 # cat("   (Verify that plot.GraphModel method was called)\n")
-# p <- plot(gm, forceLayout = TRUE)
+# p <- plot(gm, autoLayout="full")
 #
 # cat("\n✓ All tests completed. Check RStudio Viewer for widget displays.\n")
 # cat("✓ Note: jsonlite warnings about keep_vec_names are expected\n")

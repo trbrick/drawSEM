@@ -4,7 +4,7 @@
 \alias{plot.MxModel}
 \title{Plot method for MxModel objects}
 \usage{
-\method{plot}{MxModel}(x, editable = NA, layout = "auto", ...)
+\method{plot}{MxModel}(x, editable = NA, autoLayout = NA, ...)
 }
 \arguments{
 \item{x}{An \code{MxModel} object (from OpenMx)}
@@ -12,7 +12,9 @@
 \item{editable}{Logical or \code{NA}. Auto-detect editability if \code{NA} (default).
 See \code{\link[=plotGraphModel]{plotGraphModel()}} for details.}
 
-\item{layout}{Character. Node positioning strategy ("auto" or "provided").
+\item{autoLayout}{Character or \code{NA}. Node positioning strategy.
+"full" forces RAMPath layout, "partial" applies to unpositioned nodes,
+"none" skips layout, or \code{NA} for auto-detect (default).
 See \code{\link[=plotGraphModel]{plotGraphModel()}} for details.}
 
 \item{...}{Additional arguments passed to \code{\link[=plotGraphModel]{plotGraphModel()}}}
@@ -46,7 +48,7 @@ fit <- mxRun(myModel)
 plot(fit)
 
 # With options
-plot(fit, editable = FALSE)
+plot(fit, editable = FALSE, autoLayout = "full")
 }
 
 }

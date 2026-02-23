@@ -151,32 +151,31 @@ renderGraphTool <- function(expr, env = parent.frame(), quoted = FALSE) {
 #' - Returns `FALSE` if in a non-interactive context (batch script, knitting)
 #' - Shows a message in interactive mode explaining editability status
 #'
-#' **Layout Modes:**
+#' **Layout Computation:**
 #'
-#' The `layout` parameter controls how node positions are determined:
-#' - `"auto"`: Default behavior. If model has no positions, automatically
-#'   computes them using the RAMPath stratified layout algorithm (Task 13).
-#'   If positions exist, uses them. Shows helpful message on first auto-compute.
-#' - `"provided"`: Strict mode. Requires positions to already exist; errors
-#'   if missing. Useful for reproducible workflows where layout is fixed.
+#' The `autoLayout` parameter controls whether the widget computes node positions
+#' using the RAMPath algorithm:
+#' - `NA` (default): Auto-detect. If displayed nodes lack positions, computes them
+#'   in the widget. Otherwise, uses existing positions. Shows helpful message.
+#' - `"full"`: Always compute full layout in widget, even if positions exist
+#' - `"partial"`: Compute layout for missing nodes only (future use)
+#' - `"none"`: Never compute; assume positions are pre-set via setLocation()
+#'   or will error if nodes have no positions
 #'
-#' The `forceLayout = TRUE` override always re-computes positions, useful for
-#' exploring different layouts or testing the auto-layout algorithm.
+#' **Position Storage:**
 #'
-#' **Position Persistence:**
-#'
-#' Node positions are stored in `graphModel@@schema$graph$positions` as a
-#' data.frame with columns `nodeId`, `x`, `y`. In interactive R sessions,
-#' position changes made in the widget are reflected back to the GraphModel
-#' object (this session only; not saved to disk unless explicitly exported).
+#' Node positions are stored directly in each node's `visual` property
+#' (as `node.visual.x` and `node.visual.y`). This provides a single point
+#' of access for schema round-tripping and export.
 #'
 #' **Two-Phase Workflow:**
 #'
 #' Recommended workflow for reproducible plotting:
 #' 1. Create and explore model interactively: `plotGraphModel(gm)`
+#'    (widget will auto-compute layout if missing)
 #' 2. Once satisfied with layout, save positions programmatically:
 #'    `gm <- setLocation(gm, nodeIDs, x_positions, y_positions)`
-#' 3. For future sessions, reuse layout: `plotGraphModel(gm, layout="provided")`
+#' 3. For future sessions, reuse layout: `plotGraphModel(gm, autoLayout = "none")`
 #'
 #' @examples
 #' # Minimal example with auto-layout
@@ -203,18 +202,17 @@ renderGraphTool <- function(expr, env = parent.frame(), quoted = FALSE) {
 #' # Force non-interactive display
 #' plotGraphModel(gm, editable = FALSE)
 #'
-#' # Use provided positions (would error if positions don't exist)
-#' plotGraphModel(gm, layout = "provided")
+#' # Always compute layout
+#' plotGraphModel(gm, autoLayout = "full")
 #'
-#' # Force re-layout
-#' plotGraphModel(gm, forceLayout = TRUE)
+#' # Never compute layout (assume positions exist)
+#' plotGraphModel(gm, autoLayout = "none")
 #'
 #' @export
 plotGraphModel <- function(
   graphModel,
   editable = NA,
-  layout = "auto",
-  forceLayout = FALSE,
+  autoLayout = NA,
   includeDataLayer = FALSE,
   includeConstantPaths = TRUE,
   pathLabelFormat = "neither",
@@ -228,14 +226,11 @@ plotGraphModel <- function(
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
   
-  # Validate layout parameter
-  if (!(layout %in% c("auto", "provided"))) {
-    stop("layout must be 'auto' or 'provided'", call. = FALSE)
-  }
-  
-  # Validate forceLayout
-  if (!is.logical(forceLayout) || length(forceLayout) != 1) {
-    stop("forceLayout must be a single logical value", call. = FALSE)
+  # Validate autoLayout parameter if not NA
+  if (!is.na(autoLayout)) {
+    if (!is.character(autoLayout) || !(autoLayout %in% c("full", "partial", "none"))) {
+      stop("autoLayout must be NA (auto-detect), 'full', 'partial', or 'none'", call. = FALSE)
+    }
   }
   
   # Auto-detect editability if NA
@@ -267,46 +262,14 @@ plotGraphModel <- function(
     }
   }
   
-  # Handle node positioning
+  # Get the schema
   schema <- graphModel@schema
-  positions <- NULL
-  
-  # Check if positions exist
-  has_positions <- !is.null(schema$graph$positions) && 
-                   nrow(schema$graph$positions) > 0
-  
-  # Determine which positions to use
-  if (isTRUE(forceLayout)) {
-    # Force re-layout
-    positions <- .computeAutoLayout(schema)
-    if (interactive()) {
-      message("Computing layout (forceLayout=TRUE)...")
-    }
-  } else if (layout == "auto") {
-    if (!has_positions) {
-      # Compute if missing
-      positions <- .computeAutoLayout(schema)
-      if (interactive()) {
-        message("No positions found. Computing layout automatically.")
-        message("Tip: Save positions with setLocation() for reproducibility.")
-      }
-    } else {
-      # Use existing
-      positions <- schema$graph$positions
-    }
-  } else if (layout == "provided") {
-    # User promises to supply positions
-    if (!has_positions) {
-      stop(
-        "layout='provided' but no positions found in graphModel. ",
-        "Use layout='auto' or add positions with setLocation().",
-        call. = FALSE
-      )
-    }
-    positions <- schema$graph$positions
+  first_model <- schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("Schema has no models", call. = FALSE)
   }
   
-  # Filter nodes if needed
+  # Filter nodes first (before checking for positions)
   display_schema <- schema
   if (!includeDataLayer) {
     # Filter out dataset nodes
@@ -324,15 +287,39 @@ plotGraphModel <- function(
     )
   }
   
-  # Create widget
+  # Helper to check if nodes have positions
+  has_positions <- function(model) {
+    nodes <- model$nodes %||% list()
+    # Check if ANY node is missing x or y
+    all(sapply(nodes, function(n) !is.null(n$visual) && !is.null(n$visual$x) && !is.null(n$visual$y)))
+  }
+  
+  # Determine autoLayout setting
+  if (is.na(autoLayout)) {
+    # Auto-detect: if any displayed nodes lack positions, set to "full"
+    if (!has_positions(display_schema$models[[1]])) {
+      autoLayout <- "full"
+      if (interactive()) {
+        message("No positions found. Layout will be computed by widget.")
+        message("Tip: Save positions with setLocation() for reproducibility.")
+      }
+    } else {
+      # All nodes have positions, don't compute
+      autoLayout <- "none"
+    }
+  }
+  
+  # Create widget with integrated schema
   x <- list(
-    schema = display_schema,
-    positions = positions,
+    initialModel = display_schema,
     config = list(
-      editable = editable,
-      includeDataLayer = includeDataLayer,
-      includeConstantPaths = includeConstantPaths,
-      pathLabelFormat = pathLabelFormat
+      visual = list(
+        autolayout = autoLayout,
+        includeDataLayer = includeDataLayer,
+        includeConstantPaths = includeConstantPaths,
+        pathLabelFormat = pathLabelFormat
+      ),
+      editable = editable
     ),
     data = graphModel@data
   )
@@ -360,15 +347,21 @@ plotGraphModel <- function(
 #' Set node positions in a GraphModel
 #'
 #' @description
-#' Programmatically set node positions using R's vectorization semantics.
-#' Follows standard R recycling rules for shorter vectors.
+#' Programmatically set node positions by directly updating each node's visual properties.
+#' Follows standard R vectorization semantics with recycling rules.
 #'
 #' @param graphModel A `GraphModel` object to modify
-#' @param nodeId Character vector of node IDs to position
+#' @param nodeId Character vector of node IDs or labels to position
 #' @param x Numeric vector of X coordinates
 #' @param y Numeric vector of Y coordinates
 #'
 #' @details
+#' **Position Storage:**
+#'
+#' Positions are stored directly in the schema as `node.visual.x` and `node.visual.y`
+#' properties for each node, eliminating the need for a separate positions data.frame.
+#' This provides a single point of access for schema round-tripping and export.
+#'
 #' **Vectorization:**
 #'
 #' `setLocation()` uses R's standard recycling rules. Shorter vectors are
@@ -445,75 +438,54 @@ setLocation <- function(graphModel, nodeId, x, y) {
   x <- rep(x, length.out = max_len)
   y <- rep(y, length.out = max_len)
   
-  # Create positions data frame
-  positions <- data.frame(
-    nodeId = nodeId,
-    x = x,
-    y = y,
-    stringsAsFactors = FALSE
-  )
-  
-  # Validate node IDs exist in schema
+  # Get the first model
   first_model <- graphModel@schema$models[[1]]
-  if (!is.null(first_model$nodes)) {
-    valid_node_ids <- sapply(first_model$nodes, function(n) n$id %||% n$label)
-    invalid <- setdiff(positions$nodeId, valid_node_ids)
-    if (length(invalid) > 0) {
-      warning(
-        "nodeId not found in schema: ", paste(invalid, collapse = ", "),
-        call. = FALSE
-      )
-    }
+  if (is.null(first_model) || is.null(first_model$nodes)) {
+    return(invisible(graphModel))
   }
   
-  # Update positions in schema
-  graphModel@schema$graph <- graphModel@schema$graph %||% list()
-  graphModel@schema$graph$positions <- positions
+  # Build mapping of node ID/label to node index
+  node_map <- setNames(
+    seq_along(first_model$nodes),
+    sapply(first_model$nodes, function(n) n$id %||% n$label)
+  )
+  
+  # Update positions for each node
+  invalid_nodes <- c()
+  for (i in seq_along(nodeId)) {
+    nid <- nodeId[i]
+    
+    # Find node by ID or label
+    node_idx <- node_map[nid]
+    if (is.na(node_idx)) {
+      invalid_nodes <- c(invalid_nodes, nid)
+      next
+    }
+    
+    # Initialize visual property if needed
+    if (is.null(first_model$nodes[[node_idx]]$visual)) {
+      first_model$nodes[[node_idx]]$visual <- list()
+    }
+    
+    # Update x and y
+    first_model$nodes[[node_idx]]$visual$x <- x[i]
+    first_model$nodes[[node_idx]]$visual$y <- y[i]
+  }
+  
+  # Issue warning for invalid nodes
+  if (length(invalid_nodes) > 0) {
+    warning(
+      "nodeId not found in schema: ", paste(invalid_nodes, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  
+  # Update the schema
+  graphModel@schema$models[[1]] <- first_model
   
   invisible(graphModel)
 }
 
-#' Compute automatic layout for a GraphModel schema
-#'
-#' @description
-#' Internal function that computes node positions using the RAMPath stratified
-#' layout algorithm (Task 13). This function bridges R to the JavaScript/TypeScript
-#' implementation via the widget.
-#'
-#' @param schema A GraphModel schema list
-#'
-#' @return A data.frame with columns `nodeId`, `x`, `y` containing computed
-#'   positions for all nodes
-#'
-#' @keywords internal
-#' @noRd
-.computeAutoLayout <- function(schema) {
-  # For v0.1, return default grid layout
-  # In future, this will call JavaScript autoLayout() via widget or websocket
-  
-  first_model <- schema$models[[1]]
-  if (is.null(first_model) || is.null(first_model$nodes)) {
-    return(data.frame(nodeId = character(), x = numeric(), y = numeric()))
-  }
-  
-  # Get node IDs
-  node_ids <- sapply(first_model$nodes, function(n) n$id %||% n$label)
-  n_nodes <- length(node_ids)
-  
-  # Simple grid layout: arrange nodes in rows under 4 per row
-  cols_per_row <- 4
-  x_spacing <- 150
-  y_spacing <- 200
-  
-  positions <- data.frame(
-    nodeId = node_ids,
-    x = ((0:(n_nodes - 1)) %% cols_per_row) * x_spacing,
-    y = ((0:(n_nodes - 1)) %/% cols_per_row) * y_spacing,
-    stringsAsFactors = FALSE
-  )
-  
-  positions
-}
 
 # Helper: Operator ||
 `%||%` <- function(x, y) if (is.null(x)) y else x
@@ -565,16 +537,16 @@ setLocation <- function(graphModel, nodeId, x, y) {
 #' plot(gm)
 #'
 #' # With options
-#' plot(gm, editable = FALSE, forceLayout = TRUE)
+#' plot(gm, editable = FALSE, autoLayout = "full")
 #'
 #' @export
-plot.GraphModel <- function(x, editable = NA, layout = "auto", ...) {
+plot.GraphModel <- function(x, editable = NA, autoLayout = NA, ...) {
   # Call plotGraphModel and return widget visibly (unlike plotGraphModel's invisible return)
   # This ensures htmlwidgets displays in the viewer/console when plot() is called
   w <- plotGraphModel(
     graphModel = x,
     editable = editable,
-    layout = layout,
+    autoLayout = autoLayout,
     ...
   )
   # Return widget WITHOUT invisible() so it prints/displays
@@ -591,7 +563,9 @@ plot.GraphModel <- function(x, editable = NA, layout = "auto", ...) {
 #' @param x An `MxModel` object (from OpenMx)
 #' @param editable Logical or `NA`. Auto-detect editability if `NA` (default).
 #'   See [plotGraphModel()] for details.
-#' @param layout Character. Node positioning strategy ("auto" or "provided").
+#' @param autoLayout Character or `NA`. Node positioning strategy.
+#'   "full" forces RAMPath layout, "partial" applies to unpositioned nodes,
+#'   "none" skips layout, or `NA` for auto-detect (default).
 #'   See [plotGraphModel()] for details.
 #' @param ... Additional arguments passed to [plotGraphModel()]
 #'
@@ -616,11 +590,11 @@ plot.GraphModel <- function(x, editable = NA, layout = "auto", ...) {
 #' plot(fit)
 #'
 #' # With options
-#' plot(fit, editable = FALSE)
+#' plot(fit, editable = FALSE, autoLayout = "full")
 #' }
 #'
 #' @export
-plot.MxModel <- function(x, editable = NA, layout = "auto", ...) {
+plot.MxModel <- function(x, editable = NA, autoLayout = NA, ...) {
   # Convert mxModel to GraphModel
   graphModel <- as.GraphModel(x)
   
@@ -628,7 +602,7 @@ plot.MxModel <- function(x, editable = NA, layout = "auto", ...) {
   w <- plotGraphModel(
     graphModel = graphModel,
     editable = editable,
-    layout = layout,
+    autoLayout = autoLayout,
     ...
   )
   # Return widget WITHOUT invisible() so it prints/displays

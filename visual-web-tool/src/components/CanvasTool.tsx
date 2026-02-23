@@ -4,6 +4,7 @@ import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
+import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
 import { GraphSchema } from '../core/types'
@@ -108,9 +109,10 @@ type OffLayerVisibility = 'transparent' | 'invisible'
 interface CanvasToolProps {
   initialSchema?: GraphSchema
   onModelChange?: (schema: GraphSchema) => void
+  viewMode?: 'widget' | 'shiny' | 'full'
 }
 
-export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolProps): JSX.Element {
+export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
   // Multi-model state
@@ -173,6 +175,13 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationWarnings, setValidationWarnings] = useState<string[]>([])
+
+  // Debug: Log nodes whenever they change
+  React.useEffect(() => {
+    if (nodes.length > 0) {
+      console.log('[Canvas Render] Nodes updated:', nodes.length, nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
+    }
+  }, [nodes])
 
   // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
@@ -369,6 +378,8 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
         // validate the example using AJV and the bundled schema
         try {
           const ajv = new Ajv({ allErrors: true, strict: false })
+          // Add date-time format support to suppress warnings
+          ajv.addFormat('date-time', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/)
           const validate = ajv.compile(schema as object)
           const ok = validate(g)
           if (!ok) {
@@ -385,10 +396,50 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
           return
         }
 
+        // Apply auto-layout if configured
+        if (window.graphToolConfig?.config?.visual?.autolayout === 'full') {
+          console.log('[JSON Import] Applying auto-layout...')
+          try {
+            const positions: PositionMap = autoLayout(g as GraphSchema)
+            console.log('[JSON Import] Auto-layout computed positions:', Object.keys(positions).length)
+            
+            // Integrate positions into schema nodes
+            if (g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
+              Object.values((g as any).models).forEach((model: any) => {
+                model.nodes?.forEach((node: any) => {
+                  const posKey = node.label || node.id
+                  if (positions[posKey]) {
+                    if (!node.visual) {
+                      node.visual = {}
+                    }
+                    node.visual.x = positions[posKey].x
+                    node.visual.y = positions[posKey].y
+                    if (positions[posKey].rank !== undefined) {
+                      node.visual.rank = positions[posKey].rank
+                    }
+                  }
+                })
+              })
+              // Debug: Log first node's visual properties
+              const firstModel = Object.values((g as any).models)[0] as any
+              if (firstModel?.nodes?.[0]) {
+                console.log('[JSON Import] First node after position integration:', firstModel.nodes[0].label, 'visual:', firstModel.nodes[0].visual)
+              }
+            }
+            console.log('[JSON Import] Positions integrated into schema')
+          } catch (layoutError) {
+            console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
+          }
+        }
+
         if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
           console.log('[JSON Import] Converting to runtime format. Models:', Object.keys((g as any).models).length)
           const modelsOut = convertDocToRuntime(g as any)
           console.log('[JSON Import] Conversion complete. Models:', modelsOut.length)
+          // Debug: Log first model's nodes
+          if (modelsOut.length > 0) {
+            console.log('[JSON Import] First model nodes after conversion:', modelsOut[0].nodes.length, 'nodes:', modelsOut[0].nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
+          }
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -1852,6 +1903,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
   return (
     <div className="flex flex-col h-full canvas-container">
       {/* Top toolbar with icon buttons */}
+      {viewMode !== 'widget' && (
       <header className="border-b p-3 bg-white">
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium">Tools:</div>
@@ -1932,11 +1984,11 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
           </div>
         </div>
       </header>
-
-      {/* Error message notification - removed from here */}
+      )}
 
       {/* Main content area with sidebar and canvas */}
       <div className="flex flex-1 overflow-hidden">
+        {viewMode !== 'widget' && (
         <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto flex flex-col">
           {/* Layers panel - like a photo editor layers stack */}
           <div className="space-y-2">
@@ -2028,6 +2080,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
           )}
           </div>
       </aside>
+        )}
 
       <div className="flex-1 p-4 relative overflow-hidden">
         <input
@@ -2045,7 +2098,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
           onChange={onCsvSelected}
         />
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
-        {(selectedNode || selectedPath) && (
+        {viewMode !== 'widget' && (selectedNode || selectedPath) && (
           <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
             {/* Header section */}
             <div className="flex items-center justify-between mb-3">
@@ -2869,7 +2922,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
       </div>
 
       {/* Error message notification - positioned at bottom to avoid layout shift */}
-      {errorMessage && (
+      {viewMode !== 'widget' && errorMessage && (
         <div className="fixed bottom-0 left-0 right-0 bg-red-50 border-t-2 border-red-400 px-4 py-3 text-sm text-red-800 shadow-md" style={{ zIndex: 50 }}>
           <div className="flex items-start gap-2">
             <span className="text-red-600 font-bold text-lg">⚠</span>
@@ -2887,7 +2940,7 @@ export default function CanvasTool({ initialSchema, onModelChange }: CanvasToolP
       )}
 
       {/* Validation warnings notification - non-interfering, at bottom */}
-      {validationWarnings.length > 0 && (
+      {viewMode !== 'widget' && validationWarnings.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-amber-50 border-t-2 border-amber-300 px-4 py-3 text-sm text-amber-800 shadow-md" style={{ zIndex: errorMessage ? 40 : 50 }}>
           <div className="flex items-start gap-2">
             <span className="text-amber-600 font-bold text-lg">⚠</span>

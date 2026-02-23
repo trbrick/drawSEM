@@ -7,8 +7,7 @@
 plotGraphModel(
   graphModel,
   editable = NA,
-  layout = "auto",
-  forceLayout = FALSE,
+  autoLayout = NA,
   includeDataLayer = FALSE,
   includeConstantPaths = TRUE,
   pathLabelFormat = "neither",
@@ -28,16 +27,6 @@ the graph interactively.
 \item \code{TRUE}: Force editable regardless of context
 \item \code{FALSE}: Force read-only regardless of context
 }}
-
-\item{layout}{Character. Node positioning strategy:
-\itemize{
-\item \code{"auto"} (default): Compute positions if missing; use existing if present
-\item \code{"provided"}: Positions must exist (error if missing, forces explicit
-user specification)
-}}
-
-\item{forceLayout}{Logical. If \code{TRUE}, re-compute layout even if positions
-exist. Overrides \code{layout} parameter. Default: \code{FALSE}}
 
 \item{includeDataLayer}{Logical. If \code{TRUE}, show dataset nodes in the graph.
 Default: \code{FALSE}}
@@ -60,6 +49,16 @@ constant nodes (means). Default: \code{TRUE}}
 \item{elementId}{Character. Optional HTML element ID for advanced use}
 
 \item{...}{Additional arguments passed to \code{htmlwidgets::createWidget()}}
+
+\item{layout}{Character. Node positioning strategy:
+\itemize{
+\item \code{"auto"} (default): Compute positions if missing; use existing if present
+\item \code{"provided"}: Positions must exist (error if missing, forces explicit
+user specification)
+}}
+
+\item{forceLayout}{Logical. If \code{TRUE}, re-compute layout even if positions
+exist. Overrides \code{layout} parameter. Default: \code{FALSE}}
 }
 \value{
 Invisibly returns an htmlwidget object that can be captured with
@@ -84,35 +83,34 @@ that is not rendering a document (Quarto, RMarkdown PDF)
 \item Shows a message in interactive mode explaining editability status
 }
 
-\strong{Layout Modes:}
+\strong{Layout Computation:}
 
-The \code{layout} parameter controls how node positions are determined:
+The \code{autoLayout} parameter controls whether the widget computes node positions
+using the RAMPath algorithm:
 \itemize{
-\item \code{"auto"}: Default behavior. If model has no positions, automatically
-computes them using the RAMPath stratified layout algorithm (Task 13).
-If positions exist, uses them. Shows helpful message on first auto-compute.
-\item \code{"provided"}: Strict mode. Requires positions to already exist; errors
-if missing. Useful for reproducible workflows where layout is fixed.
+\item \code{NA} (default): Auto-detect. If displayed nodes lack positions, computes them
+in the widget. Otherwise, uses existing positions. Shows helpful message.
+\item \code{"full"}: Always compute full layout in widget, even if positions exist
+\item \code{"partial"}: Compute layout for missing nodes only (future use)
+\item \code{"none"}: Never compute; assume positions are pre-set via setLocation()
+or will error if nodes have no positions
 }
 
-The \code{forceLayout = TRUE} override always re-computes positions, useful for
-exploring different layouts or testing the auto-layout algorithm.
+\strong{Position Storage:}
 
-\strong{Position Persistence:}
-
-Node positions are stored in \code{graphModel@schema$graph$positions} as a
-data.frame with columns \code{nodeId}, \code{x}, \code{y}. In interactive R sessions,
-position changes made in the widget are reflected back to the GraphModel
-object (this session only; not saved to disk unless explicitly exported).
+Node positions are stored directly in each node's \code{visual} property
+(as \code{node.visual.x} and \code{node.visual.y}). This provides a single point
+of access for schema round-tripping and export.
 
 \strong{Two-Phase Workflow:}
 
 Recommended workflow for reproducible plotting:
 \enumerate{
 \item Create and explore model interactively: \code{plotGraphModel(gm)}
+(widget will auto-compute layout if missing)
 \item Once satisfied with layout, save positions programmatically:
 \code{gm <- setLocation(gm, nodeIDs, x_positions, y_positions)}
-\item For future sessions, reuse layout: \code{plotGraphModel(gm, layout="provided")}
+\item For future sessions, reuse layout: \code{plotGraphModel(gm, autoLayout = "none")}
 }
 }
 \examples{
@@ -140,10 +138,10 @@ plotGraphModel(gm)
 # Force non-interactive display
 plotGraphModel(gm, editable = FALSE)
 
-# Use provided positions (would error if positions don't exist)
-plotGraphModel(gm, layout = "provided")
+# Always compute layout
+plotGraphModel(gm, autoLayout = "full")
 
-# Force re-layout
-plotGraphModel(gm, forceLayout = TRUE)
+# Never compute layout (assume positions exist)
+plotGraphModel(gm, autoLayout = "none")
 
 }

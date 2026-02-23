@@ -4,7 +4,7 @@
 \alias{plot.GraphModel}
 \title{Plot method for GraphModel objects}
 \usage{
-\method{plot}{GraphModel}(x, editable = NA, layout = "auto", ...)
+\method{plot}{GraphModel}(x, editable = NA, autoLayout = NA, ...)
 }
 \arguments{
 \item{x}{A \code{GraphModel} object}
@@ -12,10 +12,10 @@
 \item{editable}{Logical or \code{NA}. Auto-detect editability if \code{NA} (default).
 See \code{\link[=plotGraphModel]{plotGraphModel()}} for details.}
 
+\item{...}{Additional arguments passed to \code{\link[=plotGraphModel]{plotGraphModel()}}}
+
 \item{layout}{Character. Node positioning strategy ("auto" or "provided").
 See \code{\link[=plotGraphModel]{plotGraphModel()}} for details.}
-
-\item{...}{Additional arguments passed to \code{\link[=plotGraphModel]{plotGraphModel()}}}
 }
 \value{
 Invisibly returns the htmlwidget created by \code{\link[=plotGraphModel]{plotGraphModel()}}
@@ -52,6 +52,6 @@ gm <- as.GraphModel(schema)
 plot(gm)
 
 # With options
-plot(gm, editable = FALSE, forceLayout = TRUE)
+plot(gm, editable = FALSE, autoLayout = "full")
 
 }

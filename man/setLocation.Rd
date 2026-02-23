@@ -9,7 +9,7 @@ setLocation(graphModel, nodeId, x, y)
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify}
 
-\item{nodeId}{Character vector of node IDs to position}
+\item{nodeId}{Character vector of node IDs or labels to position}
 
 \item{x}{Numeric vector of X coordinates}
 
@@ -19,10 +19,16 @@ setLocation(graphModel, nodeId, x, y)
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-Programmatically set node positions using R's vectorization semantics.
-Follows standard R recycling rules for shorter vectors.
+Programmatically set node positions by directly updating each node's visual properties.
+Follows standard R vectorization semantics with recycling rules.
 }
 \details{
+\strong{Position Storage:}
+
+Positions are stored directly in the schema as \code{node.visual.x} and \code{node.visual.y}
+properties for each node, eliminating the need for a separate positions data.frame.
+This provides a single point of access for schema round-tripping and export.
+
 \strong{Vectorization:}
 
 \code{setLocation()} uses R's standard recycling rules. Shorter vectors are

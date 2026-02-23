@@ -5,9 +5,10 @@
 #'
 #' @description
 #' The `GraphModel` class is the central object for the OpenMx WebUI package. It stores:
-#' - **schema:** The structural definition (nodes, paths, optimization parameters) as a list
+#' - **schema:** The structural definition (nodes, paths, optimization parameters) as a list.
+#'   Node positions are integrated as `node.visual.x` and `node.visual.y` properties.
 #' - **data:** Named list of data.frames or file paths for datasets referenced in the schema
-#' - **metadata:** UI state (node positions, colors, labels, unsupported features)
+#' - **metadata:** UI state and non-schema features (colors, labels, unsupported features)
 #' - **lastBuiltModel:** Cached mxModel object (or NULL if not yet built)
 #'
 #' The schema is JSON-serializable and the source of truth. The GraphModel can be converted
@@ -16,6 +17,7 @@
 #'
 #' @slot schema
 #'   A list representing the graph schema. Must have `schemaVersion` and `models` keys.
+#'   Node positions are stored directly in `models[[k]]$nodes[[i]]$visual$x/y`.
 #'   See the graph.schema.json for full specification.
 #'
 #' @slot data
@@ -27,8 +29,9 @@
 #' @slot metadata
 #'   A list for storing UI state and other non-schema information. May contain:
 #'   - `unsupported`: A list of features not yet supported by the converter
-#'   - `positions`: Visual node positions (for round-tripping through the GUI)
 #'   - `colors`, `labels`: UI styling information
+#'   Note: Node positions are NOT stored here; they are integrated in the schema
+#'   as `node.visual.x/y` properties.
 #'
 #' @slot lastBuiltModel
 #'   The cached backend-specific model object (typically an mxModel). Set when

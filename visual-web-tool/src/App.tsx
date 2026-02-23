@@ -1,16 +1,26 @@
 import React from 'react'
 import CanvasTool from './components/CanvasTool'
 
-export default function App(): JSX.Element {
+interface AppProps {
+  viewMode?: 'widget' | 'shiny' | 'full'
+}
+
+export default function App({ viewMode = 'full' }: AppProps): JSX.Element {
+  const showChrome = viewMode !== 'widget'
+
   return (
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900">
-      <header className="bg-white shadow p-4">
-        <h1 className="text-lg font-semibold">Visual Web Tool — Canvas</h1>
-      </header>
+      {showChrome && (
+        <header className="bg-white shadow p-4">
+          <h1 className="text-lg font-semibold">Visual Web Tool — Canvas</h1>
+        </header>
+      )}
       <main className="flex-1 p-4 overflow-hidden flex flex-col">
-        <p className="mb-4 text-sm text-slate-600">A minimal visual canvas tool (rectangle draw & drag).</p>
+        {showChrome && (
+          <p className="mb-4 text-sm text-slate-600">A minimal visual canvas tool (rectangle draw & drag).</p>
+        )}
         <div className="flex-1 border rounded-lg bg-white overflow-hidden flex flex-col">
-          <CanvasTool />
+          <CanvasTool viewMode={viewMode} />
         </div>
       </main>
     </div>

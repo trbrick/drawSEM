@@ -38,16 +38,14 @@ HTMLWidgets.widget({
         }
         
         console.log('[graphTool renderValue] Data contents:', {
-          schema: data.schema ? 'present' : 'missing',
-          positions: data.positions ? 'present' : 'missing',
+          initialModel: data.initialModel ? 'present' : 'missing',
           config: data.config ? 'present' : 'missing',
           data: data.data ? 'present' : 'missing'
         });
         
         // Store config globally for React widget to access
         window.graphToolConfig = {
-          schema: data.schema,
-          positions: data.positions,
+          initialModel: data.initialModel,
           config: data.config,
           data: data.data,
           timestamp: Date.now()
