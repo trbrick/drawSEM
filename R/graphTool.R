@@ -221,9 +221,16 @@ plotGraphModel <- function(
   elementId = NULL,
   ...
 ) {
-  # Validate input
+  # Validate and convert input
   if (!is(graphModel, "GraphModel")) {
-    stop("graphModel must be a GraphModel object", call. = FALSE)
+    tryCatch(
+      {
+        graphModel <- as.GraphModel(graphModel)
+      },
+      error = function(e) {
+        stop("graphModel must be a GraphModel object or a valid input to as.GraphModel()", call. = FALSE)
+      }
+    )
   }
   
   # Validate autoLayout parameter if not NA
@@ -245,11 +252,6 @@ plotGraphModel <- function(
     
     # Set editability
     editable <- in_shiny || is_interactive
-    
-    # Message only in interactive mode
-    if (is_interactive && editable) {
-      message("Graph is editable. Edits persist to R object in this session.")
-    }
   }
   
   # Ensure editable is logical
@@ -299,10 +301,6 @@ plotGraphModel <- function(
     # Auto-detect: if any displayed nodes lack positions, set to "full"
     if (!has_positions(display_schema$models[[1]])) {
       autoLayout <- "full"
-      if (interactive()) {
-        message("No positions found. Layout will be computed by widget.")
-        message("Tip: Save positions with setLocation() for reproducibility.")
-      }
     } else {
       # All nodes have positions, don't compute
       autoLayout <- "none"
