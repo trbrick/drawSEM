@@ -15,17 +15,6 @@ import {
 import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
 
 /**
- * Position map interface matching autoLayout output
- */
-export interface PositionMap {
-  [nodeLabel: string]: {
-    x: number
-    y: number
-    rank?: number
-  }
-}
-
-/**
  * SVG export options
  */
 export interface SvgExportOptions {
@@ -532,11 +521,12 @@ function markerDefinitions(): string {
 }
 
 /**
- * Main export function: Convert a positioned graph model to SVG string
+ * Main export function: Convert a graph model to SVG string
+ * Positions are read from schema.nodes[].visual (in canonical/RAMPath space)
+ * Applies model-level anchor normalization for display rendering
  */
 export function modelToSVG(
   schema: GraphSchema,
-  positions: PositionMap,
   modelId?: string,
   options?: SvgExportOptions
 ): string {
@@ -545,6 +535,14 @@ export function modelToSVG(
   // Get the model
   const model = getModel(schema, modelId)
   const nodesByLabel = getNodesByLabel(model)
+
+  // Extract positions from schema.nodes[].visual (canonical/RAMPath space)
+  const positions: Record<string, { x: number; y: number }> = {}
+  model.nodes.forEach((n) => {
+    if (n.visual?.x !== undefined && n.visual?.y !== undefined) {
+      positions[n.label] = { x: n.visual.x, y: n.visual.y }
+    }
+  })
 
   // Filter visible nodes
   const visibleNodes = model.nodes.filter((n) => {

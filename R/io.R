@@ -467,26 +467,22 @@ setMethod(
 #'
 #' @export
 #' @rdname mxRun
-# Create mxRun generic
-setGeneric("mxRun", function(model, ...) standardGeneric("mxRun"), useAsDefault = FALSE)
-
-setMethod(
-  "mxRun",
-  "GraphModel",
-  function(model, ...) {
-    # Build model if needed
-    om_model <- as.MxModel(model)
-    
-    # Run with OpenMx
-    fit <- OpenMx::mxRun(om_model, ...)
-    
-    # Store fitted model back
-    builtModel(model) <- fit
-    
-    # Return the fit object
-    fit
-  }
-)
+#' S3 method for running GraphModel objects
+#' Dispatches to OpenMx for standard MxModel objects
+#' @export
+mxRun.GraphModel <- function(model, ...) {
+  # Build model if needed
+  om_model <- as.MxModel(model)
+  
+  # Run with OpenMx
+  fit <- OpenMx::mxRun(om_model, ...)
+  
+  # Store fitted model back
+  builtModel(model) <- fit
+  
+  # Return the fit object
+  fit
+}
 
 #' Export GraphModel to JSON File
 #'
@@ -532,8 +528,10 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
   output$metadata <- graph_obj@metadata
   
   # Write to file
+  # Use auto_unbox=TRUE to serialize length-1 vectors as scalars (not arrays)
+  # This ensures value, label, and other scalar fields comply with the schema
   tryCatch(
-    jsonlite::write_json(output, filepath, pretty = pretty),
+    jsonlite::write_json(output, filepath, pretty = pretty, auto_unbox = TRUE),
     error = function(e) {
       stop(
         "Failed to write JSON: ",
@@ -623,8 +621,8 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
 #'
 #' @return Character; parameter type ("loading", "regression", "covariance", "variance", "mean", "dataMapping")
 #'
-#' @keywords internal
-#' @noRd
+
+
 inferParameterTypeFromStructure <- function(from_label, to_label, num_arrows, manifest_vars, latent_vars) {
   is_manifest_from <- from_label %in% manifest_vars
   is_manifest_to <- to_label %in% manifest_vars
@@ -667,17 +665,17 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
   opt_list <- list()
   
   # Extract starting value
-  start_val <- matrix$values[row_idx, col_idx]
+  start_val <- as.numeric(matrix$values[row_idx, col_idx])
   if (!is.na(start_val)) {
     opt_list$start <- start_val
   }
   
   # Extract bounds if available
-  bounds <- matrix$lbound[row_idx, col_idx]
-  ubound <- matrix$ubound[row_idx, col_idx]
-  if (!is.na(bounds) || !is.na(ubound)) {
+  lbound <- as.numeric(matrix$lbound[row_idx, col_idx])
+  ubound <- as.numeric(matrix$ubound[row_idx, col_idx])
+  if (!is.na(lbound) || !is.na(ubound)) {
     opt_list$bounds <- c(
-      if (is.na(bounds)) NULL else bounds,
+      if (is.na(lbound)) NULL else lbound,
       if (is.na(ubound)) NULL else ubound
     )
   }
@@ -690,12 +688,13 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
 #'
 #' Convert an OpenMx model to a GraphModel for visualization and manipulation.
 #'
-#' @param x An MxModel object (from OpenMx)
+#' @param x An MxModel or MxRAMModel object (from OpenMx)
 #'
 #' @return A GraphModel object with schema extracted from the model structure
 #'
 #' @details
-#' Extracts the model structure, parameters, and data from an MxRAMModel:
+#' Extracts the model structure, parameters, and data from RAM specification models:
+#' - Supports MxModel and MxRAMModel objects created with type="RAM" specification
 #' - Manifest and latent variables become nodes
 #' - Asymmetric (A) and symmetric (S) matrix paths become graph edges
 #' - Current parameter values and free/fixed status are preserved
@@ -705,11 +704,16 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
 #' - Fit function type is extracted (ML, WLS, etc.)
 #' - Unsupported features (constraints, algebras, thresholds) are warned about
 #'
+#' Not supported:
+#' - LISREL-type models (MxLISRELModel)
+#' - State space models
+#' - Joint continuous-discrete data models
+#'
 #' @examples
 #' \dontrun{
 #' library(OpenMx)
-#' # Fit an MxModel
-#' fit <- mxRun(myModel)
+#' # Create and fit an MxRAMModel
+#' fit <- mxRun(mxModel('model', type='RAM', ...))
 #' # Convert to GraphModel for visualization
 #' gm <- as.GraphModel(fit)
 #' graphTool(gm)
@@ -817,7 +821,7 @@ setMethod(
     paths <- list()
     
     # Helper to add path from matrix
-    add_paths_from_matrix <- function(matrix_name, num_arrows) {
+    add_paths_from_matrix <- function(matrix_name, num_arrows, symmetric = FALSE) {
       mat <- x[[matrix_name]]
       if (is.null(mat)) return(NULL)
       
@@ -827,11 +831,16 @@ setMethod(
       path_list <- list()
       for (i in seq_len(nrow(mat$values))) {
         for (j in seq_len(ncol(mat$values))) {
+          # For symmetric matrices, only process upper triangle (i <= j)
+          # This avoids duplicate paths since S[i,j] = S[j,i]
+          if (symmetric && i > j) next
+          
           val <- mat$values[i, j]
+
           if (!is.na(val) && val != 0) {
             label <- mat$labels[i, j] %||% NA
             free <- mat$free[i, j] %||% FALSE
-            
+
             from_label <- col_names[j]
             to_label <- row_names[i]
             
@@ -843,11 +852,8 @@ setMethod(
             
             # Extract optimization info (start, bounds)
             opt_info <- extractOptimizationFromMatrix(mat, i, j)
-            if (is.null(opt_info)) {
-              opt_info <- list()
-            }
             
-            path_list[[length(path_list) + 1]] <- list(
+            path_list <- c(path_list,list(list(
               fromLabel = from_label,
               toLabel = to_label,
               numberOfArrows = num_arrows,
@@ -856,7 +862,7 @@ setMethod(
               label = label,
               parameterType = param_type,
               optimization = opt_info
-            )
+            )))
           }
         }
       }
@@ -865,11 +871,11 @@ setMethod(
     
     # Extract asymmetric (A) paths - single headed arrows
     a_paths <- add_paths_from_matrix(a_name, 1)
-    if (!is.null(a_paths)) paths <- c(paths, a_paths)
+    paths <- c(paths, a_paths)
     
-    # Extract symmetric (S) paths - double headed arrows
-    s_paths <- add_paths_from_matrix(s_name, 2)
-    if (!is.null(s_paths)) paths <- c(paths, s_paths)
+    # Extract symmetric (S) paths - double headed arrows (upper triangle only)
+    s_paths <- add_paths_from_matrix(s_name, 2, symmetric = TRUE)
+    paths <- c(paths, s_paths)
     
     # Extract means from M vector - create paths from "one" (constant) to variables
     m_paths <- NULL
@@ -878,20 +884,20 @@ setMethod(
       m_mat <- x[[m_name]]
       if (!is.null(m_mat)) {
         # M is a matrix object with $values, $labels, $free
-        m_values <- m_mat$values
-        m_labels <- m_mat$labels %||% matrix(NA, nrow = nrow(m_values), ncol = ncol(m_values))
-        m_free <- m_mat$free %||% matrix(FALSE, nrow = nrow(m_values), ncol = ncol(m_values))
+        m_values <- as.numeric(m_mat$values)
+        m_labels <- as.character(m_mat$labels %||% rep(NA, length(m_values)))
+        m_free <- as.logical(m_mat$free %||% rep(FALSE, length(m_values)))
         
         if (!is.null(m_values)) {
           # M is typically 1 x p (1 row, p columns for p manifest variables)
           m_paths <- list()
-          for (j in seq_len(ncol(m_values))) {
-            val <- m_values[1, j]
+          for (j in seq_len(length(m_values))) {
+            val <- m_values[j]
             if (!is.na(val) && val != 0) {
               # Map to correct manifest variable
               var_name <- manifest_vars[j] %||% paste0("V", j)
-              label <- m_labels[1, j] %||% NA
-              free <- m_free[1, j] %||% FALSE
+              label <- m_labels[j] %||% NA
+              free <- m_free[j] %||% FALSE
               
               opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
               if (is.null(opt_info)) {
@@ -913,18 +919,7 @@ setMethod(
         }
       }
     }
-    if (!is.null(m_paths)) paths <- c(paths, m_paths)
-    
-    # Update with fitted values if available (from fitted model)
-    if (!is.null(x$output) && !is.null(x$output$estimate)) {
-      # Update path values with fitted estimates
-      for (i in seq_along(paths)) {
-        param_label <- paths[[i]]$label
-        if (!is.na(param_label) && param_label %in% names(x$output$estimate)) {
-          paths[[i]]$value <- x$output$estimate[param_label]
-        }
-      }
-    }
+    paths <- c(paths, m_paths)
     
     # Extract fit function type
     fit_func <- x$fitfunction
@@ -937,17 +932,8 @@ setMethod(
       else if (grepl("GLS", class_name)) fit_function <- "GLS"
     }
     
-    # Build optimization configuration with semantic parameter type definitions
-    # These are empty skeletons - hints are stored at path level, not type level
-    semantic_param_types <- c("loading", "regression", "covariance", "variance", "mean", "dataMapping")
-    param_types_skeleton <- setNames(
-      lapply(semantic_param_types, function(x) list()),
-      semantic_param_types
-    )
-    
     optimization <- list(
-      fitFunction = fit_function,
-      parameterTypes = param_types_skeleton
+      fitFunction = fit_function
     )
     
     # Build schema
@@ -998,5 +984,17 @@ setMethod(
     gm@dataConnections <- data_connections
     
     gm
+  }
+)
+
+#' @export
+#' @rdname as.GraphModel
+setMethod(
+  "as.GraphModel",
+  "MxRAMModel",
+  function(x) {
+    # MxRAMModel is a subclass of MxModel; delegate to MxModel method
+    # This explicit registration documents that we support RAM-type models
+    callNextMethod(x)
   }
 )

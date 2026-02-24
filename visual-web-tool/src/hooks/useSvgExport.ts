@@ -5,13 +5,14 @@
 
 import { useCallback } from 'react'
 import { GraphSchema } from '../core/types'
-import { modelToSVG, PositionMap, SvgExportOptions } from '../utils/svgRenderer'
+import { modelToSVG, SvgExportOptions } from '../utils/svgRenderer'
 
 /**
  * Hook for exporting graph models to SVG
+ * Positions are read from schema.nodes[].visual (canonical/RAMPath space)
  * Usage in CanvasTool:
  *   const { exportToSvg } = useSvgExport()
- *   const svgString = exportToSvg(schema, positions, options)
+ *   const svgString = exportToSvg(schema, modelId, options)
  */
 export function useSvgExport() {
   /**
@@ -20,12 +21,11 @@ export function useSvgExport() {
   const exportToSvg = useCallback(
     (
       schema: GraphSchema,
-      positions: PositionMap,
       modelId?: string,
       options?: SvgExportOptions
     ): string => {
       try {
-        return modelToSVG(schema, positions, modelId, options)
+        return modelToSVG(schema, modelId, options)
       } catch (error) {
         console.error('Error exporting to SVG:', error)
         throw error

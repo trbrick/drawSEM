@@ -47,6 +47,17 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
       displayName: convertToUnicode(label),
       type: n.type || 'variable'
     }
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[RuntimeConverter] Node conversion:', {
+        label,
+        inputVisual: n.visual,
+        outputX: out.x,
+        outputY: out.y,
+        hasVisual: !!n.visual,
+        visualX: visual.x,
+        visualY: visual.y,
+      })
+    }
     if (out.type === 'variable' && !n.tags?.includes('factor')) {
       out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
       out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
@@ -103,9 +114,12 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
  */
 export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }> {
   const modelDict = doc.models || {}
+  console.log('[RuntimeConverter] convertDocToRuntime called. Models:', Object.keys(modelDict))
   return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
     const label = model.label || modelId
+    console.log('[RuntimeConverter] Processing model:', modelId, 'has', (model.nodes || []).length, 'nodes')
     const { nodes, paths } = convertModelToRuntime(model)
+    console.log('[RuntimeConverter] Model conversion complete. Output nodes:', nodes.length, 'Sample node:', nodes.length > 0 ? { id: nodes[0].id, label: nodes[0].label, x: nodes[0].x, y: nodes[0].y } : 'none')
     // Extract parameterTypes from optimization section
     const parameterTypes = model.optimization?.parameterTypes || {}
     return { id: modelId, label, nodes, paths, parameterTypes }

@@ -276,8 +276,10 @@ saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
   }
   
   # Write schema JSON
+  # Use auto_unbox=TRUE to serialize length-1 vectors as scalars (not arrays)
+  # This ensures value, label, and other scalar fields comply with the schema
   tryCatch(
-    jsonlite::write_json(schema, filepath, pretty = pretty),
+    jsonlite::write_json(schema, filepath, pretty = pretty, auto_unbox = TRUE),
     error = function(e) {
       stop("Failed to write JSON: ", conditionMessage(e), call. = FALSE)
     }

@@ -248,6 +248,32 @@
             },
             "additionalProperties": false
           },
+          "visualization": {
+            "type": "object",
+            "description": "Model-level visualization configuration: rendering hints for interactive and static layouts. Properties are optional; defaults apply when omitted. Different rendering contexts (RStudio, web, PDF) may interpret these hints differently.",
+            "properties": {
+              "anchor": {
+                "type": ["object", "null"],
+                "description": "Display offset to apply to all node positions before rendering. When null, automatically computed from node bounds and margins. When specified as {x, y}, adds this offset to all canonical node coordinates for display only (canonical coordinates in nodes[].visual remain unchanged). Used to center or position the model in different contexts (interactive canvas, PDF page, etc.)",
+                "properties": {
+                  "x": { "type": "number", "description": "Horizontal offset in display units" },
+                  "y": { "type": "number", "description": "Vertical offset in display units" }
+                },
+                "additionalProperties": false
+              },
+              "displayContext": {
+                "type": "object",
+                "description": "Rendering hints for different display contexts (interactive, print, web). Defaults: marginLeft=50, marginTop=50, modelWidthFactor=0.5. TODO: Move to configuration for cascade/submodel positioning.",
+                "properties": {
+                  "marginLeft": { "type": "number", "description": "Left margin in display units; used when computing default anchor" },
+                  "marginTop": { "type": "number", "description": "Top margin in display units; used when computing default anchor" },
+                  "modelWidthFactor": { "type": "number", "description": "Scaling factor relative to available width (0-1); used when computing default anchor for horizontal centering" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "paths": {
             "type": "array",
             "items": {

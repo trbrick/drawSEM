@@ -7,8 +7,25 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { autoLayout } from '../../src/utils/autoLayout'
-import { modelToSVG, PositionMap, SvgExportOptions } from '../../src/utils/svgRenderer'
+import { modelToSVG, SvgExportOptions } from '../../src/utils/svgRenderer'
 import { GraphSchema, Node, Path } from '../../src/core/types'
+
+/**
+ * Helper to integrate positions into schema.nodes[].visual
+ * (mirrors CanvasTool integration of auto-layout results)
+ */
+function integratePositionsIntoSchema(schema: GraphSchema, positions: Record<string, { x: number; y: number }>): void {
+  const modelKey = Object.keys(schema.models)[0]
+  if (!modelKey) return
+  const model = schema.models[modelKey]
+  
+  model.nodes?.forEach(node => {
+    const pos = positions[node.label]
+    if (pos) {
+      node.visual = { ...node.visual, x: pos.x, y: pos.y }
+    }
+  })
+}
 
 /**
  * Helper to load test fixtures
@@ -85,15 +102,15 @@ function isValidXml(svgString: string): boolean {
 describe('SVG Renderer', () => {
   describe('Basic rendering - simple_chain', () => {
     let schema: GraphSchema
-    let positions: PositionMap
 
     beforeAll(() => {
       schema = loadFixture('simple_chain.json')
-      positions = autoLayout(schema)
+      const positions = autoLayout(schema)
+      integratePositionsIntoSchema(schema, positions)
     })
 
     it('should generate SVG from positioned model', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toBeDefined()
       expect(svg.length).toBeGreaterThan(0)
       expect(svg).toContain('<svg')
@@ -101,12 +118,12 @@ describe('SVG Renderer', () => {
     })
 
     it('should produce valid XML structure', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(isValidXml(svg)).toBe(true)
     })
 
     it('should include marker definitions', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('<defs>')
       expect(svg).toContain('</defs>')
       expect(svg).toContain('arrow-start')
@@ -114,7 +131,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should include all nodes in output', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       const model = schema.models[Object.keys(schema.models)[0]]
       
       // Count circles (latent) + rects (manifest/dataset) + polygons (constant)
@@ -129,7 +146,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should include all visible nodes when showDatasetNodes=true', () => {
-      const svg = modelToSVG(schema, positions, undefined, { showDatasetNodes: true })
+      const svg = modelToSVG(schema, undefined, { showDatasetNodes: true })
       const model = schema.models[Object.keys(schema.models)[0]]
       const visibleNodes = model.nodes.filter(n => n.type !== 'dataset').length + 
                            (model.nodes.some(n => n.type === 'dataset') ? 1 : 0)
@@ -137,14 +154,14 @@ describe('SVG Renderer', () => {
     })
 
     it('should exclude dataset nodes when showDatasetNodes=false', () => {
-      const svg = modelToSVG(schema, positions, undefined, { showDatasetNodes: false })
+      const svg = modelToSVG(schema, undefined, { showDatasetNodes: false })
       const model = schema.models[Object.keys(schema.models)[0]]
       const hasDataset = model.nodes.some(n => n.type === 'dataset')
       
       if (hasDataset) {
         // If the fixture has a dataset node, verify it's NOT in the SVG
         // Dataset nodes are rendered with ellipses (for database can icon)
-        const svgWithDataset = modelToSVG(schema, positions, undefined, { showDatasetNodes: true })
+        const svgWithDataset = modelToSVG(schema, undefined, { showDatasetNodes: true })
         const ellipsesWithDataset = (svgWithDataset.match(/<ellipse/g) || []).length
         const ellipsesWithoutDataset = (svg.match(/<ellipse/g) || []).length
         expect(ellipsesWithoutDataset).toBeLessThan(ellipsesWithDataset)
@@ -156,14 +173,14 @@ describe('SVG Renderer', () => {
     })
 
     it('should exclude constant nodes when showConstantNodes=false', () => {
-      const svg = modelToSVG(schema, positions, undefined, { showConstantNodes: false })
+      const svg = modelToSVG(schema, undefined, { showConstantNodes: false })
       const model = schema.models[Object.keys(schema.models)[0]]
       const hasConstant = model.nodes.some(n => n.type === 'constant')
       
       if (hasConstant) {
         // If the fixture has a constant node, verify it's NOT in the SVG
         // Constant nodes are rendered as polygons (triangles)
-        const svgWithConstant = modelToSVG(schema, positions, undefined, { showConstantNodes: true })
+        const svgWithConstant = modelToSVG(schema, undefined, { showConstantNodes: true })
         const polygonsWithConstant = (svgWithConstant.match(/<polygon/g) || []).length
         const polygonsWithoutConstant = (svg.match(/<polygon/g) || []).length
         expect(polygonsWithoutConstant).toBeLessThan(polygonsWithConstant)
@@ -175,14 +192,14 @@ describe('SVG Renderer', () => {
     })
 
     it('should exclude both dataset and constant nodes when both show flags are false', () => {
-      const svg = modelToSVG(schema, positions, undefined, { 
+      const svg = modelToSVG(schema, undefined, { 
         showDatasetNodes: false,
         showConstantNodes: false 
       })
       const model = schema.models[Object.keys(schema.models)[0]]
       
       // Get counts from the full SVG
-      const svgFull = modelToSVG(schema, positions)
+      const svgFull = modelToSVG(schema)
       const ellipsesWithDataset = (svgFull.match(/<ellipse/g) || []).length
       const polygonsWithConstant = (svgFull.match(/<polygon/g) || []).length
       const ellipsesFiltered = (svg.match(/<ellipse/g) || []).length
@@ -198,8 +215,8 @@ describe('SVG Renderer', () => {
     })
 
     it('should render with custom padding', () => {
-      const svgDefault = modelToSVG(schema, positions)
-      const svgPadded = modelToSVG(schema, positions, undefined, { padding: 100 })
+      const svgDefault = modelToSVG(schema)
+      const svgPadded = modelToSVG(schema, undefined, { padding: 100 })
       
       // Extract viewBox from each
       const defaultBox = svgDefault.match(/viewBox="([^"]+)"/)?.[1]
@@ -211,14 +228,14 @@ describe('SVG Renderer', () => {
     })
 
     it('should set background color', () => {
-      const svg = modelToSVG(schema, positions, undefined, {
+      const svg = modelToSVG(schema, undefined, {
         backgroundColor: '#f0f0f0',
       })
       expect(svg).toContain('background-color: #f0f0f0')
     })
 
     it('should write SVG report for inspection', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       writeSvgReport('simple_chain.svg', svg)
       
       // Verify file was written
@@ -229,32 +246,32 @@ describe('SVG Renderer', () => {
 
   describe('Node rendering', () => {
     let schema: GraphSchema
-    let positions: PositionMap
 
     beforeAll(() => {
       schema = loadFixture('one_factor_model.json')
-      positions = autoLayout(schema)
+      const positions = autoLayout(schema)
+      integratePositionsIntoSchema(schema, positions)
     })
 
     it('should render manifest variable nodes as rectangles', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       // Note: manifest nodes are rendered as rects
       expect(svg).toContain('<rect')
       expect(svg).toContain('rx="4"')
     })
 
     it('should render latent variable nodes as circles', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('<circle')
     })
 
     it('should render constant nodes as triangles', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('<polygon')
     })
 
     it('should include node labels with correct text', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       const model = schema.models[Object.keys(schema.models)[0]]
       
       model.nodes.forEach(node => {
@@ -263,46 +280,49 @@ describe('SVG Renderer', () => {
       })
     })
 
-    it('should position nodes from positions map', () => {
-      const svg = modelToSVG(schema, positions)
+    it('should position nodes from schema.nodes[].visual', () => {
+      const svg = modelToSVG(schema)
       const model = schema.models[Object.keys(schema.models)[0]]
       
       // Check that some nodes have coordinates in their rendered form
-      Object.entries(positions).forEach(([label, pos]) => {
-        // Coordinates should appear in the SVG (approximately)
-        expect(svg).toContain(Math.round(pos.x).toString())
+      model.nodes.forEach(node => {
+        if (node.visual?.x !== undefined && node.visual?.y !== undefined) {
+          // Coordinates should appear in the SVG (approximately)
+          expect(svg).toContain(Math.round(node.visual.x).toString())
+        }
       })
     })
   })
 
   describe('Path rendering', () => {
     let schemaChain: GraphSchema
-    let positionsChain: PositionMap
     let schemaDiamond: GraphSchema
-    let positionsDiamond: PositionMap
 
     beforeAll(() => {
       schemaChain = loadFixture('simple_chain.json')
-      positionsChain = autoLayout(schemaChain)
+      const positionsChain = autoLayout(schemaChain)
+      integratePositionsIntoSchema(schemaChain, positionsChain)
+      
       schemaDiamond = loadFixture('diamond.json')
-      positionsDiamond = autoLayout(schemaDiamond)
+      const positionsDiamond = autoLayout(schemaDiamond)
+      integratePositionsIntoSchema(schemaDiamond, positionsDiamond)
     })
 
     it('should render paths between nodes', () => {
-      const svg = modelToSVG(schemaChain, positionsChain)
+      const svg = modelToSVG(schemaChain)
       expect(svg).toContain('<path')
       // Paths are self-closing in SVG
       expect(svg).toMatch(/<path[^>]+\/>/)
     })
 
     it('should render single-headed paths with arrow-end marker', () => {
-      const svg = modelToSVG(schemaChain, positionsChain)
+      const svg = modelToSVG(schemaChain)
       expect(svg).toContain('marker-end="url(#arrow-end)"')
       expect(svg).toContain('marker-start="none"')
     })
 
     it('should render double-headed paths with both markers', () => {
-      const svg = modelToSVG(schemaDiamond, positionsDiamond)
+      const svg = modelToSVG(schemaDiamond)
       // Diamond model has covariances (two-headed paths)
       // Check for both start and end markers
       if (svg.includes('marker-start="url(#arrow-start)"')) {
@@ -317,7 +337,7 @@ describe('SVG Renderer', () => {
         models: {
           test: {
             nodes: [
-              { id: 'X', label: 'X', type: 'variable' },
+              { id: 'X', label: 'X', type: 'variable', visual: { x: 0, y: 0 } },
             ],
             paths: [
               {
@@ -332,17 +352,13 @@ describe('SVG Renderer', () => {
         },
       }
       
-      const positions: PositionMap = {
-        X: { x: 0, y: 0 },
-      }
-      
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('<path')
       expect(svg).toContain('C ') // Cubic bezier for self-loop
     })
 
     it('should use curved paths for two-sided links', () => {
-      const svg = modelToSVG(schemaDiamond, positionsDiamond)
+      const svg = modelToSVG(schemaDiamond)
       // Two-sided paths use quadratic curves (Q command) or cubic bezier (C command)
       if (svg.includes('marker-start="url(#arrow-start)"')) {
         expect(svg).toMatch(/\b[QC]\s+/)  // Check for quadratic or cubic curve
@@ -352,18 +368,18 @@ describe('SVG Renderer', () => {
 
   describe('Path labels', () => {
     let schema: GraphSchema
-    let positions: PositionMap
 
     beforeAll(() => {
       schema = loadFixture('simple_chain.json')
-      positions = autoLayout(schema)
+      const positions = autoLayout(schema)
+      integratePositionsIntoSchema(schema, positions)
     })
 
     it('should not render labels when pathLabelFormat is "neither"', () => {
-      const svgWithLabels = modelToSVG(schema, positions, undefined, {
+      const svgWithLabels = modelToSVG(schema, undefined, {
         pathLabelFormat: 'neither',
       })
-      const svgNoLabels = modelToSVG(schema, positions, undefined, {
+      const svgNoLabels = modelToSVG(schema, undefined, {
         pathLabelFormat: null,
       })
       
@@ -375,7 +391,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should render labels when pathLabelFormat is "labels"', () => {
-      const svg = modelToSVG(schema, positions, undefined, {
+      const svg = modelToSVG(schema, undefined, {
         pathLabelFormat: 'labels',
       })
       const model = schema.models[Object.keys(schema.models)[0]]
@@ -388,7 +404,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should render values when pathLabelFormat is "values"', () => {
-      const svg = modelToSVG(schema, positions, undefined, {
+      const svg = modelToSVG(schema, undefined, {
         pathLabelFormat: 'values',
       })
       const model = schema.models[Object.keys(schema.models)[0]]
@@ -401,7 +417,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should render both when pathLabelFormat is "both"', () => {
-      const svg = modelToSVG(schema, positions, undefined, {
+      const svg = modelToSVG(schema, undefined, {
         pathLabelFormat: 'both',
       })
       // Just verify it's valid XML
@@ -423,12 +439,12 @@ describe('SVG Renderer', () => {
     fixtureFiles.forEach(filename => {
       describe(`Fixture: ${filename.replace('.json', '')}`, () => {
         let schema: GraphSchema
-        let positions: PositionMap
 
         beforeAll(() => {
           try {
             schema = loadFixture(filename)
-            positions = autoLayout(schema)
+            const positions = autoLayout(schema)
+            integratePositionsIntoSchema(schema, positions)
           } catch (e) {
             // Skip if fixture not available
             expect(true).toBe(true)
@@ -437,13 +453,13 @@ describe('SVG Renderer', () => {
 
         it('should generate valid SVG', () => {
           if (!schema) return
-          const svg = modelToSVG(schema, positions)
+          const svg = modelToSVG(schema)
           expect(isValidXml(svg)).toBe(true)
         })
 
         it('should include all node types', () => {
           if (!schema) return
-          const svg = modelToSVG(schema, positions)
+          const svg = modelToSVG(schema)
           const model = schema.models[Object.keys(schema.models)[0]]
           
           const hasVariable = model.nodes.some(n => n.type === 'variable')
@@ -457,7 +473,7 @@ describe('SVG Renderer', () => {
 
         it('should render all paths', () => {
           if (!schema) return
-          const svg = modelToSVG(schema, positions)
+          const svg = modelToSVG(schema)
           const model = schema.models[Object.keys(schema.models)[0]]
           
           const pathCount = (svg.match(/<path/g) || []).length
@@ -467,14 +483,14 @@ describe('SVG Renderer', () => {
 
         it('should write SVG report', () => {
           if (!schema) return
-          const svg = modelToSVG(schema, positions)
+          const svg = modelToSVG(schema)
           writeSvgReport(filename.replace('.json', '.svg'), svg)
           expect(true).toBe(true)
         })
 
         it('should have valid dimensions', () => {
           if (!schema) return
-          const svg = modelToSVG(schema, positions)
+          const svg = modelToSVG(schema)
           const viewBoxMatch = svg.match(/viewBox="([^"]+)"/)
           const widthMatch = svg.match(/width="([^"]+)"/)
           const heightMatch = svg.match(/height="([^"]+)"/)
@@ -499,8 +515,7 @@ describe('SVG Renderer', () => {
         },
       }
       
-      const positions: PositionMap = {}
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       
       expect(svg).toContain('<svg')
       expect(svg).toContain('</svg>')
@@ -518,8 +533,8 @@ describe('SVG Renderer', () => {
         },
       }
       
-      const positions: PositionMap = {} // No position for X
-      const svg = modelToSVG(schema, positions)
+      // No position for X (no visual property)
+      const svg = modelToSVG(schema)
       
       // Should still produce valid SVG, just without the node
       expect(svg).toContain('<svg')
@@ -532,8 +547,8 @@ describe('SVG Renderer', () => {
         models: {
           test: {
             nodes: [
-              { id: 'X', label: 'X', type: 'variable' },
-              { id: 'Y', label: 'Y', type: 'variable' },
+              { id: 'X', label: 'X', type: 'variable', visual: { x: 0, y: 0 } },
+              { id: 'Y', label: 'Y', type: 'variable', visual: { x: 100, y: 100 } },
             ],
             paths: [
               {
@@ -548,12 +563,7 @@ describe('SVG Renderer', () => {
         },
       }
       
-      const positions: PositionMap = {
-        X: { x: 0, y: 0 },
-        Y: { x: 100, y: 100 },
-      }
-      
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       
       expect(svg).toContain('<svg')
       expect(isValidXml(svg)).toBe(true)
@@ -566,8 +576,8 @@ describe('SVG Renderer', () => {
         models: {
           test: {
             nodes: [
-              { id: 'X', label: 'X', type: 'variable' },
-              { id: 'Y', label: 'Y', type: 'variable' },
+              { id: 'X', label: 'X', type: 'variable', visual: { x: 0, y: 0 } },
+              { id: 'Y', label: 'Y', type: 'variable', visual: { x: 100, y: 100 } },
             ],
             paths: [
               {
@@ -581,12 +591,7 @@ describe('SVG Renderer', () => {
         },
       }
       
-      const positions: PositionMap = {
-        X: { x: 0, y: 0 },
-        Y: { x: 100, y: 100 },
-      }
-      
-      const svg = modelToSVG(schema, positions, undefined, {
+      const svg = modelToSVG(schema, undefined, {
         pathLabelFormat: 'labels',
       })
       
@@ -597,26 +602,26 @@ describe('SVG Renderer', () => {
 
   describe('SVG structure and formatting', () => {
     let schema: GraphSchema
-    let positions: PositionMap
 
     beforeAll(() => {
       schema = loadFixture('simple_chain.json')
-      positions = autoLayout(schema)
+      const positions = autoLayout(schema)
+      integratePositionsIntoSchema(schema, positions)
     })
 
     it('should include proper xmlns attribute', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"')
     })
 
     it('should include viewBox attribute', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       const viewBoxMatch = svg.match(/viewBox="(\d+|-\d+ -?\d+ \d+ \d+)"/)
       expect(viewBoxMatch).toBeTruthy()
     })
 
     it('should organize elements in groups', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg).toContain('<g id="paths">')
       expect(svg).toContain('<g id="path-labels">')
       expect(svg).toContain('<g id="nodes">')
@@ -624,7 +629,7 @@ describe('SVG Renderer', () => {
     })
 
     it('should have closed SVG tag', () => {
-      const svg = modelToSVG(schema, positions)
+      const svg = modelToSVG(schema)
       expect(svg.endsWith('</svg>')).toBe(true)
     })
   })

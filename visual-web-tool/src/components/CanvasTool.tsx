@@ -6,7 +6,8 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath } from '../utils/helpers'
-import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from '../utils/constants'
+import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
+import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 
@@ -113,6 +114,7 @@ interface CanvasToolProps {
 }
 
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
+  console.log('[CanvasTool] Component mounted. viewMode:', viewMode, 'initialSchema provided:', !!initialSchema)
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
   // Multi-model state
@@ -179,9 +181,57 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Debug: Log nodes whenever they change
   React.useEffect(() => {
     if (nodes.length > 0) {
-      console.log('[Canvas Render] Nodes updated:', nodes.length, nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
+      console.log('[Canvas Render] Nodes updated:', nodes.length, 'nodes:', nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
+      console.log('[Canvas Debug] First node details:', nodes[0])
+      
+      // Calculate viewBox bounds
+      const xs = nodes.map(n => n.x || 0)
+      const ys = nodes.map(n => n.y || 0)
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      const minY = Math.min(...ys)
+      const maxY = Math.max(...ys)
+      const width = maxX - minX
+      const height = maxY - minY
+      console.log('[Canvas Debug] ViewBox bounds - minX:', minX, 'maxX:', maxX, 'minY:', minY, 'maxY:', maxY, 'width:', width, 'height:', height)
     }
   }, [nodes])
+
+  // Debug: Monitor SVG ref and its attributes
+  React.useEffect(() => {
+    const checkSvgElement = () => {
+      if (svgRef.current) {
+        console.log('[SVG Debug] SVG element mounted')
+        console.log('[SVG Debug] SVG width:', svgRef.current.getAttribute('width'))
+        console.log('[SVG Debug] SVG height:', svgRef.current.getAttribute('height'))
+        console.log('[SVG Debug] SVG viewBox:', svgRef.current.getAttribute('viewBox'))
+        console.log('[SVG Debug] SVG class:', svgRef.current.getAttribute('class'))
+        console.log('[SVG Debug] Computed style:', {
+          width: window.getComputedStyle(svgRef.current).width,
+          height: window.getComputedStyle(svgRef.current).height,
+          display: window.getComputedStyle(svgRef.current).display,
+        })
+      }
+    }
+    
+    checkSvgElement()
+    // Also check after a brief delay to ensure DOM is fully painted
+    const timeout = setTimeout(checkSvgElement, 100)
+    return () => clearTimeout(timeout)
+  }, []) // Only on mount
+
+  // Debug: Monitor SVG attribute changes
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (svgRef.current) {
+        const vb = svgRef.current.getAttribute('viewBox')
+        if (vb !== null) {
+          console.log('[SVG Debug] ViewBox attribute found:', vb)
+        }
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
@@ -465,7 +515,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       console.log('[Shiny] Received model update from R:', schema)
       try {
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
+          console.log('[Shiny] Models object found. Keys:', Object.keys((schema as any).models))
           const modelsOut = convertDocToRuntime(schema as any)
+          console.log('[Shiny] Conversion complete. Models:', modelsOut.length)
+          if (modelsOut.length > 0) {
+            console.log('[Shiny] First model after conversion:', {
+              id: modelsOut[0].id,
+              label: modelsOut[0].label,
+              nodeCount: modelsOut[0].nodes.length,
+              nodes: modelsOut[0].nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y }))
+            })
+          }
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -697,6 +757,35 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return null
     }
   }, [nodes])
+
+  // Compute display anchor for coordinate normalization (canonical -> display space)
+  // This applies display margins and centering to node positions from auto-layout
+  // Recomputed whenever model or nodes change to handle zoom/pan consistency
+  const displayAnchor = React.useMemo<DisplayAnchor>(() => {
+    // Convert runtime nodes back to schema-like format for bounds calculation
+    // Runtime nodes have x, y in canonical space (from schema.nodes[].visual)
+    const schemaLikNodes = nodes.map(n => ({
+      ...n,
+      visual: {
+        x: n.x,
+        y: n.y,
+        width: n.width,
+        height: n.height,
+      },
+    })) as any
+    const bounds = computeModelBounds(schemaLikNodes)
+    return computeAnchor(bounds, { marginLeft: DISPLAY_MARGINS.LEFT, marginTop: DISPLAY_MARGINS.TOP })
+  }, [currentModelId, nodes])
+
+  // Helper: Get display coordinates for a node (canonical + anchor offset)
+  // Used for rendering nodes on canvas with proper margins/centering
+  // TODO: Apply to all node rendering positions for complete canonical->display transformation
+  const getNodeDisplayCoordinates = (n: Node): { displayX: number; displayY: number } => {
+    return {
+      displayX: n.x + displayAnchor.x,
+      displayY: n.y + displayAnchor.y,
+    }
+  }
 
   // Helper: determine if a variable node should render as manifest or latent
   // If variableCharacteristics.manifestLatent is set, use that (it acts as a "lock")
@@ -2533,13 +2622,67 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             )}
           </div>
         )}
-        <svg
-          ref={svgRef}
-          className="w-full h-full bg-white border rounded"
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
-          onClick={onCanvasClick}
+        {/* Debug render state right before SVG */}
+        {(() => {
+          console.log('[SVG Render] Rendering SVG element. viewMode:', viewMode, 'nodes:', nodes.length, 'paths:', paths.length)
+          if (nodes.length > 0) {
+            const xs = nodes.map(n => n.x || 0)
+            const ys = nodes.map(n => n.y || 0)
+            const minX = Math.min(...xs)
+            const maxX = Math.max(...xs)
+            const minY = Math.min(...ys)
+            const maxY = Math.max(...ys)
+            console.log('[SVG Render] Computed bounds - minX:', minX, 'maxX:', maxX, 'minY:', minY, 'maxY:', maxY)
+          }
+          return null
+        })()}
+        {(() => {
+          // Compute viewBox from node positions and sizes
+          let viewBoxAttr: string | undefined = undefined
+          if (nodes.length > 0) {
+            // Calculate proper bounds accounting for node dimensions
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+            nodes.forEach(n => {
+              const x = n.x || 0
+              const y = n.y || 0
+              // Default node dimensions based on type
+              let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
+              let h = n.height || (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
+              // For latent nodes (circles), use radius
+              if (n.type === 'variable' && n.variableCharacteristics?.manifestLatent === 'latent') {
+                w = LATENT_RADIUS * 2
+                h = LATENT_RADIUS * 2
+              }
+              // Compute node bounds (center-based positioning)
+              const left = x - w / 2
+              const right = x + w / 2
+              const top = y - h / 2
+              const bottom = y + h / 2
+              minX = Math.min(minX, left)
+              maxX = Math.max(maxX, right)
+              minY = Math.min(minY, top)
+              maxY = Math.max(maxY, bottom)
+            })
+            const width = maxX - minX
+            const height = maxY - minY
+            const MARGIN_LEFT = 50
+            const MARGIN_TOP = 80      // Increased for loopback arrows
+            const MARGIN_BOTTOM = 80   // Increased for loopback arrows
+            // Margins on all sides for centered visual
+            viewBoxAttr = `${minX - MARGIN_LEFT} ${minY - MARGIN_TOP} ${width + MARGIN_LEFT * 2} ${height + MARGIN_TOP + MARGIN_BOTTOM}`
+            console.log('[SVG Render] Computed viewBox (mode=' + viewMode + '):', viewBoxAttr)
+          }
+          
+          return (
+            <svg
+              ref={svgRef}
+              className="w-full h-full bg-white border rounded"
+              viewBox={viewBoxAttr}
+              preserveAspectRatio="xMidYMid meet"
+              onMouseMove={onMouseMove}
+              onMouseUp={onMouseUp}
+              onMouseLeave={onMouseUp}
+              onClick={onCanvasClick}
           onDragOver={(e) => {
             if (draggedColumnName && selectedNode?.type === 'dataset') {
               e.preventDefault()
@@ -2563,49 +2706,49 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             setDraggedColumnName(null)
             setDragPreviewPos(null)
           }}
-        >
-          <defs>
-            <marker id="arrow-end" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-              <path d="M0,0 L10,4 L0,8 z" fill="#000" />
-            </marker>
-            <marker id="arrow-start" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
-              <path d="M10,0 L0,4 L10,8 z" fill="#000" />
-            </marker>
-            <marker id="arrow-end-selected" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-              <path d="M0,0 L10,4 L0,8 z" fill="#ff0000" />
-            </marker>
-            <marker id="arrow-start-selected" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
-              <path d="M10,0 L0,4 L10,8 z" fill="#ff0000" />
-            </marker>
-          </defs>
+            >
+              <defs>
+                <marker id="arrow-end" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+                  <path d="M0,0 L10,4 L0,8 z" fill="#000" />
+                </marker>
+                <marker id="arrow-start" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
+                  <path d="M10,0 L0,4 L10,8 z" fill="#000" />
+                </marker>
+                <marker id="arrow-end-selected" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+                  <path d="M0,0 L10,4 L0,8 z" fill="#ff0000" />
+                </marker>
+                <marker id="arrow-start-selected" markerWidth="10" markerHeight="8" refX="0" refY="4" orient="auto">
+                  <path d="M10,0 L0,4 L10,8 z" fill="#ff0000" />
+                </marker>
+              </defs>
 
-          {/* draw paths with layer-based opacity */}
-          {paths.map((p) => {
-              const isSelected = selectedType === 'path' && selectedId === p.id
-              const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
-              const inLayer = isPathInLayer(p)
-              const opacity = getElementOpacity(inLayer)
-              const zIndex = getElementZIndex(inLayer)
-              return (
-                <path
-                  key={p.id}
-                  d={pathD(p)}
-                  fill="none"
-                  stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
-                  strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
-                  markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
-                  markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    selectElement(p.id, 'path')
-                  }}
-                  opacity={opacity}
-                  style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
-                />
-              )
-            })}
+              {/* draw paths with layer-based opacity */}
+              {paths.map((p) => {
+                  const isSelected = selectedType === 'path' && selectedId === p.id
+                  const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
+                  const inLayer = isPathInLayer(p)
+                  const opacity = getElementOpacity(inLayer)
+                  const zIndex = getElementZIndex(inLayer)
+                  return (
+                    <path
+                      key={p.id}
+                      d={pathD(p)}
+                      fill="none"
+                      stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
+                      strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
+                      markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                      markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        selectElement(p.id, 'path')
+                      }}
+                      opacity={opacity}
+                      style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
+                    />
+                  )
+                })}
 
-          {/* path labels */}
+              {/* path labels */}
           {paths.map((p) => {
             const displayText = getPathDisplayText(p)
             if (!displayText) return null
@@ -2895,6 +3038,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             return null
           })}
         </svg>
+            )
+          })()}
 
         {editing && (
           <input
