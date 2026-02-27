@@ -13,5 +13,3 @@ dependencies:
     src: htmlwidgets/lib/app
     script:
       - widget.js
-    stylesheet:
-      - widget.css
