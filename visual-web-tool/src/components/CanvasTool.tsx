@@ -1837,7 +1837,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function pathD(p: Path) {
     const from = nodes.find((n) => n.id === p.from)
     const to = nodes.find((n) => n.id === p.to)
-    if (!from || !to) return ''
+    
+    if (!from || !to) {
+      console.log('[CanvasTool] Path missing node endpoints:', {
+        pathId: p.id,
+        pathLabel: p.label,
+        fromId: p.from,
+        toId: p.to,
+        fromFound: !!from,
+        toFound: !!to,
+        availableNodeIds: nodes.map(n => n.id),
+      })
+      return ''
+    }
+    
     const a = centerOf(from)
     const b = centerOf(to)
     if (from.id === to.id) {

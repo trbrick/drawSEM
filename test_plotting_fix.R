@@ -47,6 +47,7 @@ gm <- as.GraphModel(schema)
 # cat("  and do not affect functionality.\n")
 
 library(OpenMx)
-demo("OneFactorModel_PathRaw")
+demo("OneFactorModel_PathRaw", ask=FALSE)
 s <- as.GraphModel(oneFactorFit)
 plot(s)
+plot(s, showDataPaths=TRUE)

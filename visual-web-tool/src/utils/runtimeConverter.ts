@@ -90,6 +90,16 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
     const id = mkPathId(idBase)
     const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
+    
+    console.log('[RuntimeConverter] Path:', {
+      fromLabel,
+      toLabel,
+      fromId: labelToId[fromLabel],
+      toId: labelToId[toLabel],
+      pathLabel: p.label,
+      numberOfArrows,
+    })
+    
     if (side) out.side = side
     // Keep label in canonical format for matching; use displayName for UI rendering
     out.label = p.label || undefined

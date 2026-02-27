@@ -77,12 +77,16 @@ graphTool <- function(
   }
   
   # Create htmlwidget
+  x_data <- list(
+    initialModel = initialModel,
+    outputId = outputId
+  )
+  # Enable auto_unbox for proper JSON serialization of scalar values
+  attr(x_data, 'TOJSON_ARGS') <- list(auto_unbox = TRUE)
+  
   htmlwidgets::createWidget(
     name = "graphToolling",
-    x = list(
-      initialModel = initialModel,
-      outputId = outputId
-    ),
+    x = x_data,
     width = width,
     height = height,
     package = "OpenMxWebUI"
@@ -122,9 +126,9 @@ renderGraphTool <- function(expr, env = parent.frame(), quoted = FALSE) {
 #'     user specification)
 #' @param forceLayout Logical. If `TRUE`, re-compute layout even if positions
 #'   exist. Overrides `layout` parameter. Default: `FALSE`
-#' @param includeDataLayer Logical. If `TRUE`, show dataset nodes in the graph.
+#' @param showDataPaths Logical. If `TRUE`, show dataset nodes in the graph.
 #'   Default: `FALSE`
-#' @param includeConstantPaths Logical. If `TRUE`, show paths connecting to
+#' @param showConstantPaths Logical. If `TRUE`, show paths connecting to
 #'   constant nodes (means). Default: `TRUE`
 #' @param pathLabelFormat Character. Controls path parameter display:
 #'   - `"neither"` (default): No labels
@@ -213,8 +217,8 @@ plotGraphModel <- function(
   graphModel,
   editable = NA,
   autoLayout = NA,
-  includeDataLayer = FALSE,
-  includeConstantPaths = TRUE,
+  showDataPaths = FALSE,
+  showConstantPaths = TRUE,
   pathLabelFormat = "neither",
   width = NULL,
   height = NULL,
@@ -273,15 +277,28 @@ plotGraphModel <- function(
   
   # Filter nodes first (before checking for positions)
   display_schema <- schema
-  if (!includeDataLayer) {
+  if (!showDataPaths) {
     # Filter out dataset nodes
     display_schema$models[[1]]$nodes <- Filter(
       function(n) n$type != "dataset",
       display_schema$models[[1]]$nodes
     )
+    
+    # Also filter out paths where either endpoint is a dataset node
+    dataset_node_labels <- sapply(schema$models[[1]]$nodes, function(n) {
+      if (n$type == "dataset") n$label else NULL
+    })
+    dataset_node_labels <- dataset_node_labels[!sapply(dataset_node_labels, is.null)]
+    
+    if (length(dataset_node_labels) > 0) {
+      display_schema$models[[1]]$paths <- Filter(
+        function(p) !(p$fromLabel %in% dataset_node_labels || p$toLabel %in% dataset_node_labels),
+        display_schema$models[[1]]$paths
+      )
+    }
   }
   
-  if (!includeConstantPaths) {
+  if (!showConstantPaths) {
     # Filter out paths connecting to constant nodes
     display_schema$models[[1]]$paths <- Filter(
       function(p) !(p$from == "1" || p$to == "1"),
@@ -313,14 +330,17 @@ plotGraphModel <- function(
     config = list(
       visual = list(
         autolayout = autoLayout,
-        includeDataLayer = includeDataLayer,
-        includeConstantPaths = includeConstantPaths,
+        showDataPaths = showDataPaths,
+        showConstantPaths = showConstantPaths,
         pathLabelFormat = pathLabelFormat
       ),
       editable = editable
     ),
     data = graphModel@data
   )
+  
+  # Enable auto_unbox for proper JSON serialization of scalar values (e.g., optimization.start)
+  attr(x, 'TOJSON_ARGS') <- list(auto_unbox = TRUE)
   
   # Create and return htmlwidget
   w <- htmlwidgets::createWidget(
@@ -339,7 +359,13 @@ plotGraphModel <- function(
     # For now, positions are updated via setLocation() function
   }
   
-  invisible(w)
+  # Return visibly in interactive mode so it displays in the viewer
+  # In non-interactive contexts (knit, batch), return invisibly
+  if (interactive()) {
+    w
+  } else {
+    invisible(w)
+  }
 }
 
 #' Set node positions in a GraphModel

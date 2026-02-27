@@ -853,16 +853,22 @@ setMethod(
             # Extract optimization info (start, bounds)
             opt_info <- extractOptimizationFromMatrix(mat, i, j)
             
-            path_list <- c(path_list,list(list(
+            path <- list(
               fromLabel = from_label,
               toLabel = to_label,
               numberOfArrows = num_arrows,
               value = val,
               free = if (free) "free" else "fixed",
               label = label,
-              parameterType = param_type,
-              optimization = opt_info
-            )))
+              parameterType = param_type
+            )
+            
+            # Only include optimization if not NULL
+            if (!is.null(opt_info)) {
+              path$optimization <- opt_info
+            }
+            
+            path_list <- c(path_list, list(path))
           }
         }
       }
@@ -876,6 +882,31 @@ setMethod(
     # Extract symmetric (S) paths - double headed arrows (upper triangle only)
     s_paths <- add_paths_from_matrix(s_name, 2, symmetric = TRUE)
     paths <- c(paths, s_paths)
+    
+    # Create data mapping paths if dataset exists
+    data_paths <- NULL
+    if (!is.null(dataset_node)) {
+      data_paths <- list()
+      data_cols <- names(df)
+      
+      # Create a path from dataset node to each manifest variable in the data
+      for (var in manifest_vars) {
+        if (var %in% data_cols) {
+          data_path <- list(
+            fromLabel = data_name,
+            toLabel = var,
+            numberOfArrows = 1,
+            value = NA_real_,
+            free = "fixed",
+            label = NA,
+            parameterType = "dataMapping"
+            # Note: no optimization field for data mapping paths
+          )
+          data_paths[[length(data_paths) + 1]] <- data_path
+        }
+      }
+    }
+    if (!is.null(data_paths)) paths <- c(paths, data_paths)
     
     # Extract means from M vector - create paths from "one" (constant) to variables
     m_paths <- NULL
@@ -900,20 +931,23 @@ setMethod(
               free <- m_free[j] %||% FALSE
               
               opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
-              if (is.null(opt_info)) {
-                opt_info <- list()
-              }
               
-              m_paths[[length(m_paths) + 1]] <- list(
+              mean_path <- list(
                 fromLabel = "one",
                 toLabel = var_name,
                 numberOfArrows = 1,
                 value = val,
                 free = if (free) "free" else "fixed",
                 label = label,
-                parameterType = "mean",
-                optimization = opt_info
+                parameterType = "mean"
               )
+              
+              # Only include optimization if not NULL
+              if (!is.null(opt_info)) {
+                mean_path$optimization <- opt_info
+              }
+              
+              m_paths[[length(m_paths) + 1]] <- mean_path
             }
           }
         }

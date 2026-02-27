@@ -195,7 +195,7 @@ describe("plotGraphModel()", {
   })
   
   describe("Layer control parameters", {
-    test_that("includeDataLayer=FALSE filters dataset nodes", {
+    test_that("showDataPaths=FALSE filters dataset nodes", {
       # Create model with dataset node
       nodes <- list(
         list(id = "dataset1", label = "mydata", type = "dataset"),
@@ -205,7 +205,7 @@ describe("plotGraphModel()", {
       )
       gm <- create_test_graphmodel(nodes = nodes)
       
-      w <- plotGraphModel(gm, includeDataLayer = FALSE)
+      w <- plotGraphModel(gm, showDataPaths = FALSE)
       
       expect_s3_class(w, "htmlwidget")
       # Check that dataset nodes are filtered
@@ -214,7 +214,7 @@ describe("plotGraphModel()", {
       expect_false(has_dataset)
     })
     
-    test_that("includeDataLayer=TRUE includes dataset nodes", {
+    test_that("showDataPaths=TRUE includes dataset nodes", {
       nodes <- list(
         list(id = "dataset1", label = "mydata", type = "dataset"),
         list(id = "X", label = "X", type = "variable", tags = list("manifest")),
@@ -223,7 +223,7 @@ describe("plotGraphModel()", {
       )
       gm <- create_test_graphmodel(nodes = nodes)
       
-      w <- plotGraphModel(gm, includeDataLayer = TRUE)
+      w <- plotGraphModel(gm, showDataPaths = TRUE)
       
       expect_s3_class(w, "htmlwidget")
       display_nodes <- w$x$schema$models[[1]]$nodes
@@ -231,7 +231,7 @@ describe("plotGraphModel()", {
       expect_true(has_dataset)
     })
     
-    test_that("includeConstantPaths=FALSE filters constant paths", {
+    test_that("showConstantPaths=FALSE filters constant paths", {
       nodes <- list(
         list(id = "1", label = "1", type = "constant"),
         list(id = "X", label = "X", type = "variable", tags = list("manifest")),
@@ -245,7 +245,7 @@ describe("plotGraphModel()", {
       )
       gm <- create_test_graphmodel(nodes = nodes, paths = paths)
       
-      w <- plotGraphModel(gm, includeConstantPaths = FALSE)
+      w <- plotGraphModel(gm, showConstantPaths = FALSE)
       
       expect_s3_class(w, "htmlwidget")
       display_paths <- w$x$schema$models[[1]]$paths
@@ -253,7 +253,7 @@ describe("plotGraphModel()", {
       expect_false(has_constant_path)
     })
     
-    test_that("includeConstantPaths=TRUE includes constant paths", {
+    test_that("showConstantPaths=TRUE includes constant paths", {
       nodes <- list(
         list(id = "1", label = "1", type = "constant"),
         list(id = "X", label = "X", type = "variable", tags = list("manifest")),
@@ -267,7 +267,7 @@ describe("plotGraphModel()", {
       )
       gm <- create_test_graphmodel(nodes = nodes, paths = paths)
       
-      w <- plotGraphModel(gm, includeConstantPaths = TRUE)
+      w <- plotGraphModel(gm, showConstantPaths = TRUE)
       
       expect_s3_class(w, "htmlwidget")
       display_paths <- w$x$schema$models[[1]]$paths
@@ -581,14 +581,14 @@ describe("Integration tests", {
   test_that("S3 plot methods work with layer control parameters", {
     gm <- create_test_graphmodel()
     
-    w1 <- plot(gm, includeDataLayer = TRUE, includeConstantPaths = FALSE)
-    w2 <- plot(gm, includeDataLayer = FALSE, includeConstantPaths = TRUE)
+    w1 <- plot(gm, showDataPaths = TRUE, showConstantPaths = FALSE)
+    w2 <- plot(gm, showDataPaths = FALSE, showConstantPaths = TRUE)
     
-    expect_true(w1$x$config$includeDataLayer)
-    expect_false(w1$x$config$includeConstantPaths)
+    expect_true(w1$x$config$visual$showDataPaths)
+    expect_false(w1$x$config$visual$showConstantPaths)
     
-    expect_false(w2$x$config$includeDataLayer)
-    expect_true(w2$x$config$includeConstantPaths)
+    expect_false(w2$x$config$visual$showDataPaths)
+    expect_true(w2$x$config$visual$showConstantPaths)
   })
 })
 
@@ -634,7 +634,7 @@ describe("Edge cases", {
   test_that("plotGraphModel with all layers disabled still works", {
     gm <- create_test_graphmodel()
     
-    w <- plotGraphModel(gm, includeDataLayer = FALSE, includeConstantPaths = FALSE)
+    w <- plotGraphModel(gm, showDataPaths = FALSE, showConstantPaths = FALSE)
     
     expect_s3_class(w, "htmlwidget")
   })
