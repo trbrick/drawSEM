@@ -58,7 +58,7 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
         visualY: visual.y,
       })
     }
-    if (out.type === 'variable' && !n.tags?.includes('factor')) {
+    if (out.type === 'variable') {
       out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
       out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
     } else if (out.type === 'dataset') {
@@ -69,6 +69,7 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
     if (n.mappings) out.mappings = n.mappings
     if (n.datasetSource) out.datasetSource = n.datasetSource
+    if (n.variableCharacteristics) out.variableCharacteristics = n.variableCharacteristics
     return out
   })
 

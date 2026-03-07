@@ -35,14 +35,10 @@ export function escapeXml(text: string): string {
 export function getVariableRenderType(node: Node): 'manifest' | 'latent' {
   if (node.type !== 'variable') return 'manifest'
   
-  // Check tags first: if node is tagged as manifest, render as manifest
-  if (node.tags?.includes('manifest')) {
-    return 'manifest'
-  }
-
-  // If locked by visualization hint, use that
-  if (node.visual?.width !== undefined || node.visual?.height !== undefined) {
-    return 'manifest'
+  // First priority: explicit variableCharacteristics.manifestLatent lock
+  // This is set by R code when creating GraphModel and takes precedence
+  if (node.variableCharacteristics?.manifestLatent) {
+    return node.variableCharacteristics.manifestLatent
   }
 
   // Default: latent (circle) unless explicitly marked as manifest or has visual dimensions

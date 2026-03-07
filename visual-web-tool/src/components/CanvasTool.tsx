@@ -220,19 +220,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return () => clearTimeout(timeout)
   }, []) // Only on mount
 
-  // Debug: Monitor SVG attribute changes
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      if (svgRef.current) {
-        const vb = svgRef.current.getAttribute('viewBox')
-        if (vb !== null) {
-          console.log('[SVG Debug] ViewBox attribute found:', vb)
-        }
-      }
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
-
   // Get all unique level of measurement values from nodes (explicitly specified only)
   const getLevelOfMeasurementOptions = (): string[] => {
     const levels = new Set<string>()

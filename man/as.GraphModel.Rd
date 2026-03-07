@@ -2,12 +2,15 @@
 % Please edit documentation in R/io.R
 \name{as.GraphModel,MxModel-method}
 \alias{as.GraphModel,MxModel-method}
+\alias{as.GraphModel,MxRAMModel-method}
 \title{Convert MxModel to GraphModel}
 \usage{
 \S4method{as.GraphModel}{MxModel}(x)
+
+\S4method{as.GraphModel}{MxRAMModel}(x)
 }
 \arguments{
-\item{x}{An MxModel object (from OpenMx)}
+\item{x}{An MxModel or MxRAMModel object (from OpenMx)}
 }
 \value{
 A GraphModel object with schema extracted from the model structure
@@ -16,8 +19,9 @@ A GraphModel object with schema extracted from the model structure
 Convert an OpenMx model to a GraphModel for visualization and manipulation.
 }
 \details{
-Extracts the model structure, parameters, and data from an MxRAMModel:
+Extracts the model structure, parameters, and data from RAM specification models:
 \itemize{
+\item Supports MxModel and MxRAMModel objects created with type="RAM" specification
 \item Manifest and latent variables become nodes
 \item Asymmetric (A) and symmetric (S) matrix paths become graph edges
 \item Current parameter values and free/fixed status are preserved
@@ -27,12 +31,19 @@ Extracts the model structure, parameters, and data from an MxRAMModel:
 \item Fit function type is extracted (ML, WLS, etc.)
 \item Unsupported features (constraints, algebras, thresholds) are warned about
 }
+
+Not supported:
+\itemize{
+\item LISREL-type models (MxLISRELModel)
+\item State space models
+\item Joint continuous-discrete data models
+}
 }
 \examples{
 \dontrun{
 library(OpenMx)
-# Fit an MxModel
-fit <- mxRun(myModel)
+# Create and fit an MxRAMModel
+fit <- mxRun(mxModel('model', type='RAM', ...))
 # Convert to GraphModel for visualization
 gm <- as.GraphModel(fit)
 graphTool(gm)

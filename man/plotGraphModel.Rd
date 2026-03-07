@@ -8,8 +8,8 @@ plotGraphModel(
   graphModel,
   editable = NA,
   autoLayout = NA,
-  includeDataLayer = FALSE,
-  includeConstantPaths = TRUE,
+  showDataPaths = FALSE,
+  showConstantPaths = TRUE,
   pathLabelFormat = "neither",
   width = NULL,
   height = NULL,
@@ -28,10 +28,10 @@ the graph interactively.
 \item \code{FALSE}: Force read-only regardless of context
 }}
 
-\item{includeDataLayer}{Logical. If \code{TRUE}, show dataset nodes in the graph.
+\item{showDataPaths}{Logical. If \code{TRUE}, show dataset nodes in the graph.
 Default: \code{FALSE}}
 
-\item{includeConstantPaths}{Logical. If \code{TRUE}, show paths connecting to
+\item{showConstantPaths}{Logical. If \code{TRUE}, show paths connecting to
 constant nodes (means). Default: \code{TRUE}}
 
 \item{pathLabelFormat}{Character. Controls path parameter display:

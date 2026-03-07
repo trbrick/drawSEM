@@ -737,26 +737,41 @@ setMethod(
     s_name <- x$expectation$S %||% "S"
     m_name <- x$expectation$M
     
-    # If manifest_vars is empty, try to extract from matrix dimnames
-    if (length(manifest_vars) == 0 && !is.null(x[[a_name]])) {
-      manifest_vars <- colnames(x[[a_name]]$values) %||% c()
+    # If manifest_vars is empty, infer from data and expectation structure
+    if (length(manifest_vars) == 0) {
+      # expectation$dims contains ALL variables (manifest + latent)
+      # Manifests are those that ALSO appear in the observed data column names
+      manifest_from_dims <- x$expectation$dims %||% c()
+      manifest_from_data <- if (!is.null(x$data) && !is.null(x$data$observed)) {
+        names(x$data$observed)
+      } else {
+        c()
+      }
+      
+      # Only infer if we have both dims and data
+      # (intersection ensures we only get variables that are in the data)
+      if (length(manifest_from_dims) > 0 && length(manifest_from_data) > 0) {
+        manifest_vars <- intersect(manifest_from_dims, manifest_from_data)
+      }
+      # If we don't have both sources, leave manifest_vars empty
+      # (will be inferred in plotGraphModel via inferManifestVariables)
     }
     
     all_vars <- c(manifest_vars, latent_vars)
     
     # Handle data first (before creating nodes) so dataset_node is available
+    # Note: MxModel can only have a single mxData object
     data_list <- list()
     data_connections <- list()
     dataset_node <- NULL
     
     if (!is.null(x$data)) {
       data_obj <- x$data
-      # Infer data name from model or use "data"
-      data_name <- "data"
       if (!is.null(data_obj$observed)) {
         df <- data_obj$observed
-        data_list[[data_name]] <- df
-        data_connections[[data_name]] <- list(
+        # Store with key name since MxModel only has one data object
+        data_list$data <- df
+        data_connections$data <- list(
           status = "user_bound",
           filepath = NA_character_
         )
@@ -766,7 +781,7 @@ setMethod(
         
         dataset_node <- list(
           id = "dataset_primary",
-          label = data_name,
+          label = "data",
           type = "dataset",
           datasetSource = list(
             type = "embedded",
@@ -893,7 +908,7 @@ setMethod(
       for (var in manifest_vars) {
         if (var %in% data_cols) {
           data_path <- list(
-            fromLabel = data_name,
+            fromLabel = "data",
             toLabel = var,
             numberOfArrows = 1,
             value = NA_real_,

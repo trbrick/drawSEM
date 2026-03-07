@@ -306,6 +306,42 @@ plotGraphModel <- function(
     )
   }
   
+  # Infer missing manifestLatent values for variable nodes before serialization
+  # Trust explicit values, infer only if missing
+  manifest_vars <- inferManifestVariables(
+    display_schema$models[[1]]$nodes,
+    display_schema$models[[1]]$paths
+  )
+  
+  for (i in seq_along(display_schema$models[[1]]$nodes)) {
+    node <- display_schema$models[[1]]$nodes[[i]]
+    
+    # Only process variable nodes
+    if (is.null(node$type) || node$type != "variable") {
+      next
+    }
+    
+    # Skip if manifestLatent is already explicitly set
+    if (!is.null(node$variableCharacteristics) && 
+        !is.null(node$variableCharacteristics$manifestLatent)) {
+      next
+    }
+    
+    # Infer from manifest_vars list
+    inferred_value <- if (node$label %in% manifest_vars) "manifest" else "latent"
+    
+    # Initialize variableCharacteristics if needed
+    if (is.null(node$variableCharacteristics)) {
+      node$variableCharacteristics <- list()
+    }
+    
+    # Set the inferred value
+    node$variableCharacteristics$manifestLatent <- inferred_value
+    
+    # Update the node in the schema
+    display_schema$models[[1]]$nodes[[i]] <- node
+  }
+  
   # Helper to check if nodes have positions
   has_positions <- function(model) {
     nodes <- model$nodes %||% list()

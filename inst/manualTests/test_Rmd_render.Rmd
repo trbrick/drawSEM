@@ -1,0 +1,21 @@
+---
+title: "test_Rmd_render"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-02-27"
+---
+
+Let's see if we can make this draw.
+```{r setup, include=FALSE}
+devtools::load_all()  # TODO: Use actual package
+library(OpenMx)
+demo("OneFactorModel_PathRaw", ask=FALSE)
+s <- as.GraphModel(oneFactorFit)
+```
+
+It'll go in the plot here:
+```{r, demoPlot}
+plot(s)
+```
+

@@ -80,6 +80,55 @@ HTMLWidgets.widget({
         instance.width = width;
         instance.height = height;
         // Resize handling could be added here if needed
+      },
+      
+      export: function(width, height, format) {
+        console.log('[graphTool export] Exporting visualization');
+        console.log('[graphTool export] Export format:', format, 'dimensions:', width, 'x', height);
+        
+        // Find the SVG element - look within the widget container
+        var svgElement = document.querySelector('svg');
+        
+        if (!svgElement) {
+          console.warn('[graphTool export] No SVG element found in DOM');
+          return null;
+        }
+        
+        console.log('[graphTool export] Found SVG element, creating static export');
+        console.log('[graphTool export] SVG viewBox:', svgElement.getAttribute('viewBox'));
+        console.log('[graphTool export] SVG dimensions:', svgElement.clientWidth, 'x', svgElement.clientHeight);
+        
+        try {
+          // Clone the SVG to create a static snapshot
+          var staticSvg = svgElement.cloneNode(true);
+          
+          // Remove interactive event handlers by removing onclick, style pointer-events, etc.
+          // This makes it truly static
+          var allElements = staticSvg.querySelectorAll('*');
+          allElements.forEach(function(el) {
+            // Remove event listener attributes
+            Array.from(el.attributes).forEach(function(attr) {
+              if (attr.name.startsWith('on')) {
+                el.removeAttribute(attr.name);
+              }
+            });
+          });
+          
+          // Set proper SVG namespace and xmlns for export
+          staticSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          
+          // Get the static SVG as string
+          var svgString = new XMLSerializer().serializeToString(staticSvg);
+          
+          console.log('[graphTool export] SVG serialized successfully, length:', svgString.length);
+          console.log('[graphTool export] Returning static SVG for export');
+          
+          return svgString;
+        } catch (error) {
+          console.error('[graphTool export] Error during export:', error);
+          // Fallback: just return the outerHTML
+          return svgElement.outerHTML;
+        }
       }
     };
   }
