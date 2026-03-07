@@ -24,6 +24,9 @@ Thumbs.db
 ## Working/Notes directory (not tracked)
 /Noise files/
 
+## AI workflow directory (session notes, task lists — not tracked)
+/ai-workflow/
+
 ## Generated schema files (regenerated during R package build, not committed to git)
 inst/extdata/*.json
 

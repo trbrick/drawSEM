@@ -14,5 +14,7 @@
 
 # Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)
 
+^docs$
+
 ^.*\.Rproj$
 ^\.Rproj\.user$
