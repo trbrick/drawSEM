@@ -713,6 +713,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
+  const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -1011,6 +1012,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedId, selectedType])
 
+  // Handle Ctrl+L / Cmd+L keyboard shortcut for auto-layout
+  React.useEffect(() => {
+    if (viewMode === 'widget') return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'l' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        handleAutoLayout()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentModel, isLayingOut, viewMode])
+
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
   function handleImportClick() {
@@ -1019,6 +1033,51 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleCsvImportClick() {
     csvFileInputRef.current?.click()
+  }
+
+  // Apply auto-layout to current model: recompute all node positions via RAMPath algorithm
+  function handleAutoLayout() {
+    if (!currentModel || isLayingOut) return
+    setIsLayingOut(true)
+    try {
+      // Build id→label map so runtime paths (which store node IDs) can be
+      // translated back to the schema field names (fromLabel / toLabel) that
+      // autoLayout() expects.
+      const idToLabel: Record<string, string> = {}
+      currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
+
+      const schema = {
+        schemaVersion: 1,
+        models: {
+          [currentModel.id]: {
+            label: currentModel.label,
+            nodes: currentModel.nodes.map((n) => ({
+              label: n.label,
+              type: n.type,
+              visual: { x: n.x, y: n.y },
+            })),
+            paths: currentModel.paths.map((p) => ({
+              fromLabel: idToLabel[p.from] ?? p.from,
+              toLabel: idToLabel[p.to] ?? p.to,
+              numberOfArrows: p.twoSided ? 2 : 1,
+            })),
+          },
+        },
+      } as unknown as GraphSchema
+      const positions: PositionMap = autoLayout(schema)
+      setNodes((ns) =>
+        ns.map((n) => {
+          const pos = positions[n.label]
+          return pos ? { ...n, x: pos.x, y: pos.y } : n
+        })
+      )
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMessage(`Auto-layout failed: ${msg}`)
+      setTimeout(() => setErrorMessage(null), 4000)
+    } finally {
+      setIsLayingOut(false)
+    }
   }
 
   async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -2038,6 +2097,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               }}
             >
               ↔
+            </button>
+            <button
+              title={`Auto-layout (${navigator.platform.startsWith('Mac') ? 'Cmd' : 'Ctrl'}+L)`}
+              className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100 ${isLayingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={handleAutoLayout}
+              disabled={isLayingOut}
+            >
+              {isLayingOut ? '…' : '⟳'} Auto-layout
             </button>
             <div className="border-l mx-2"></div>
             <button

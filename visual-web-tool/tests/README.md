@@ -41,6 +41,24 @@ npm run test:ui
 npm run test:coverage
 ```
 
+### Visual Layout Reports
+
+The layout tests (`utils/autoLayout.test.ts`) produce HTML reports for visual
+validation of node positioning. Reports are written to `dist/test-reports/` and
+are not committed to git.
+
+```bash
+# 1. Run the tests (writes layout data to dist/test-reports/)
+npm test
+
+# 2. Generate HTML reports from that data
+npm run test:report
+```
+
+Open `dist/test-reports/index.html` in a browser to inspect diagrams for each
+fixture model. Useful when modifying the RAMPath algorithm or adding new layout
+fixtures.
+
 ## Test Files
 
 ### Schema Tests (`schemas/validation.test.ts`)
