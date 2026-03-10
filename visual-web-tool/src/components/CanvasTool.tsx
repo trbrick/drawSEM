@@ -70,6 +70,8 @@ type Path = {
   free?: 'free' | 'fixed'
   // optional semantic category from optimization.parameterTypes
   parameterType?: string
+  // when true and twoSided=false, the visual arrow direction is reversed (to→from instead of from→to)
+  reversed?: boolean
   // optional path-specific optimization overrides
   optimization?: {
     prior?: Record<string, any> | null
@@ -721,6 +723,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const pendingDragRef = useRef<{ id: string; startClientX: number; startClientY: number; offsetX: number; offsetY: number } | null>(null)
   // track which node the cursor is hovering over (for path drop target)
   const hoverNodeRef = useRef<string | null>(null)
+  // true when current path drag was initiated by right-click (forces twoSided=false)
+  const rightClickDragRef = useRef(false)
   const [tempLine, setTempLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const [editing, setEditing] = useState<{
     id: string
@@ -959,6 +963,25 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
+  // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
+  function cyclePath(pathId: string) {
+    const p = paths.find((x) => x.id === pathId)
+    if (!p) return
+    // Disallow cycling on self-loops (must stay two-headed)
+    if (p.from === p.to) return
+    // Disallow cycling when sourced from a dataset or constant node
+    const fromNode = nodes.find((n) => n.id === p.from)
+    if (fromNode?.type === 'dataset' || fromNode?.type === 'constant') return
+    setPaths((ps) =>
+      ps.map((x) => {
+        if (x.id !== pathId) return x
+        if (x.twoSided) return { ...x, twoSided: false, reversed: false }
+        if (!x.reversed) return { ...x, reversed: true }
+        return { ...x, twoSided: true, reversed: false }
+      })
+    )
+  }
+
   // Helper function to get path display text based on label mode
   function getPathDisplayText(path: Path): string | null {
     const value = path.value ?? 1.0
@@ -1000,10 +1023,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }, [selectedId, selectedType])
 
-  // Handle Delete key to remove selected node or path
+  // Handle Delete / Backspace key to remove selected node or path
+  // 'Delete' = forward-delete; 'Backspace' = the physical delete key on macOS
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Delete') {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't fire while the user is typing in an input/textarea
+        const tag = (e.target as HTMLElement).tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
         e.preventDefault()
         deleteSelected()
       }
@@ -1369,7 +1396,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (pathSource && hoverNodeRef.current) {
       const src = pathSource
       const dst = hoverNodeRef.current
-      const twoSided = (mode as any) === 'add-two-path'
+      const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
+      rightClickDragRef.current = false
 
       // Validate the path
       const validationError = getPathValidationError(src, dst, twoSided)
@@ -1397,7 +1425,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         newPath.free = 'fixed'
         newPath.value = null as any // null value for data mapping
         newPath.parameterType = 'dataMapping'
-        // No optimization elements for dataset paths
+        newPath.displayName = convertToUnicode(defaultLabel)
+      } else {
+        // Auto-generate a readable unicode display name from node labels
+        const arrow = twoSided ? ' ↔ ' : ' → '
+        newPath.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
       }
       
       setPaths((ps) => [...ps, newPath])
@@ -1409,6 +1441,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     // if we were creating a path but released on background, cancel and revert to select
     if (pathSource) {
+      rightClickDragRef.current = false
       setPathSource(null)
       setTempLine(null)
       setMode('select')
@@ -1439,7 +1472,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       // add variance path automatically for variable nodes
       if (type !== 'constant') {
         const vid = uid('p_')
-        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid }
+        const uniLabel = convertToUnicode(n.label)
+        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid, displayName: uniLabel + ' ↔ ' + uniLabel }
         setPaths((ps) => [...ps, variance])
       }
 
@@ -1520,6 +1554,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         to: newNode.id,
         twoSided: true,
         label: varianceId,
+        displayName: displayName + ' ↔ ' + displayName,
       }
       setPaths((ps) => [...ps, variance])
     }
@@ -1529,6 +1564,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     console.log(`[Mouse] Node mousedown: ${n.id} (${n.label}), mode: ${mode}`)
     e.stopPropagation()
     hoverNodeRef.current = n.id
+
+    // Right-click in select mode: start a one-headed path drag without changing mode
+    if (e.button === 2 && mode === 'select') {
+      e.preventDefault()
+      const c = centerOf(n)
+      selectElement(n.id, 'node')
+      setPathSource(n.id)
+      setTempLine({ x1: c.x, y1: c.y, x2: c.x, y2: c.y })
+      rightClickDragRef.current = true
+      return
+    }
+
     // start path-drag if in path mode
     if (mode === 'add-one-path' || mode === 'add-two-path') {
       const c = centerOf(n)
@@ -1560,7 +1607,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (pathSource && hoverNodeRef.current) {
       const src = pathSource
       const dst = hoverNodeRef.current
-      const twoSided = (mode as any) === 'add-two-path'
+      const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
+      rightClickDragRef.current = false
 
       // Validate the path
       const validationError = getPathValidationError(src, dst, twoSided)
@@ -1586,7 +1634,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         p.free = 'fixed'
         p.value = null as any // null value for data mapping
         p.parameterType = 'dataMapping'
-        // No optimization elements for dataset paths
+        p.displayName = convertToUnicode(defaultLabel)
+      } else {
+        // Auto-generate a readable unicode display name from node labels
+        const arrow = twoSided ? ' ↔ ' : ' → '
+        p.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
       }
       
       // If destination node lacks levelOfMeasurement and source is a dataset, inherit it
@@ -1603,6 +1655,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     // if we were creating a path but released on background, cancel and revert to select
     if (pathSource) {
+      rightClickDragRef.current = false
       setPathSource(null)
       setTempLine(null)
       setMode('select')
@@ -1881,8 +1934,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function pathD(p: Path) {
-    const from = nodes.find((n) => n.id === p.from)
-    const to = nodes.find((n) => n.id === p.to)
+    // When reversed, swap the visual source/destination so the arrow points to→from
+    const fromId = p.reversed && !p.twoSided ? p.to : p.from
+    const toId   = p.reversed && !p.twoSided ? p.from : p.to
+    const from = nodes.find((n) => n.id === fromId)
+    const to = nodes.find((n) => n.id === toId)
     
     if (!from || !to) {
       console.log('[CanvasTool] Path missing node endpoints:', {
@@ -1960,8 +2016,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function pathLabelPos(p: Path): { x: number; y: number } | null {
-    const from = nodes.find((n) => n.id === p.from)
-    const to = nodes.find((n) => n.id === p.to)
+    const fromId = p.reversed && !p.twoSided ? p.to : p.from
+    const toId   = p.reversed && !p.twoSided ? p.from : p.to
+    const from = nodes.find((n) => n.id === fromId)
+    const to = nodes.find((n) => n.id === toId)
     if (!from || !to) return null
     const a = centerOf(from)
     const b = centerOf(to)
@@ -2261,13 +2319,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               <div>
                 {selectedNode && selectedNode.type === 'dataset' && (
                   <>
-                    <div className="text-sm font-semibold">Dataset: {selectedNode.label}</div>
+                    <div className="text-sm font-semibold">Dataset: {selectedNode.displayName || selectedNode.label}</div>
                     <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">dataset</span></div>
                   </>
                 )}
                 {selectedNode && selectedNode.type === 'variable' && (
                   <>
-                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
+                    <div className="text-sm font-semibold">Node: {selectedNode.displayName || selectedNode.label}</div>
                     <div className="text-xs text-slate-600 mt-1">
                       Display Type: <span className="font-medium">{getVariableRenderType(selectedNode.id)}</span>
                     </div>
@@ -2302,18 +2360,56 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 )}
                 {selectedNode && selectedNode.type === 'constant' && (
                   <>
-                    <div className="text-sm font-semibold">Node: {selectedNode.label}</div>
+                    <div className="text-sm font-semibold">Node: {selectedNode.displayName || selectedNode.label}</div>
                     <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">constant</span></div>
                   </>
                 )}
-                {selectedPath && (
-                  <>
-                    <div className="text-sm font-semibold">Path: {selectedPath.label || selectedPath.id}</div>
-                    <div className="text-xs text-slate-600 mt-1">Type: <span className="font-medium">{selectedPath.twoSided ? 'Two-headed' : 'One-headed'}</span></div>
-                  </>
-                )}
+                {selectedPath && (() => {
+                  const fromNode = nodes.find((n) => n.id === selectedPath.from)
+                  const canCycle = fromNode?.type !== 'dataset' && fromNode?.type !== 'constant' && selectedPath.from !== selectedPath.to
+                  const currentDirection = selectedPath.twoSided ? 'twoSided' : (selectedPath.reversed ? 'reversed' : 'forward')
+                  return (
+                    <>
+                      <div className="text-sm font-semibold">Path: {selectedPath.displayName || selectedPath.label || selectedPath.id}</div>
+                      <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
+                        <span>Type:</span>
+                        <select
+                          value={currentDirection}
+                          disabled={!canCycle}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setPaths((ps) => ps.map((p) => {
+                              if (p.id !== selectedPath.id) return p
+                              if (val === 'twoSided') return { ...p, twoSided: true, reversed: false }
+                              if (val === 'forward') return { ...p, twoSided: false, reversed: false }
+                              if (val === 'reversed') return { ...p, twoSided: false, reversed: true }
+                              return p
+                            }))
+                          }}
+                          className={`px-2 py-1 border rounded text-xs bg-white ${!canCycle ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <option value="twoSided">↔ Two-headed</option>
+                          <option value="forward">→ One-headed</option>
+                          <option value="reversed">← Reversed</option>
+                        </select>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  title="Delete (Backspace)"
+                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
+                  onClick={deleteSelected}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
                 <button
                   title="Close popup"
                   className="p-1 rounded hover:bg-slate-100"
@@ -2750,6 +2846,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
               onClick={onCanvasClick}
+              onContextMenu={(e) => e.preventDefault()}
           onDragOver={(e) => {
             if (draggedColumnName && selectedNode?.type === 'dataset') {
               e.preventDefault()
@@ -2803,11 +2900,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       fill="none"
                       stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
                       strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
-                      markerEnd={!p.twoSided ? (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)') : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                      markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
                       markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
                       onClick={(e) => {
                         e.stopPropagation()
                         selectElement(p.id, 'path')
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        cyclePath(p.id)
                       }}
                       opacity={opacity}
                       style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}

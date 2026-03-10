@@ -104,7 +104,13 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     if (side) out.side = side
     // Keep label in canonical format for matching; use displayName for UI rendering
     out.label = p.label || undefined
-    if (p.label) out.displayName = convertToUnicode(p.label)
+    if (p.label) {
+      out.displayName = convertToUnicode(p.label)
+    } else {
+      // No label: generate a readable unicode display name from the endpoint node labels
+      const arrow = twoSided ? ' ↔ ' : ' → '
+      out.displayName = convertToUnicode(fromLabel) + arrow + convertToUnicode(toLabel)
+    }
     // Add value (defaults to 1.0, but preserve null for dataset paths)
     out.value = p.value !== undefined ? p.value : 1.0
     out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
