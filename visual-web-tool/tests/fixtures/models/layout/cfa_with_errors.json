@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "CFA with Error Nodes",
+    "description": "One factor with three indicators and explicit RAM-style error nodes. Reproduces the graph.example.json pattern: F_1→x_1/x_2/x_3, eps_x1→x_1, eps_x3→x_3, correlated errors eps_x1↔eps_x3, x_2 carries its own free variance loop (no dedicated error node)."
+  },
+  "models": {
+    "cfa_with_errors": {
+      "label": "CFA with Error Nodes",
+      "nodes": [
+        { "label": "F_1",    "type": "variable" },
+        { "label": "x_1",    "type": "variable" },
+        { "label": "x_2",    "type": "variable" },
+        { "label": "x_3",    "type": "variable" },
+        { "label": "eps_x1", "type": "variable" },
+        { "label": "eps_x3", "type": "variable" }
+      ],
+      "paths": [
+        { "from": "F_1",    "to": "F_1",    "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance" },
+        { "from": "eps_x1", "to": "eps_x1", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
+        { "from": "eps_x3", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
+        { "from": "eps_x1", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
+        { "from": "x_2",    "to": "x_2",    "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "variance" },
+        { "from": "F_1",    "to": "x_1",    "numberOfArrows": 1, "value": 3.2, "free": "fixed", "parameterType": "loading" },
+        { "from": "F_1",    "to": "x_2",    "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
+        { "from": "F_1",    "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
+        { "from": "eps_x1", "to": "x_1",    "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
+        { "from": "eps_x3", "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" }
+      ]
+    }
+  }
+}

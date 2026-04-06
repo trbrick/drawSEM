@@ -17,104 +17,104 @@
       ],
       "paths": [
         {
-          "fromLabel": "F",
-          "toLabel": "X1",
+          "from": "F",
+          "to": "X1",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "fixed",
           "parameterType": "loading"
         },
         {
-          "fromLabel": "F",
-          "toLabel": "X2",
+          "from": "F",
+          "to": "X2",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
           "parameterType": "loading"
         },
         {
-          "fromLabel": "F",
-          "toLabel": "X3",
+          "from": "F",
+          "to": "X3",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
           "parameterType": "loading"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "X1",
+          "from": "1",
+          "to": "X1",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "X2",
+          "from": "1",
+          "to": "X2",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "X3",
+          "from": "1",
+          "to": "X3",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "F",
-          "toLabel": "F",
+          "from": "F",
+          "to": "F",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "fixed",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "X1",
-          "toLabel": "X1",
+          "from": "X1",
+          "to": "X1",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "X2",
-          "toLabel": "X2",
+          "from": "X2",
+          "to": "X2",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "X3",
-          "toLabel": "X3",
+          "from": "X3",
+          "to": "X3",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "X1",
+          "from": "data",
+          "to": "X1",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "X2",
+          "from": "data",
+          "to": "X2",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "X3",
+          "from": "data",
+          "to": "X3",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",

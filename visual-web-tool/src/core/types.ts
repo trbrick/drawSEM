@@ -49,8 +49,8 @@ export interface Node {
  */
 export interface Path {
   id?: string
-  fromLabel: string                    // Source node label (must exist in nodes)
-  toLabel: string                      // Target node label (must exist in nodes)
+  from: string                         // Source node label (must exist in nodes)
+  to: string                           // Target node label (must exist in nodes)
   numberOfArrows: 0 | 1 | 2
   value?: number | null                // Parameter value (null for dataset paths)
   free?: 'free' | 'fixed'             // Whether parameter is estimated
@@ -238,14 +238,14 @@ export function validatePathEndpoints(model: Model): string[] {
   const nodeLabels = new Set(model.nodes.map(n => n.label))
 
   for (const path of model.paths) {
-    if (!nodeLabels.has(path.fromLabel)) {
+    if (!nodeLabels.has(path.from)) {
       errors.push(
-        `Path from "${path.fromLabel}" to "${path.toLabel}": source node not found`
+        `Path from "${path.from}" to "${path.to}": source node not found`
       )
     }
-    if (!nodeLabels.has(path.toLabel)) {
+    if (!nodeLabels.has(path.to)) {
       errors.push(
-        `Path from "${path.fromLabel}" to "${path.toLabel}": target node not found`
+        `Path from "${path.from}" to "${path.to}": target node not found`
       )
     }
   }
@@ -292,7 +292,7 @@ export function isDatasetNode(node: Node): boolean {
  */
 export function isDatasetPath(path: Path, model: Model): boolean {
   const nodesByLabel = getNodesByLabel(model)
-  const sourceNode = nodesByLabel[path.fromLabel]
+  const sourceNode = nodesByLabel[path.from]
   return sourceNode ? isDatasetNode(sourceNode) : false
 }
 
@@ -300,14 +300,14 @@ export function isDatasetPath(path: Path, model: Model): boolean {
  * Helper: Get all paths from a specific node
  */
 export function getPathsFrom(model: Model, nodeLabel: string): Path[] {
-  return model.paths.filter(p => p.fromLabel === nodeLabel)
+  return model.paths.filter(p => p.from === nodeLabel)
 }
 
 /**
  * Helper: Get all paths to a specific node
  */
 export function getPathsTo(model: Model, nodeLabel: string): Path[] {
-  return model.paths.filter(p => p.toLabel === nodeLabel)
+  return model.paths.filter(p => p.to === nodeLabel)
 }
 
 /**
@@ -328,5 +328,5 @@ export function isRegression(path: Path): boolean {
  * Helper: Check if a path is a self-loop
  */
 export function isSelfLoop(path: Path): boolean {
-  return path.fromLabel === path.toLabel
+  return path.from === path.to
 }

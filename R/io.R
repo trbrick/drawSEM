@@ -868,10 +868,10 @@ setMethod(
             # Extract optimization info (start, bounds)
             opt_info <- extractOptimizationFromMatrix(mat, i, j)
             
-            path <- list(
-              fromLabel = from_label,
-              toLabel = to_label,
-              numberOfArrows = num_arrows,
+                        path <- list(
+    from = from_label,
+    to = to_label,
+    numberOfArrows = num_arrows,
               value = val,
               free = if (free) "free" else "fixed",
               label = label,
@@ -908,8 +908,8 @@ setMethod(
       for (var in manifest_vars) {
         if (var %in% data_cols) {
           data_path <- list(
-            fromLabel = "data",
-            toLabel = var,
+            from = "data",
+            to = var,
             numberOfArrows = 1,
             value = NA_real_,
             free = "fixed",
@@ -948,8 +948,8 @@ setMethod(
               opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
               
               mean_path <- list(
-                fromLabel = "one",
-                toLabel = var_name,
+                from = "one",
+                to = var_name,
                 numberOfArrows = 1,
                 value = val,
                 free = if (free) "free" else "fixed",

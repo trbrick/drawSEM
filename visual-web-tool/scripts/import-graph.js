@@ -88,7 +88,6 @@ const modelsOut = Object.entries(modelsDict).map(([modelId, model]) => {
     }
     // Copy optional fields
     if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
-    if (n.mappings) out.mappings = n.mappings
     if (n.datasetFile) out.datasetFile = n.datasetFile
     return out
   })
@@ -99,8 +98,8 @@ const modelsOut = Object.entries(modelsDict).map(([modelId, model]) => {
   }
 
   const pathsOut = (model.paths || []).map((p) => {
-    const fromLabel = p.fromLabel
-    const toLabel = p.toLabel
+    const fromLabel = p.from
+    const toLabel = p.to
     const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
     const to = labelToId[toLabel] || slugifyLabel(toLabel)
     // ensure any fallback ids are unique and recorded

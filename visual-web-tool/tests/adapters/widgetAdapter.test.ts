@@ -16,7 +16,7 @@ const validSchema: GraphSchema = {
         { label: 'X', type: 'variable' },
         { label: 'Y', type: 'variable' },
       ],
-      paths: [{ fromLabel: 'X', toLabel: 'Y', numberOfArrows: 1 }],
+      paths: [{ from: 'X', to: 'Y', numberOfArrows: 1 }],
     },
   },
 }
@@ -520,8 +520,8 @@ describe('WidgetAdapter', () => {
               { label: 'Z', type: 'variable' },
             ],
             paths: [
-              { fromLabel: 'X', toLabel: 'Y', numberOfArrows: 1 },
-              { fromLabel: 'Y', toLabel: 'Z', numberOfArrows: 2 },
+              { from: 'X', to: 'Y', numberOfArrows: 1 },
+              { from: 'Y', to: 'Z', numberOfArrows: 2 },
             ],
           },
         },

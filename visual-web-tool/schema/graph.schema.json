@@ -278,7 +278,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["fromLabel", "toLabel", "numberOfArrows"],
+              "required": ["from", "to", "numberOfArrows"],
               "properties": {
                 "id": { "type": "string" },
                 "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
@@ -309,8 +309,8 @@
                   },
                   "additionalProperties": false
                 },
-                "fromLabel": { "type": "string" },
-                "toLabel": { "type": "string" },
+                "from": { "type": "string", "description": "Label of the source node (must match a node label exactly)" },
+                "to": { "type": "string", "description": "Label of the target node (must match a node label exactly)" },
                 "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },
                 "tags": {
                   "type": "array",

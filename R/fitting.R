@@ -14,7 +14,7 @@ NULL
 #' @details
 #' Includes in hash:
 #' - Node structure (id, label, type, variableCharacteristics)
-#' - Path structure (fromLabel, toLabel, numberOfArrows, free, parameterType)
+#' - Path structure (from, to, numberOfArrows, free, parameterType)
 #' - Optimization parameters (fitFunction, missingness, parameterTypes)
 #'
 #' Excludes:
@@ -51,8 +51,8 @@ hashStructure <- function(graphModel, model_id = NULL) {
     }),
     paths = lapply(model$paths %||% list(), function(p) {
       list(
-        fromLabel = p$fromLabel,
-        toLabel = p$toLabel,
+        from = p$from,
+        to = p$to,
         numberOfArrows = p$numberOfArrows,
         free = p$free,
         parameterType = p$parameterType

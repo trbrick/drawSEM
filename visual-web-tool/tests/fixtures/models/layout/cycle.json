@@ -15,18 +15,18 @@
         {"id": "data", "label": "data", "type": "dataset"}
       ],
       "paths": [
-        {"fromLabel": "X", "toLabel": "Y", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
-        {"fromLabel": "Y", "toLabel": "Z", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
-        {"fromLabel": "Z", "toLabel": "X", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
-        {"fromLabel": "1", "toLabel": "X", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
-        {"fromLabel": "1", "toLabel": "Y", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
-        {"fromLabel": "1", "toLabel": "Z", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
-        {"fromLabel": "X", "toLabel": "X", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance"},
-        {"fromLabel": "Y", "toLabel": "Y", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
-        {"fromLabel": "Z", "toLabel": "Z", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
-        {"fromLabel": "data", "toLabel": "X", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
-        {"fromLabel": "data", "toLabel": "Y", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
-        {"fromLabel": "data", "toLabel": "Z", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"}
+        {"from": "X", "to": "Y", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
+        {"from": "Y", "to": "Z", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
+        {"from": "Z", "to": "X", "numberOfArrows": 1, "value": 1.0, "free": "free", "parameterType": "regression"},
+        {"from": "1", "to": "X", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"from": "1", "to": "Y", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"from": "1", "to": "Z", "numberOfArrows": 1, "value": 0.0, "free": "free", "parameterType": "mean"},
+        {"from": "X", "to": "X", "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance"},
+        {"from": "Y", "to": "Y", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"from": "Z", "to": "Z", "numberOfArrows": 2, "value": 1.0, "free": "free", "parameterType": "variance"},
+        {"from": "data", "to": "X", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"from": "data", "to": "Y", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"},
+        {"from": "data", "to": "Z", "numberOfArrows": 1, "value": null, "free": "fixed", "parameterType": "dataMapping"}
       ]
     }
   }

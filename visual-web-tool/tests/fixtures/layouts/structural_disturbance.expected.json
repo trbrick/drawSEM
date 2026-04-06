@@ -1,0 +1,17 @@
+{
+  "description": "Expected layout for structural_disturbance: D_F2 is a RAM-style disturbance on the endogenous factor F2. Because F2 is non-terminal (it loads on X1/X2/X3), D_F2 gets placement='beside' and shares rank 1 with F2. F1 is exogenous at rank 2, indicators at rank 0.",
+  "expectedRanks": {
+    "F1":   2,
+    "F2":   1,
+    "X1":   0,
+    "X2":   0,
+    "X3":   0,
+    "D_F2": 1
+  },
+  "expectedOrdering": {
+    "rank_2": ["F1"],
+    "rank_1": ["F2", "D_F2"],
+    "rank_0": ["X1", "X2", "X3"]
+  },
+  "notes": "D_F2 satisfies all four error-node detection conditions (one free self-loop, no incoming paths, one fixed-1.0 outgoing path to F2) but its target F2 is non-terminal, so placement is 'beside' rather than 'below'. D_F2 must share rank 1 and the same y-coordinate as F2, placed to its right."
+}

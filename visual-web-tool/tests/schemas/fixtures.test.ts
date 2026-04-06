@@ -51,8 +51,8 @@ describe('Fixture Validation', () => {
         const nodeLabels = new Set((model as any).nodes.map((n: any) => n.label));
         
         (model as any).paths.forEach((path: any) => {
-          expect(nodeLabels.has(path.fromLabel)).toBe(true);
-          expect(nodeLabels.has(path.toLabel)).toBe(true);
+          expect(nodeLabels.has(path.from)).toBe(true);
+          expect(nodeLabels.has(path.to)).toBe(true);
         });
       }
     });

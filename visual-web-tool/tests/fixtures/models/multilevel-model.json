@@ -44,8 +44,8 @@
       "paths": [
         {
           "label": "γ₁₁",
-          "fromLabel": "X_within",
-          "toLabel": "Y_within",
+          "from": "X_within",
+          "to": "Y_within",
           "numberOfArrows": 1,
           "value": 0.5,
           "free": "free",
@@ -54,8 +54,8 @@
         },
         {
           "label": "γ₂₁",
-          "fromLabel": "X_between",
-          "toLabel": "Y_between",
+          "from": "X_between",
+          "to": "Y_between",
           "numberOfArrows": 1,
           "value": 0.5,
           "free": "free",
@@ -63,8 +63,8 @@
           "tags": ["between-level"]
         },
         {
-          "fromLabel": "X_within",
-          "toLabel": "X_within",
+          "from": "X_within",
+          "to": "X_within",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
@@ -73,8 +73,8 @@
           "visual": { "loopSide": "left" }
         },
         {
-          "fromLabel": "Y_within",
-          "toLabel": "Y_within",
+          "from": "Y_within",
+          "to": "Y_within",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
@@ -83,8 +83,8 @@
           "visual": { "loopSide": "top" }
         },
         {
-          "fromLabel": "X_between",
-          "toLabel": "X_between",
+          "from": "X_between",
+          "to": "X_between",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
@@ -93,8 +93,8 @@
           "visual": { "loopSide": "left" }
         },
         {
-          "fromLabel": "Y_between",
-          "toLabel": "Y_between",
+          "from": "Y_between",
+          "to": "Y_between",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",

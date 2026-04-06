@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "title": "Structural Model with Factor Disturbance",
+    "description": "Two-level structural model: F1→F2→X1/X2/X3, with D_F2 as a RAM-style disturbance on the endogenous factor F2. F1 has a free variance self-loop. D_F2 has a free variance self-loop and a fixed-1.0 unit path to F2. Because F2 is non-terminal (it loads on X1/X2/X3), D_F2 is classified as 'beside' and placed at the same rank as F2."
+  },
+  "models": {
+    "structural_disturbance": {
+      "label": "Structural Disturbance",
+      "nodes": [
+        { "label": "F1",   "type": "variable" },
+        { "label": "F2",   "type": "variable" },
+        { "label": "X1",   "type": "variable" },
+        { "label": "X2",   "type": "variable" },
+        { "label": "X3",   "type": "variable" },
+        { "label": "D_F2", "type": "variable" }
+      ],
+      "paths": [
+        { "from": "F1",   "to": "F1",   "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "variance" },
+        { "from": "D_F2", "to": "D_F2", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
+        { "from": "F1",   "to": "F2",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
+        { "from": "D_F2", "to": "F2",   "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
+        { "from": "F2",   "to": "X1",   "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "loading" },
+        { "from": "F2",   "to": "X2",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
+        { "from": "F2",   "to": "X3",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" }
+      ]
+    }
+  }
+}

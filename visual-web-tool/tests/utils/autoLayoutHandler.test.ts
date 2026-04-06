@@ -57,7 +57,7 @@ describe('handleAutoLayout – schema construction', () => {
     expect(() => autoLayout(schema)).not.toThrow()
   })
 
-  it('translates runtime paths (from/to/twoSided) to schema paths (fromLabel/toLabel/numberOfArrows)', () => {
+  it('translates runtime paths (from/to/twoSided) to schema paths (from/to/numberOfArrows)', () => {
     // This is the field-name translation that handleAutoLayout must perform.
     // Runtime paths use node IDs and twoSided; schema paths use node labels and numberOfArrows.
     const nodeX = mockNode('X')
@@ -74,13 +74,13 @@ describe('handleAutoLayout – schema construction', () => {
     runtimeNodes.forEach((n) => { idToLabel[n.id] = n.label })
 
     const schemaPaths = runtimePaths.map((p) => ({
-      fromLabel: idToLabel[p.from] ?? p.from,
-      toLabel: idToLabel[p.to] ?? p.to,
+      from: idToLabel[p.from] ?? p.from,
+      to: idToLabel[p.to] ?? p.to,
       numberOfArrows: p.twoSided ? 2 : 1,
     }))
 
-    expect(schemaPaths[0]).toEqual({ fromLabel: 'X', toLabel: 'M', numberOfArrows: 1 })
-    expect(schemaPaths[1]).toEqual({ fromLabel: 'M', toLabel: 'Y', numberOfArrows: 1 })
+    expect(schemaPaths[0]).toEqual({ from: 'X', to: 'M', numberOfArrows: 1 })
+    expect(schemaPaths[1]).toEqual({ from: 'M', to: 'Y', numberOfArrows: 1 })
   })
 
   it('translates twoSided:true to numberOfArrows:2', () => {
@@ -90,8 +90,8 @@ describe('handleAutoLayout – schema construction', () => {
     const runtimePath = { id: 'p1', from: nodeA.id, to: nodeB.id, twoSided: true }
 
     const schemaPath = {
-      fromLabel: idToLabel[runtimePath.from],
-      toLabel: idToLabel[runtimePath.to],
+      from: idToLabel[runtimePath.from],
+      to: idToLabel[runtimePath.to],
       numberOfArrows: runtimePath.twoSided ? 2 : 1,
     }
 
@@ -120,8 +120,8 @@ describe('handleAutoLayout – schema construction', () => {
             label: n.label, type: n.type, visual: { x: 0, y: 0 },
           })),
           paths: runtimePaths.map((p) => ({
-            fromLabel: idToLabel[p.from],
-            toLabel: idToLabel[p.to],
+            from: idToLabel[p.from],
+            to: idToLabel[p.to],
             numberOfArrows: p.twoSided ? 2 : 1,
           })),
         },
@@ -202,7 +202,7 @@ describe('handleAutoLayout – autoLayout() output', () => {
             { label: 'B', type: 'variable', visual: { x: 0, y: 0 } },
           ],
           paths: [
-            { fromLabel: 'A', toLabel: 'B', numberOfArrows: 1 },
+            { from: 'A', to: 'B', numberOfArrows: 1 },
           ],
         },
       },

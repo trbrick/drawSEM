@@ -493,6 +493,232 @@ describe('RAMPath Layout Algorithm', () => {
     })
   })
 
+  // ---------------------------------------------------------------------------
+  // Error node placement (Phase 1.5 + Phase 5.5)
+  // ---------------------------------------------------------------------------
+  //
+  // Three cases are tested:
+  //   A. 'below'  – CFA error on terminal indicator (cfa-model.json)
+  //   B. 'below'  – graph.example.json: errors with correlated error path,
+  //                 x_2 has its own self-loop but is NOT an error node
+  //   C. 'beside' – structural disturbance on a non-terminal factor
+  // ---------------------------------------------------------------------------
+
+  describe('error node placement – CFA (below): cfa-model.json', () => {
+    // F → X1/X2/X3, with ε₁/ε₂/ε₃ as error nodes.
+    // Each εᵢ has: one free self-loop, no incoming paths, one fixed-1.0
+    // outgoing path to a terminal indicator.  Expected placement: 'below'.
+
+    let model: GraphSchema
+    beforeAll(() => {
+      const path = join(__dirname, '../fixtures/models/cfa-model.json')
+      model = JSON.parse(readFileSync(path, 'utf-8'))
+    })
+
+    it('should return positions for all variable nodes including errors', () => {
+      const positions = autoLayout(model)
+      expect(positions).toHaveProperty('F')
+      expect(positions).toHaveProperty('X1')
+      expect(positions).toHaveProperty('X2')
+      expect(positions).toHaveProperty('X3')
+      expect(positions).toHaveProperty('ε₁')
+      expect(positions).toHaveProperty('ε₂')
+      expect(positions).toHaveProperty('ε₃')
+    })
+
+    it('error nodes should have a strictly lower rank than their targets', () => {
+      const positions = autoLayout(model)
+      expect(positions['ε₁'].rank).toBeLessThan(positions['X1'].rank!)
+      expect(positions['ε₂'].rank).toBeLessThan(positions['X2'].rank!)
+      expect(positions['ε₃'].rank).toBeLessThan(positions['X3'].rank!)
+    })
+
+    it('error nodes should be visually below their targets (higher y)', () => {
+      const positions = autoLayout(model)
+      expect(positions['ε₁'].y).toBeGreaterThan(positions['X1'].y)
+      expect(positions['ε₂'].y).toBeGreaterThan(positions['X2'].y)
+      expect(positions['ε₃'].y).toBeGreaterThan(positions['X3'].y)
+    })
+
+    it('each error node should have the same x as its target (centred below)', () => {
+      const positions = autoLayout(model)
+      expect(positions['ε₁'].x).toBe(positions['X1'].x)
+      expect(positions['ε₂'].x).toBe(positions['X2'].x)
+      expect(positions['ε₃'].x).toBe(positions['X3'].x)
+    })
+
+    it('factor F should NOT be detected as an error node', () => {
+      // F has a free self-loop (Φ) but also has outgoing paths to X1/X2/X3,
+      // so condition 4 (exactly one outgoing path) fails.
+      const positions = autoLayout(model)
+      // F must sit above or at the same level as the indicators, never below.
+      expect(positions['F'].y).toBeLessThan(positions['X1'].y)
+    })
+
+    it('error nodes should not shift indicator x-positions', () => {
+      // Removing error nodes from the main rank phase should leave X1/X2/X3
+      // centred identically to a model without error nodes.
+      const withErrors = autoLayout(model)
+
+      const noErrorModel: GraphSchema = {
+        schemaVersion: 1,
+        models: {
+          m: {
+            label: 'no errors',
+            nodes: [
+              { label: 'F',  type: 'variable', visual: { x: 0, y: 0 } },
+              { label: 'X1', type: 'variable', visual: { x: 0, y: 0 } },
+              { label: 'X2', type: 'variable', visual: { x: 0, y: 0 } },
+              { label: 'X3', type: 'variable', visual: { x: 0, y: 0 } },
+            ],
+            paths: [
+              { from: 'F', to: 'X1', numberOfArrows: 1, value: 1.0, free: 'fixed' },
+              { from: 'F', to: 'X2', numberOfArrows: 1, value: 1.0, free: 'free'  },
+              { from: 'F', to: 'X3', numberOfArrows: 1, value: 1.0, free: 'free'  },
+              { from: 'F', to: 'F',  numberOfArrows: 2, value: 1.0, free: 'free'  },
+            ],
+          },
+        },
+      }
+      const withoutErrors = autoLayout(noErrorModel)
+
+      expect(withErrors['X1'].x).toBe(withoutErrors['X1'].x)
+      expect(withErrors['X2'].x).toBe(withoutErrors['X2'].x)
+      expect(withErrors['X3'].x).toBe(withoutErrors['X3'].x)
+    })
+  })
+
+  describe('cfa_with_errors: F_1→x_1/x_2/x_3 with explicit error nodes and correlated residuals', () => {
+    // Fixture: tests/fixtures/models/layout/cfa_with_errors.json
+    // F_1 → x_1, x_2, x_3 (loadings); eps_x1 → x_1, eps_x3 → x_3 (unit error paths);
+    // eps_x1 ↔ eps_x3 (correlated errors — must NOT disqualify detection);
+    // x_2 carries its own free self-loop (no dedicated error node);
+    // F_1 has a fixed self-loop (factor variance fixed for identification).
+
+    let model: GraphSchema
+    let expected: any
+    beforeAll(() => {
+      model = loadFixture('cfa_with_errors.json')
+      expected = loadExpectedLayout('cfa_with_errors.expected.json')
+    })
+
+    it('should return positions for all six variable nodes', () => {
+      const positions = autoLayout(model)
+      expect(Object.keys(positions)).toHaveLength(6)
+      ;['F_1', 'x_1', 'x_2', 'x_3', 'eps_x1', 'eps_x3'].forEach(label => {
+        expect(positions).toHaveProperty(label)
+      })
+    })
+
+    it('should match expected rank assignments', () => {
+      const positions = autoLayout(model)
+      Object.entries(expected.expectedRanks).forEach(([label, expectedRank]) => {
+        expect(positions[label]?.rank, `rank of ${label}`).toBe(expectedRank)
+      })
+    })
+
+    it('should generate valid HTML report', () => {
+      const positions = autoLayout(model)
+      const html = generateLayoutReport('cfa_with_errors', model, positions, expected.expectedRanks)
+      expect(html).toContain('<!DOCTYPE html>')
+      expect(html).toContain('<svg')
+      writeLayoutReport('cfa_with_errors.html', html)
+    })
+
+    it('eps_x1 and eps_x3 should be detected as error nodes (rank < indicator rank)', () => {
+      const positions = autoLayout(model)
+      expect(positions['eps_x1'].rank).toBeLessThan(positions['x_1'].rank!)
+      expect(positions['eps_x3'].rank).toBeLessThan(positions['x_3'].rank!)
+    })
+
+    it('eps_x1 and eps_x3 should be visually below x_1 and x_3', () => {
+      const positions = autoLayout(model)
+      expect(positions['eps_x1'].y).toBeGreaterThan(positions['x_1'].y)
+      expect(positions['eps_x3'].y).toBeGreaterThan(positions['x_3'].y)
+    })
+
+    it('x_2 should NOT be detected as an error node (it has a self-loop)', () => {
+      // x_2 has its own free self-loop, so condition 4b (target has no self-loop) fails
+      // for any hypothetical node driving x_2.  But x_2 itself is the problem case:
+      // x_2 has a self-loop AND incoming from F_1, so conditions 2+3 both fail.
+      // Either way x_2 stays at indicator rank 0, not below.
+      const positions = autoLayout(model)
+      expect(positions['x_2'].rank).toBe(positions['x_1'].rank)
+    })
+
+    it('F_1 should NOT be detected as an error node (fixed self-loop, multiple outgoing)', () => {
+      const positions = autoLayout(model)
+      // F_1 must be above the indicators
+      expect(positions['F_1'].y).toBeLessThan(positions['x_1'].y)
+    })
+
+    it('all six nodes should have finite, distinct coordinates', () => {
+      const positions = autoLayout(model)
+      for (const [label, pos] of Object.entries(positions)) {
+        expect(isFinite(pos.x), `${label}.x is not finite`).toBe(true)
+        expect(isFinite(pos.y), `${label}.y is not finite`).toBe(true)
+      }
+      const coords = Object.values(positions).map(p => `${p.x},${p.y}`)
+      const unique = new Set(coords)
+      expect(unique.size).toBe(Object.keys(positions).length)
+    })
+  })
+
+  describe('structural_disturbance: F1→F2→X1-X3 with D_F2 disturbance (beside)', () => {
+    // Fixture: tests/fixtures/models/layout/structural_disturbance.json
+    // F1 → F2 → X1/X2/X3; D_F2 is the RAM-style disturbance on endogenous factor F2.
+    // D_F2 has: one free self-loop, no incoming paths, one fixed-1.0 path to F2.
+    // F2 is non-terminal (loads on X1/X2/X3) → placement = 'beside'.
+
+    let model: GraphSchema
+    let expected: any
+    beforeAll(() => {
+      model = loadFixture('structural_disturbance.json')
+      expected = loadExpectedLayout('structural_disturbance.expected.json')
+    })
+
+    it('should return positions for all six variable nodes', () => {
+      const positions = autoLayout(model)
+      expect(Object.keys(positions)).toHaveLength(6)
+    })
+
+    it('should match expected rank assignments', () => {
+      const positions = autoLayout(model)
+      Object.entries(expected.expectedRanks).forEach(([label, expectedRank]) => {
+        expect(positions[label]?.rank, `rank of ${label}`).toBe(expectedRank)
+      })
+    })
+
+    it('should generate valid HTML report', () => {
+      const positions = autoLayout(model)
+      const html = generateLayoutReport('structural_disturbance', model, positions, expected.expectedRanks)
+      expect(html).toContain('<!DOCTYPE html>')
+      expect(html).toContain('<svg')
+      writeLayoutReport('structural_disturbance.html', html)
+    })
+
+    it('D_F2 should be at the same rank as F2 (beside placement)', () => {
+      const positions = autoLayout(model)
+      expect(positions['D_F2'].rank).toBe(positions['F2'].rank)
+    })
+
+    it('D_F2 should be at the same y as F2', () => {
+      const positions = autoLayout(model)
+      expect(positions['D_F2'].y).toBe(positions['F2'].y)
+    })
+
+    it('D_F2 should not share the same x as F2', () => {
+      const positions = autoLayout(model)
+      expect(positions['D_F2'].x).not.toBe(positions['F2'].x)
+    })
+
+    it('F2 rank should be between F1 and the indicators', () => {
+      const positions = autoLayout(model)
+      expect(positions['F1'].y).toBeLessThan(positions['F2'].y)
+      expect(positions['F2'].y).toBeLessThan(positions['X1'].y)
+    })
+  })
+
   // Update metadata after all tests complete
   afterAll(() => {
     updateTestMetadata()

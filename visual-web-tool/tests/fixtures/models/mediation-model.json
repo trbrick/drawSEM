@@ -31,8 +31,8 @@
       "paths": [
         {
           "label": "a",
-          "fromLabel": "X",
-          "toLabel": "M",
+          "from": "X",
+          "to": "M",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
@@ -40,8 +40,8 @@
         },
         {
           "label": "b",
-          "fromLabel": "M",
-          "toLabel": "Y",
+          "from": "M",
+          "to": "Y",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
@@ -49,16 +49,16 @@
         },
         {
           "label": "c'",
-          "fromLabel": "X",
-          "toLabel": "Y",
+          "from": "X",
+          "to": "Y",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "regression"
         },
         {
-          "fromLabel": "X",
-          "toLabel": "X",
+          "from": "X",
+          "to": "X",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "fixed",
@@ -66,8 +66,8 @@
           "visual": { "loopSide": "top" }
         },
         {
-          "fromLabel": "M",
-          "toLabel": "M",
+          "from": "M",
+          "to": "M",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
@@ -75,8 +75,8 @@
           "visual": { "loopSide": "top" }
         },
         {
-          "fromLabel": "Y",
-          "toLabel": "Y",
+          "from": "Y",
+          "to": "Y",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",

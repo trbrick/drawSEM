@@ -1,0 +1,17 @@
+{
+  "description": "Expected layout for cfa_with_errors: error nodes eps_x1 and eps_x3 must be placed below their terminal targets x_1 and x_3 (placement='below', rank=-1). x_2 carries its own free variance loop so it is NOT detected as an error node and stays at rank 0. F_1 has a fixed self-loop and multiple outgoing paths so it is NOT detected as an error node.",
+  "expectedRanks": {
+    "F_1":    1,
+    "x_1":    0,
+    "x_2":    0,
+    "x_3":    0,
+    "eps_x1": -1,
+    "eps_x3": -1
+  },
+  "expectedOrdering": {
+    "rank_1":  ["F_1"],
+    "rank_0":  ["x_1", "x_2", "x_3"],
+    "rank_-1": ["eps_x1", "eps_x3"]
+  },
+  "notes": "Error nodes with correlated residuals (eps_x1 ↔ eps_x3) must still be detected and placed below rank 0. The correlated-error two-headed path between them is not a self-loop and must not disqualify detection. x_2 has its own free self-loop (direct variance parameterisation without a dedicated error node) — the target-has-self-loop guard in condition 4b must prevent it from being treated as a target of an error node, and x_2 itself must not be mistaken for an error node."
+}

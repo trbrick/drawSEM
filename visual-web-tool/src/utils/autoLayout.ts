@@ -1,7 +1,7 @@
 import { GraphSchema } from '../core/types'
 
 /**
- * RAMPath Algorithm Implementation for Automatic Path Diagram Layout
+ * RAMPath Algorithm Implementation for Automatic Path Diagram Layout (with error node handling)
  *
  * Based on: Boker, McArdle, & Neale (2002)
  * Reference: "A note on the Powley method for computing the square root of a 2×2 matrix"
@@ -47,6 +47,21 @@ interface ArrowIndex {
   oneHeadedPaths: ArrowPath[]
 }
 
+interface ErrorNodeInfo {
+  /** The detected error/disturbance node label */
+  nodeLabel: string
+  /** The single target this error node drives */
+  targetLabel: string
+  /**
+   * Placement strategy:
+   * - 'below': target is terminal (no outgoing variable paths); error goes one rank below target.
+   *   Classic CFA pattern: factor arrows arrive from above, error arrow arrives from below.
+   * - 'beside': target is non-terminal (has outgoing variable paths); error goes at same rank.
+   *   Disturbance pattern: factor disturbances, RAM predictor residuals.
+   */
+  placement: 'below' | 'beside'
+}
+
 interface PathRecord {
   length: number
   nodeSet: Set<string>
@@ -73,20 +88,40 @@ export function autoLayout(schema: GraphSchema, options?: LayoutOptions): Positi
   if (!modelKey) throw new Error('No models found in schema')
   const model = schema.models[modelKey]
 
-  // PHASE 1: Prepare data
-  const { variableNodes, arrowIndex } = prepareData(model)
+  // PHASE 1: Prepare data — full arrow index over all variable nodes
+  const { variableNodes, arrowIndex: fullArrowIndex } = prepareData(model)
 
-  // PHASE 2: Compute longest paths
-  const longestPathByNode = computeLongestPaths(variableNodes, arrowIndex)
+  // PHASE 1.5: Detect error/disturbance nodes and remove them from the main layout set.
+  // Error nodes distort rank assignment (they score rank 1 like factors, not rank 0 like
+  // indicators) so they must be excluded from Phases 2-5 and positioned separately.
+  const errorNodeInfos = detectErrorNodes(model, variableNodes, fullArrowIndex)
+  const errorNodeLabels = new Set(errorNodeInfos.map(e => e.nodeLabel))
 
-  // PHASE 3: Assign ranks
-  const { ranks, rankIndex } = assignRanks(longestPathByNode, variableNodes)
+  // Main variable nodes: all variable nodes except detected error nodes
+  const mainVariableNodes = new Set([...variableNodes].filter(n => !errorNodeLabels.has(n)))
+
+  // Rebuild arrow index restricted to main variable nodes so error-node paths don't
+  // participate in longest-path computation or barycenter calculations.
+  const mainArrowIndex = buildArrowIndex(model.paths ?? [], mainVariableNodes)
+
+  // PHASE 2: Compute longest paths (main nodes only)
+  const longestPathByNode = computeLongestPaths(mainVariableNodes, mainArrowIndex)
+
+  // PHASE 3: Assign ranks (main nodes only)
+  const { ranks, rankIndex } = assignRanks(longestPathByNode, mainVariableNodes)
 
   // PHASES 4-5: Sort nodes within ranks & assign coordinates (interleaved)
-  const positions = sortAndPositionRanks(ranks, rankIndex, arrowIndex, layoutOpts)
+  const positions = sortAndPositionRanks(ranks, rankIndex, mainArrowIndex, layoutOpts)
+
+  // PHASE 5.5: Position error/disturbance nodes relative to their targets.
+  // Uses the main arrow index to determine whether each target is terminal.
+  // Updates rankIndex in-place so Phase 6 loop-side logic sees correct ranks.
+  positionErrorNodes(errorNodeInfos, positions, rankIndex, mainArrowIndex, layoutOpts)
 
   // PHASE 6: Determine two-headed arrow sides
-  determineLoopSides(ranks, rankIndex, model.paths)
+  // ranks array is rebuilt from the now-complete rankIndex (includes error nodes)
+  const allRanks = buildRanksFromIndex(rankIndex)
+  determineLoopSides(allRanks, rankIndex, model.paths)
 
   // PHASE 7: Position constants and database nodes
   positionConstantsAndDatabases(model, positions, layoutOpts)
@@ -119,16 +154,16 @@ function buildArrowIndex(paths: any[], variableNodes: Set<string>): ArrowIndex {
   const oneHeadedPaths: ArrowPath[] = []
 
   paths.forEach(path => {
-    if (path.numberOfArrows === 1 && variableNodes.has(path.fromLabel) && variableNodes.has(path.toLabel)) {
-      const arrow = { from: path.fromLabel, to: path.toLabel }
+    if (path.numberOfArrows === 1 && variableNodes.has(path.from) && variableNodes.has(path.to)) {
+      const arrow = { from: path.from, to: path.to }
 
       // Add to incoming
-      if (!incomingByTarget.has(path.toLabel)) incomingByTarget.set(path.toLabel, [])
-      incomingByTarget.get(path.toLabel)!.push(arrow)
+      if (!incomingByTarget.has(path.to)) incomingByTarget.set(path.to, [])
+      incomingByTarget.get(path.to)!.push(arrow)
 
       // Add to outgoing
-      if (!outgoingBySource.has(path.fromLabel)) outgoingBySource.set(path.fromLabel, [])
-      outgoingBySource.get(path.fromLabel)!.push(arrow)
+      if (!outgoingBySource.has(path.from)) outgoingBySource.set(path.from, [])
+      outgoingBySource.get(path.from)!.push(arrow)
 
       // Add to one-headed list
       oneHeadedPaths.push(arrow)
@@ -136,6 +171,244 @@ function buildArrowIndex(paths: any[], variableNodes: Set<string>): ArrowIndex {
   })
 
   return { incomingByTarget, outgoingBySource, oneHeadedPaths }
+}
+
+// ============================================================================
+// PHASE 1.5: Detect Error / Disturbance Nodes
+// ============================================================================
+
+/**
+ * Detect error/disturbance nodes using a structural signature that does not
+ * rely on semantic naming conventions or parameterType labels.
+ *
+ * A node is classified as an error node when ALL of the following hold:
+ *   1. It is a variable node (already guaranteed by variableNodes membership)
+ *   2. It has exactly one two-headed self-loop, and that self-loop is free
+ *      (the node's variance is freely estimated — it is a residual variance)
+ *   3. It has no incoming one-headed paths from other variable nodes
+ *      (nothing structurally drives it; it is exogenous by construction)
+ *   4. It has exactly one outgoing one-headed path, where:
+ *        a. The path is fixed at value 1.0 (unit loading — RAM error convention)
+ *        b. The target node has no two-headed self-loop of its own
+ *           (the target's variance comes from this error node, not a direct loop)
+ *
+ * Correlated errors (inter-node two-headed paths) are allowed and do not
+ * disqualify a node — only self-loops are checked in condition 2.
+ *
+ * Known false positives (rare):
+ *   - Single-indicator latent variables identified by fixing the loading to 1.0
+ *     with no error term on the indicator (structurally identical to an error node).
+ *   - Degenerate bifactor specific factors loading on exactly one indicator.
+ * Both are uncommon and can be worked around by either fixing the factor variance
+ * to 1.0 for identification (changes condition 2) or adding an explicit fixed-zero
+ * error self-loop on the indicator (changes condition 4b).
+ *
+ * Placement rule (recorded in ErrorNodeInfo.placement):
+ *   - 'below'  : target has no outgoing variable paths (terminal/indicator node).
+ *                Error is placed one rank below the target — the classic opposing-
+ *                arrows CFA sandwich (factor arrows down, error arrows up).
+ *   - 'beside' : target has outgoing variable paths (factor, mediator, predictor).
+ *                Error is placed at the same rank as its target — disturbance
+ *                convention used in structural models and RAM all-Y notation.
+ */
+function detectErrorNodes(
+  model: any,
+  variableNodes: Set<string>,
+  fullArrowIndex: ArrowIndex
+): ErrorNodeInfo[] {
+  const results: ErrorNodeInfo[] = []
+
+  // --- Pre-compute self-loop sets from paths ---
+  // hasFreeOwnLoop: nodes with at least one FREE two-headed self-loop
+  // hasAnyOwnLoop : nodes with any two-headed self-loop (free or fixed)
+  const hasFreeOwnLoop = new Set<string>()
+  const hasAnyOwnLoop = new Set<string>()
+  ;(model.paths ?? []).forEach((path: any) => {
+    if (path.from === path.to && path.numberOfArrows === 2) {
+      hasAnyOwnLoop.add(path.from)
+      if (path.free === 'free') hasFreeOwnLoop.add(path.from)
+    }
+  })
+
+  // Count self-loops per node (condition 2 requires exactly one)
+  const ownLoopCount = new Map<string, number>()
+  ;(model.paths ?? []).forEach((path: any) => {
+    if (path.from === path.to && path.numberOfArrows === 2) {
+      ownLoopCount.set(path.from, (ownLoopCount.get(path.from) ?? 0) + 1)
+    }
+  })
+
+  // Index one-headed path properties by "from→to" key for O(1) lookup
+  // (free/value are not stored in ArrowIndex, only topology is)
+  const oneHeadedProps = new Map<string, { free: string; value: number | null }>()
+  ;(model.paths ?? []).forEach((path: any) => {
+    if (
+      path.numberOfArrows === 1 &&
+      variableNodes.has(path.from) &&
+      variableNodes.has(path.to)
+    ) {
+      oneHeadedProps.set(`${path.from}\u2192${path.to}`, {
+        free: path.free,
+        value: path.value ?? null,
+      })
+    }
+  })
+
+  variableNodes.forEach(nodeId => {
+    // Condition 2: exactly one two-headed self-loop AND it must be free
+    if ((ownLoopCount.get(nodeId) ?? 0) !== 1) return
+    if (!hasFreeOwnLoop.has(nodeId)) return
+
+    // Condition 3: no incoming one-headed paths from other variable nodes
+    const incoming = fullArrowIndex.incomingByTarget.get(nodeId) ?? []
+    if (incoming.length > 0) return
+
+    // Condition 4: exactly one outgoing one-headed path
+    const outgoing = fullArrowIndex.outgoingBySource.get(nodeId) ?? []
+    if (outgoing.length !== 1) return
+
+    const targetLabel = outgoing[0].to
+    const props = oneHeadedProps.get(`${nodeId}\u2192${targetLabel}`)
+
+    // 4a: path must be fixed at value 1.0
+    if (!props || props.free !== 'fixed' || props.value !== 1.0) return
+
+    // 4b: target must have no two-headed self-loop
+    if (hasAnyOwnLoop.has(targetLabel)) return
+
+    // Placement: 'below' if target is terminal (no outgoing variable paths),
+    //            'beside' if target drives other nodes (non-terminal)
+    const targetOutgoing = fullArrowIndex.outgoingBySource.get(targetLabel) ?? []
+    const placement: 'below' | 'beside' = targetOutgoing.length === 0 ? 'below' : 'beside'
+
+    results.push({ nodeLabel: nodeId, targetLabel, placement })
+  })
+
+  return results
+}
+
+// ============================================================================
+// PHASE 5.5: Position Error / Disturbance Nodes
+// ============================================================================
+
+/**
+ * Position detected error/disturbance nodes after main variable nodes are placed.
+ *
+ * 'below' errors (terminal targets — manifest indicators):
+ *   Placed directly below their target at x = target.x, y = target.y + rankHeight.
+ *   If multiple errors share a terminal target (unusual but valid with correlated
+ *   errors), they are spread symmetrically around the target's x.
+ *   Rank assigned: targetRank - 1  (creates a sub-rank below rank 0).
+ *
+ * 'beside' errors (non-terminal targets — factors, mediators, predictors):
+ *   Placed at the same y as their target, extending the rank to the right of the
+ *   rightmost already-positioned node in that rank.
+ *   Sorted by their target's x so left-associated errors appear leftmost.
+ *   Rank assigned: targetRank  (same rank as target).
+ *
+ * rankIndex is updated in-place so Phase 6 (loop-side assignment) sees the
+ * correct rank for every error node.
+ */
+function positionErrorNodes(
+  errorNodeInfos: ErrorNodeInfo[],
+  positions: PositionMap,
+  rankIndex: Map<string, number>,
+  mainArrowIndex: ArrowIndex,
+  options: Required<LayoutOptions>
+): void {
+  const { nodeWidth, gap, rankHeight } = options
+  if (errorNodeInfos.length === 0) return
+
+  // --- 'below' errors: group by target ---
+  const belowByTarget = new Map<string, string[]>()
+  errorNodeInfos
+    .filter(e => e.placement === 'below')
+    .forEach(e => {
+      if (!belowByTarget.has(e.targetLabel)) belowByTarget.set(e.targetLabel, [])
+      belowByTarget.get(e.targetLabel)!.push(e.nodeLabel)
+    })
+
+  belowByTarget.forEach((errors, targetLabel) => {
+    const targetPos = positions[targetLabel]
+    if (!targetPos) return
+    const targetRank = rankIndex.get(targetLabel) ?? 0
+    const errorRank = targetRank - 1
+    const errorY = targetPos.y + rankHeight
+
+    // Spread multiple errors symmetrically around the visual centre of the target.
+    // targetPos.x is the left edge of the target node, so its centre is
+    // targetPos.x + nodeWidth/2.  We centre the error row on that same point.
+    const count = errors.length
+    const totalWidth = count * nodeWidth + (count - 1) * gap
+    const startX = targetPos.x + nodeWidth / 2 - totalWidth / 2
+
+    errors.forEach((errorId, idx) => {
+      positions[errorId] = {
+        x: startX + idx * (nodeWidth + gap),
+        y: errorY,
+        rank: errorRank,
+      }
+      rankIndex.set(errorId, errorRank)
+    })
+  })
+
+  // --- 'beside' errors: group by target rank ---
+  // Within each rank, sort beside-errors by their target's x so placement order
+  // follows the left-to-right arrangement of the rank.
+  const besideByRank = new Map<number, ErrorNodeInfo[]>()
+  errorNodeInfos
+    .filter(e => e.placement === 'beside')
+    .forEach(e => {
+      const targetRank = rankIndex.get(e.targetLabel)
+      if (targetRank === undefined) return
+      if (!besideByRank.has(targetRank)) besideByRank.set(targetRank, [])
+      besideByRank.get(targetRank)!.push(e)
+    })
+
+  besideByRank.forEach((errors, targetRank) => {
+    // Sort by target x (ascending) so errors extend the rank in a predictable order
+    const sorted = [...errors].sort(
+      (a, b) => (positions[a.targetLabel]?.x ?? 0) - (positions[b.targetLabel]?.x ?? 0)
+    )
+
+    // Find the rightmost x already occupied in this rank
+    let maxX = -Infinity
+    Object.values(positions).forEach(pos => {
+      if (pos.rank === targetRank) maxX = Math.max(maxX, pos.x)
+    })
+    if (maxX === -Infinity) maxX = 0 // fallback for empty rank (shouldn't happen)
+
+    sorted.forEach((info, idx) => {
+      const targetPos = positions[info.targetLabel]
+      if (!targetPos) return
+      const errorX = maxX + (idx + 1) * (nodeWidth + gap)
+      positions[info.nodeLabel] = {
+        x: errorX,
+        y: targetPos.y,
+        rank: targetRank,
+      }
+      rankIndex.set(info.nodeLabel, targetRank)
+    })
+  })
+}
+
+// ============================================================================
+// Helper: Rebuild ranks array from a complete rankIndex
+// ============================================================================
+
+/**
+ * Reconstruct the ranks array (used by Phase 6) from a rankIndex that now
+ * includes error nodes. Ranks are ordered from lowest rank number to highest
+ * so that Phase 6's rankIdx=0 corresponds to the bottom-most visual rank.
+ */
+function buildRanksFromIndex(rankIndex: Map<string, number>): string[][] {
+  const ranksByNumber = new Map<number, string[]>()
+  rankIndex.forEach((rankNum, nodeId) => {
+    if (!ranksByNumber.has(rankNum)) ranksByNumber.set(rankNum, [])
+    ranksByNumber.get(rankNum)!.push(nodeId)
+  })
+  const sortedNums = [...ranksByNumber.keys()].sort((a, b) => a - b)
+  return sortedNums.map(n => ranksByNumber.get(n)!)
 }
 
 // ============================================================================
@@ -377,15 +650,15 @@ function determineLoopSides(ranks: string[][], rankIndex: Map<string, number>, p
     let outgoingCount = 0
 
     rank.forEach(nodeId => {
-      const incomingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.toLabel === nodeId)
+      const incomingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.to === nodeId)
       incomingPaths.forEach((p: any) => {
-        const sourceRank = rankIndex.get(p.fromLabel)
+        const sourceRank = rankIndex.get(p.from)
         if (sourceRank !== undefined && sourceRank < rankIdx) incomingCount++
       })
 
-      const outgoingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.fromLabel === nodeId)
+      const outgoingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.from === nodeId)
       outgoingPaths.forEach((p: any) => {
-        const targetRank = rankIndex.get(p.toLabel)
+        const targetRank = rankIndex.get(p.to)
         if (targetRank !== undefined && targetRank > rankIdx) outgoingCount++
       })
     })
@@ -400,7 +673,7 @@ function determineLoopSides(ranks: string[][], rankIndex: Map<string, number>, p
     twoHeadedPaths.forEach((path: any) => {
       if (!path.visual) path.visual = {}
       if (path.visual.loopSide) return
-      if (rank.indexOf(path.fromLabel) >= 0 || rank.indexOf(path.toLabel) >= 0) {
+      if (rank.indexOf(path.from) >= 0 || rank.indexOf(path.to) >= 0) {
         path.visual.loopSide = preferredSide
       }
     })
@@ -431,8 +704,8 @@ function positionConstantsAndDatabases(model: any, positions: PositionMap, optio
 
     const targets: string[] = []
     model.paths?.forEach((path: any) => {
-      if (path.fromLabel === node.label && positions[path.toLabel]) {
-        targets.push(path.toLabel)
+      if (path.from === node.label && positions[path.to]) {
+        targets.push(path.to)
       }
     })
 

@@ -341,8 +341,8 @@ describe('SVG Renderer', () => {
             ],
             paths: [
               {
-                fromLabel: 'X',
-                toLabel: 'X',
+                from: 'X',
+                to: 'X',
                 numberOfArrows: 2,
                 value: 1.0,
                 free: 'free',
@@ -552,8 +552,8 @@ describe('SVG Renderer', () => {
             ],
             paths: [
               {
-                fromLabel: 'X',
-                toLabel: 'Y',
+                from: 'X',
+                to: 'Y',
                 numberOfArrows: 1,
                 value: 1.0,
                 free: 'free',
@@ -581,8 +581,8 @@ describe('SVG Renderer', () => {
             ],
             paths: [
               {
-                fromLabel: 'X',
-                toLabel: 'Y',
+                from: 'X',
+                to: 'Y',
                 numberOfArrows: 1,
                 // No label or value
               },

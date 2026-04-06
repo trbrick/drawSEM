@@ -134,8 +134,8 @@ describe('Schema Validation', () => {
           ],
           paths: [
             {
-              fromLabel: 'X',
-              toLabel: 'Y',
+              from: 'X',
+              to: 'Y',
               numberOfArrows: 1,
               value: 0.5,
               free: 'free',
@@ -149,7 +149,7 @@ describe('Schema Validation', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('should reject paths without fromLabel', () => {
+  it('should reject paths without from', () => {
     const invalidGraph = {
       schemaVersion: 1,
       models: {
@@ -160,7 +160,7 @@ describe('Schema Validation', () => {
           ],
           paths: [
             {
-              toLabel: 'Y',
+              to: 'Y',
               numberOfArrows: 1,
             },
           ],
@@ -181,9 +181,9 @@ describe('Schema Validation', () => {
             { label: 'X', type: 'variable', visual: { x: 0, y: 0 } },
           ],
           paths: [
-            { fromLabel: 'X', toLabel: 'X', numberOfArrows: 0 },
-            { fromLabel: 'X', toLabel: 'X', numberOfArrows: 1 },
-            { fromLabel: 'X', toLabel: 'X', numberOfArrows: 2 },
+            { from: 'X', to: 'X', numberOfArrows: 0 },
+            { from: 'X', to: 'X', numberOfArrows: 1 },
+            { from: 'X', to: 'X', numberOfArrows: 2 },
           ],
         },
       },
@@ -200,7 +200,7 @@ describe('Schema Validation', () => {
         model1: {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
           paths: [
-            { fromLabel: 'X', toLabel: 'X', numberOfArrows: 3 },
+            { from: 'X', to: 'X', numberOfArrows: 3 },
           ],
         },
       },
@@ -220,8 +220,8 @@ describe('Schema Validation', () => {
             { label: 'Y', type: 'variable', visual: { x: 100, y: 0 } },
           ],
           paths: [
-            { fromLabel: 'X', toLabel: 'Y', numberOfArrows: 1, free: 'free' },
-            { fromLabel: 'Y', toLabel: 'X', numberOfArrows: 1, free: 'fixed' },
+            { from: 'X', to: 'Y', numberOfArrows: 1, free: 'free' },
+            { from: 'Y', to: 'X', numberOfArrows: 1, free: 'fixed' },
           ],
         },
       },
@@ -241,7 +241,7 @@ describe('Schema Validation', () => {
             { label: 'X', type: 'variable', visual: { x: 100, y: 0 } },
           ],
           paths: [
-            { fromLabel: 'F', toLabel: 'X', numberOfArrows: 1, parameterType: 'loading' },
+            { from: 'F', to: 'X', numberOfArrows: 1, parameterType: 'loading' },
           ],
           optimization: {
             parameterTypes: {
@@ -268,26 +268,26 @@ describe('Schema Validation', () => {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
           paths: [
             {
-              fromLabel: 'X',
-              toLabel: 'X',
+              from: 'X',
+              to: 'X',
               numberOfArrows: 2,
               visual: { loopSide: 'top' },
             },
             {
-              fromLabel: 'X',
-              toLabel: 'X',
+              from: 'X',
+              to: 'X',
               numberOfArrows: 2,
               visual: { loopSide: 'right' },
             },
             {
-              fromLabel: 'X',
-              toLabel: 'X',
+              from: 'X',
+              to: 'X',
               numberOfArrows: 2,
               visual: { loopSide: 'bottom' },
             },
             {
-              fromLabel: 'X',
-              toLabel: 'X',
+              from: 'X',
+              to: 'X',
               numberOfArrows: 2,
               visual: { loopSide: 'left' },
             },
@@ -375,8 +375,8 @@ describe('Schema Validation', () => {
           ],
           paths: [
             {
-              fromLabel: 'F',
-              toLabel: 'F',
+              from: 'F',
+              to: 'F',
               numberOfArrows: 2,
               tags: ['covariance'],
             },

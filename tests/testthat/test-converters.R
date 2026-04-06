@@ -1,7 +1,7 @@
 test_that("buildPathList constructs correct mxPath specifications", {
   paths <- list(
-    list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1, free = "free", value = 1.0),
-    list(fromLabel = "x1", toLabel = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
+    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = 1.0),
+    list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -20,7 +20,7 @@ test_that("buildPathList constructs correct mxPath specifications", {
 
 test_that("buildPathList converts constant node label to 'one'", {
   paths <- list(
-    list(fromLabel = "1", toLabel = "x1", numberOfArrows = 1, free = "free")
+    list(from = "1", to = "x1", numberOfArrows = 1, free = "free")
   )
 
   result <- buildPathList(paths, constantNodeLabel = "1")
@@ -30,7 +30,7 @@ test_that("buildPathList converts constant node label to 'one'", {
 
 test_that("buildPathList applies 0.1 default for free null parameters", {
   paths <- list(
-    list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1, free = "free", value = NULL)
+    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = NULL)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -40,7 +40,7 @@ test_that("buildPathList applies 0.1 default for free null parameters", {
 
 test_that("buildPathList preserves non-null values for free parameters", {
   paths <- list(
-    list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1, free = "free", value = 2.5)
+    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = 2.5)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -50,7 +50,7 @@ test_that("buildPathList preserves non-null values for free parameters", {
 
 test_that("buildPathList preserves labels when present", {
   paths <- list(
-    list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1, free = "free", label = "loading_1")
+    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", label = "loading_1")
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -92,8 +92,8 @@ test_that("inferManifestVariables identifies variables with dataset paths", {
   )
 
   paths <- list(
-    list(fromLabel = "data", toLabel = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-    list(fromLabel = "data", toLabel = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+    list(from = "data", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
+    list(from = "data", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
   )
 
   result <- inferManifestVariables(nodes, paths)
@@ -110,8 +110,8 @@ test_that("inferLatentVariables identifies non-manifest variables", {
   )
 
   paths <- list(
-    list(fromLabel = "data", toLabel = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-    list(fromLabel = "data", toLabel = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+    list(from = "data", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
+    list(from = "data", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
   )
 
   manifest <- inferManifestVariables(nodes, paths)
@@ -131,7 +131,7 @@ test_that("collectUnsupportedFeatures detects 0-headed paths", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "x2", numberOfArrows = 0)
+          list(from = "x1", to = "x2", numberOfArrows = 0)
         )
       )
     )
@@ -165,7 +165,7 @@ test_that("collectUnsupportedFeatures detects priors", {
         nodes = list(),
         paths = list(
           list(
-            fromLabel = "x1", toLabel = "x2", numberOfArrows = 1,
+            from = "x1", to = "x2", numberOfArrows = 1,
             optimization = list(prior = list(distribution = "normal"))
           )
         )
@@ -210,7 +210,7 @@ test_that("renameDataColumns handles partial mapping", {
 test_that("storeOptimizationMetadata extracts bounds", {
   paths <- list(
     list(
-      fromLabel = "F1", toLabel = "x1", numberOfArrows = 1,
+      from = "F1", to = "x1", numberOfArrows = 1,
       optimization = list(bounds = c(0, 5))
     )
   )
@@ -224,7 +224,7 @@ test_that("storeOptimizationMetadata extracts bounds", {
 test_that("storeOptimizationMetadata extracts priors", {
   paths <- list(
     list(
-      fromLabel = "F1", toLabel = "x1", numberOfArrows = 1,
+      from = "F1", to = "x1", numberOfArrows = 1,
       optimization = list(prior = list(distribution = "normal", mean = 0, sd = 1))
     )
   )

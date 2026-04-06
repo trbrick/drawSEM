@@ -100,7 +100,7 @@ test_that("validatePathReferences detects undefined source node", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "undefined", toLabel = "x1", numberOfArrows = 1)
+          list(from = "undefined", to = "x1", numberOfArrows = 1)
         )
       )
     )
@@ -121,7 +121,7 @@ test_that("validatePathReferences detects undefined target node", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "undefined", numberOfArrows = 1)
+          list(from = "x1", to = "undefined", numberOfArrows = 1)
         )
       )
     )
@@ -143,7 +143,7 @@ test_that("validatePathReferences detects invalid numberOfArrows", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "x2", numberOfArrows = 3)
+          list(from = "x1", to = "x2", numberOfArrows = 3)
         )
       )
     )
@@ -166,9 +166,9 @@ test_that("validatePathReferences passes with valid paths", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1),
-          list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 2),
-          list(fromLabel = "x1", toLabel = "x2", numberOfArrows = 0)
+          list(from = "F1", to = "x1", numberOfArrows = 1),
+          list(from = "F1", to = "x1", numberOfArrows = 2),
+          list(from = "x1", to = "x2", numberOfArrows = 0)
         )
       )
     )
@@ -189,7 +189,7 @@ test_that("validateOptimizationParams detects fixed without value", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "x1", numberOfArrows = 2, free = "fixed", value = NULL)
+          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = NULL)
         )
       )
     )
@@ -210,7 +210,7 @@ test_that("validateOptimizationParams detects invalid free value", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "x1", numberOfArrows = 2, free = "maybe")
+          list(from = "x1", to = "x1", numberOfArrows = 2, free = "maybe")
         )
       )
     )
@@ -232,8 +232,8 @@ test_that("validateOptimizationParams passes with valid params", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(fromLabel = "x1", toLabel = "x1", numberOfArrows = 2, free = "fixed", value = 1.0),
-          list(fromLabel = "x1", toLabel = "x2", numberOfArrows = 1, free = "free")
+          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0),
+          list(from = "x1", to = "x2", numberOfArrows = 1, free = "free")
         )
       )
     )
@@ -256,9 +256,9 @@ test_that("validateSchema orchestrates all validators", {
           list(label = "1", type = "constant")
         ),
         paths = list(
-          list(fromLabel = "F1", toLabel = "x1", numberOfArrows = 1, free = "free"),
-          list(fromLabel = "1", toLabel = "x1", numberOfArrows = 1, free = "free", value = 0),
-          list(fromLabel = "x1", toLabel = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
+          list(from = "F1", to = "x1", numberOfArrows = 1, free = "free"),
+          list(from = "1", to = "x1", numberOfArrows = 1, free = "free", value = 0),
+          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
         )
       )
     )

@@ -9,8 +9,8 @@ test_that("hashStructure() creates consistent hashes for same structure", {
           list(id = "F1", label = "Factor", type = "variable", variableCharacteristics = list(manifestLatent = "latent"))
         ),
         paths = list(
-          list(fromLabel = "Factor", toLabel = "x1", numberOfArrows = 1, free = "free", parameterType = "loadings"),
-          list(fromLabel = "Factor", toLabel = "x2", numberOfArrows = 1, free = "free", parameterType = "loadings")
+          list(from = "Factor", to = "x1", numberOfArrows = 1, free = "free", parameterType = "loadings"),
+          list(from = "Factor", to = "x2", numberOfArrows = 1, free = "free", parameterType = "loadings")
         ),
         optimization = list(
           fitFunction = "ML",

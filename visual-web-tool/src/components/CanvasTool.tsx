@@ -1068,7 +1068,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setIsLayingOut(true)
     try {
       // Build id→label map so runtime paths (which store node IDs) can be
-      // translated back to the schema field names (fromLabel / toLabel) that
+      // translated back to the schema field names (from / to) that
       // autoLayout() expects.
       const idToLabel: Record<string, string> = {}
       currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
@@ -1084,8 +1084,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               visual: { x: n.x, y: n.y },
             })),
             paths: currentModel.paths.map((p) => ({
-              fromLabel: idToLabel[p.from] ?? p.from,
-              toLabel: idToLabel[p.to] ?? p.to,
+                            from: idToLabel[p.from] ?? p.from,
+              to:   idToLabel[p.to]   ?? p.to,
               numberOfArrows: p.twoSided ? 2 : 1,
             })),
           },

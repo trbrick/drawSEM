@@ -79,9 +79,9 @@ inferManifestVariables <- function(nodes, paths) {
   inferred_manifest <- sapply(
     paths,
     function(p) {
-      if (p$fromLabel %in% dataset_labels && 
+      if (p$from %in% dataset_labels && 
           (is.null(p$parameterType) || p$parameterType == "dataMapping")) {
-        return(p$toLabel)
+        return(p$to)
       }
       NULL
     }
@@ -240,8 +240,8 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
     }
     
     # Get from/to labels
-    from_label <- path$fromLabel
-    to_label <- path$toLabel
+    from_label <- path$from
+    to_label <- path$to
     
     # Convert constant node label to "one" for mxPath
     if (!is.null(constantNodeLabel) && from_label == constantNodeLabel) {

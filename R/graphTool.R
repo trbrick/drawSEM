@@ -292,7 +292,7 @@ plotGraphModel <- function(
     
     if (length(dataset_node_labels) > 0) {
       display_schema$models[[1]]$paths <- Filter(
-        function(p) !(p$fromLabel %in% dataset_node_labels || p$toLabel %in% dataset_node_labels),
+        function(p) !(p$from %in% dataset_node_labels || p$to %in% dataset_node_labels),
         display_schema$models[[1]]$paths
       )
     }

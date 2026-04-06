@@ -16,88 +16,88 @@
       ],
       "paths": [
         {
-          "fromLabel": "X",
-          "toLabel": "Y",
+          "from": "X",
+          "to": "Y",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
           "parameterType": "regression"
         },
         {
-          "fromLabel": "Y",
-          "toLabel": "Z",
+          "from": "Y",
+          "to": "Z",
           "numberOfArrows": 1,
           "value": 1.0,
           "free": "free",
           "parameterType": "regression"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "X",
+          "from": "1",
+          "to": "X",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "Y",
+          "from": "1",
+          "to": "Y",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "1",
-          "toLabel": "Z",
+          "from": "1",
+          "to": "Z",
           "numberOfArrows": 1,
           "value": 0.0,
           "free": "free",
           "parameterType": "mean"
         },
         {
-          "fromLabel": "X",
-          "toLabel": "X",
+          "from": "X",
+          "to": "X",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "fixed",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "Y",
-          "toLabel": "Y",
+          "from": "Y",
+          "to": "Y",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "Z",
-          "toLabel": "Z",
+          "from": "Z",
+          "to": "Z",
           "numberOfArrows": 2,
           "value": 1.0,
           "free": "free",
           "parameterType": "variance"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "X",
+          "from": "data",
+          "to": "X",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "Y",
+          "from": "data",
+          "to": "Y",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
-          "fromLabel": "data",
-          "toLabel": "Z",
+          "from": "data",
+          "to": "Z",
           "numberOfArrows": 1,
           "value": null,
           "free": "fixed",

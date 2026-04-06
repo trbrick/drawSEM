@@ -167,7 +167,7 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   
   # Check that paths from 'one' to variables exist and have correct structure
   paths <- g@schema$models$means_model$paths
-  one_paths <- Filter(function(p) p$fromLabel == "one", paths)
+  one_paths <- Filter(function(p) p$from == "one", paths)
   
   # Should have 2 paths from 'one' (one for each variable mean)
   expect_equal(length(one_paths), 2)
@@ -177,12 +177,12 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
     expect_equal(path$numberOfArrows, 1)
     expect_equal(path$parameterType, "mean")
     expect_equal(path$free, "free")
-    expect_true(path$toLabel %in% c('x', 'y'))
+    expect_true(path$to %in% c('x', 'y'))
   }
   
   # Verify paths are to correct variables with correct values
-  one_to_x <- Filter(function(p) p$toLabel == "x", one_paths)
-  one_to_y <- Filter(function(p) p$toLabel == "y", one_paths)
+  one_to_x <- Filter(function(p) p$to == "x", one_paths)
+  one_to_y <- Filter(function(p) p$to == "y", one_paths)
   
   expect_equal(length(one_to_x), 1)
   expect_equal(length(one_to_y), 1)

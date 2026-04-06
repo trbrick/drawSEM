@@ -306,7 +306,7 @@ function pathD(
   fromNode: Node,
   toNode: Node
 ): string {
-  if (path.fromLabel === path.toLabel) {
+  if (path.from === path.to) {
     // self-loop
     const side = (path.visual?.loopSide as any) || 'bottom'
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side)
@@ -372,7 +372,7 @@ function getPathLabelPos(
   fromNode: Node,
   toNode: Node
 ): { x: number; y: number } | null {
-  if (path.fromLabel === path.toLabel) {
+  if (path.from === path.to) {
     // self-loop: use cubic bezier midpoint
     const side = (path.visual?.loopSide as any) || 'bottom'
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side)
@@ -554,7 +554,7 @@ export function modelToSVG(
   // Filter visible paths (exclude paths with hidden endpoints)
   const visibleNodeLabels = new Set(visibleNodes.map((n) => n.label))
   const visiblePaths = model.paths.filter(
-    (p) => visibleNodeLabels.has(p.fromLabel) && visibleNodeLabels.has(p.toLabel)
+    (p) => visibleNodeLabels.has(p.from) && visibleNodeLabels.has(p.to)
   )
 
   // Calculate bounding box
@@ -597,10 +597,10 @@ export function modelToSVG(
   // Render paths (background layer)
   const pathsElements = visiblePaths
     .map((p) => {
-      const fromNode = nodesByLabel[p.fromLabel]
-      const toNode = nodesByLabel[p.toLabel]
-      const fromPos = positions[p.fromLabel]
-      const toPos = positions[p.toLabel]
+      const fromNode = nodesByLabel[p.from]
+      const toNode = nodesByLabel[p.to]
+      const fromPos = positions[p.from]
+      const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
       return renderPath(p, fromPos, toPos, fromNode, toNode)
     })
@@ -610,10 +610,10 @@ export function modelToSVG(
   // Render path labels
   const pathLabelsElements = visiblePaths
     .map((p) => {
-      const fromNode = nodesByLabel[p.fromLabel]
-      const toNode = nodesByLabel[p.toLabel]
-      const fromPos = positions[p.fromLabel]
-      const toPos = positions[p.toLabel]
+      const fromNode = nodesByLabel[p.from]
+      const toNode = nodesByLabel[p.to]
+      const fromPos = positions[p.from]
+      const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
       return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat)
     })

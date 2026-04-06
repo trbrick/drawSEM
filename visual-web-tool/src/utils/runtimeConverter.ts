@@ -78,13 +78,12 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
   }
 
   const pathsOut: Path[] = (model.paths || []).map((p: any) => {
-    const fromLabel = p.fromLabel
-    const toLabel = p.toLabel
+        const fromLabel = p.from
+    const toLabel = p.to
     const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
     const to = labelToId[toLabel] || slugifyLabel(toLabel)
     if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
     if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
-
     const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
     const twoSided = numberOfArrows >= 2
     const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined

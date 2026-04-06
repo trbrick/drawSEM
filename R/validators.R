@@ -115,7 +115,7 @@ validateNodeIntegrity <- function(schema) {
 #'
 #' Checks that:
 #' - All paths reference existing nodes (by label)
-#' - fromLabel and toLabel are non-empty strings
+#' - from and to are non-empty strings
 #' - numberOfArrows is valid (0, 1, or 2)
 #'
 #' @param schema A validated schema list
@@ -143,41 +143,41 @@ validatePathReferences <- function(schema) {
       path <- model$paths[[i]]
       
       # Handle jsonlite list-wrapping of string values
-      fromLabel <- path$fromLabel
-      if (is.list(fromLabel)) fromLabel <- unlist(fromLabel)
-      toLabel <- path$toLabel
-      if (is.list(toLabel)) toLabel <- unlist(toLabel)
+      from <- path$from
+      if (is.list(from)) from <- unlist(from)
+      to <- path$to
+      if (is.list(to)) to <- unlist(to)
       
-      if (is.null(fromLabel) || !nzchar(as.character(fromLabel))) {
+      if (is.null(from) || !nzchar(as.character(from))) {
         stop(
-          sprintf("Model '%s': path %d missing or empty 'fromLabel'", model_id, i),
+          sprintf("Model '%s': path %d missing or empty 'from'", model_id, i),
           call. = FALSE
         )
       }
       
-      if (is.null(toLabel) || !nzchar(as.character(toLabel))) {
+      if (is.null(to) || !nzchar(as.character(to))) {
         stop(
-          sprintf("Model '%s': path %d missing or empty 'toLabel'", model_id, i),
+          sprintf("Model '%s': path %d missing or empty 'to'", model_id, i),
           call. = FALSE
         )
       }
       
       # Check nodes exist
-      if (!(fromLabel %in% node_labels)) {
+      if (!(from %in% node_labels)) {
         stop(
           sprintf(
             "Model '%s': path %d references non-existent node '%s'",
-            model_id, i, fromLabel
+            model_id, i, from
           ),
           call. = FALSE
         )
       }
       
-      if (!(toLabel %in% node_labels)) {
+      if (!(to %in% node_labels)) {
         stop(
           sprintf(
             "Model '%s': path %d references non-existent node '%s'",
-            model_id, i, toLabel
+            model_id, i, to
           ),
           call. = FALSE
         )
