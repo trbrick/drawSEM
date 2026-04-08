@@ -254,8 +254,8 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
     # Extract starting value
     start_value <- if (!is.null(path$value)) path$value else NA
     
-    # Determine free/fixed
-    is_free <- if (!is.null(path$free)) path$free == "free" else TRUE
+    # Determine free/fixed: freeParameter = TRUE or non-empty string means free; absent means fixed
+    is_free <- isTRUE(path$freeParameter) || (is.character(path$freeParameter) && nzchar(path$freeParameter))
     
     # If free parameter with no/null value, use default 0.1
     if (is_free && (is.na(start_value) || is.null(start_value))) {

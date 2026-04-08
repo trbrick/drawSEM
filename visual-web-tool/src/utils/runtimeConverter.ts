@@ -112,7 +112,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     }
     // Add value (defaults to 1.0, but preserve null for dataset paths)
     out.value = p.value !== undefined ? p.value : 1.0
-    out.free = (p.free === 'fixed' || p.free === 'free') ? p.free : 'free'
+    // freeParameter: true = free anonymous; non-empty string = free named; absent = fixed (never set false)
+    if (p.freeParameter !== undefined && p.freeParameter !== false) out.freeParameter = p.freeParameter
     // Add optimization metadata: parameterType and optional overrides
     if (p.parameterType) out.parameterType = p.parameterType
     if (p.optimization) out.optimization = p.optimization

@@ -42,8 +42,11 @@ export interface Path {
   twoSided: boolean
   side?: 'top' | 'right' | 'bottom' | 'left'
   label?: string | null
+  displayName?: string | null
   value?: number | null
-  free?: 'free' | 'fixed'
+  // true = free anonymous; non-empty string = free named (equality-constrained); absent = fixed
+  freeParameter?: boolean | string
+  reversed?: boolean
   parameterType?: string
   optimization?: {
     prior?: Record<string, any> | null

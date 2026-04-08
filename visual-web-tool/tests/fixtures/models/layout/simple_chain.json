@@ -20,7 +20,7 @@
           "to": "Y",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression"
         },
         {
@@ -28,7 +28,7 @@
           "to": "Z",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression"
         },
         {
@@ -36,7 +36,7 @@
           "to": "X",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -44,7 +44,7 @@
           "to": "Y",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -52,7 +52,7 @@
           "to": "Z",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -60,7 +60,6 @@
           "to": "X",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "variance"
         },
         {
@@ -68,7 +67,7 @@
           "to": "Y",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance"
         },
         {
@@ -76,7 +75,7 @@
           "to": "Z",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance"
         },
         {
@@ -84,7 +83,6 @@
           "to": "X",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
@@ -92,7 +90,6 @@
           "to": "Y",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
@@ -100,7 +97,6 @@
           "to": "Z",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         }
       ]

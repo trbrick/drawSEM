@@ -39,63 +39,63 @@ test_that("End-to-end: Load graph.example.json and convert to mxModel", {
               label = "var_F1",
               from = "F1", to = "F1",
               numberOfArrows = 2,
-              value = 1.0, free = "fixed",
+              value = 1.0,
               parameterType = "variance"
             ),
             list(
               label = "var_e1",
               from = "e1", to = "e1",
               numberOfArrows = 2,
-              value = 1.0, free = "free",
+              value = 1.0, freeParameter = TRUE,
               parameterType = "errorVariance"
             ),
             list(
               label = "var_e2",
               from = "e2", to = "e2",
               numberOfArrows = 2,
-              value = 1.0, free = "free",
+              value = 1.0, freeParameter = TRUE,
               parameterType = "errorVariance"
             ),
             list(
               label = "load_1",
               from = "F1", to = "x1",
               numberOfArrows = 1,
-              value = 1.0, free = "fixed",
+              value = 1.0,
               parameterType = "loading"
             ),
             list(
               label = "load_2",
               from = "F1", to = "x2",
               numberOfArrows = 1,
-              value = 1.0, free = "free",
+              value = 1.0, freeParameter = TRUE,
               parameterType = "loading"
             ),
             list(
               label = "mean_x1",
               from = "1", to = "x1",
               numberOfArrows = 1,
-              value = 1.0, free = "free",
+              value = 1.0, freeParameter = TRUE,
               parameterType = "mean"
             ),
             list(
               label = "mean_x2",
               from = "1", to = "x2",
               numberOfArrows = 1,
-              value = 1.0, free = "free",
+              value = 1.0, freeParameter = TRUE,
               parameterType = "mean"
             ),
             list(
               label = "err_1",
               from = "e1", to = "x1",
               numberOfArrows = 1,
-              value = 1.0, free = "fixed",
+              value = 1.0,
               parameterType = "errorVariance"
             ),
             list(
               label = "err_2",
               from = "e2", to = "x2",
               numberOfArrows = 1,
-              value = 1.0, free = "fixed",
+              value = 1.0,
               parameterType = "errorVariance"
             )
           )
@@ -148,17 +148,17 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
                mappings = list(x1 = "x1", x2 = "x2"))
         ),
         paths = list(
-          list(from = "F1", to = "F1", numberOfArrows = 2, value = 1.0, free = "fixed"),
-          list(from = "e1", to = "e1", numberOfArrows = 2, value = 1.0, free = "free"),
-          list(from = "e2", to = "e2", numberOfArrows = 2, value = 1.0, free = "free"),
-          list(from = "F1", to = "x1", numberOfArrows = 1, value = 1.0, free = "fixed"),
-          list(from = "F1", to = "x2", numberOfArrows = 1, value = 1.0, free = "free"),
-          list(from = "1", to = "x1", numberOfArrows = 1, value = 1.0, free = "free"),
-          list(from = "1", to = "x2", numberOfArrows = 1, value = 1.0, free = "free"),
-          list(from = "e1", to = "x1", numberOfArrows = 1, value = 1.0, free = "fixed"),
-          list(from = "e2", to = "x2", numberOfArrows = 1, value = 1.0, free = "fixed"),
-          list(from = "sample", to = "x1", numberOfArrows = 1, free = "fixed", parameterType = "dataMapping"),
-          list(from = "sample", to = "x2", numberOfArrows = 1, free = "fixed", parameterType = "dataMapping")
+          list(from = "F1", to = "F1", numberOfArrows = 2, value = 1.0),
+          list(from = "e1", to = "e1", numberOfArrows = 2, value = 1.0, freeParameter = TRUE),
+          list(from = "e2", to = "e2", numberOfArrows = 2, value = 1.0, freeParameter = TRUE),
+          list(from = "F1", to = "x1", numberOfArrows = 1, value = 1.0),
+          list(from = "F1", to = "x2", numberOfArrows = 1, value = 1.0, freeParameter = TRUE),
+          list(from = "1", to = "x1", numberOfArrows = 1, value = 1.0, freeParameter = TRUE),
+          list(from = "1", to = "x2", numberOfArrows = 1, value = 1.0, freeParameter = TRUE),
+          list(from = "e1", to = "x1", numberOfArrows = 1, value = 1.0),
+          list(from = "e2", to = "x2", numberOfArrows = 1, value = 1.0),
+          list(from = "sample", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
+          list(from = "sample", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
         ),
         optimization = list(fitFunction = "ML")
       )
@@ -188,8 +188,8 @@ test_that("End-to-end: Manifest/latent variable inference works correctly", {
         ),
         paths = list(
           # Data paths for x1, x2 only
-          list(from = "sample", to = "x1", numberOfArrows = 1, free = "fixed", parameterType = "dataMapping"),
-          list(from = "sample", to = "x2", numberOfArrows = 1, free = "fixed", parameterType = "dataMapping")
+          list(from = "sample", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
+          list(from = "sample", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
         )
       )
     )
@@ -222,8 +222,8 @@ test_that("End-to-end: Constant node label conversion in mxPaths", {
           list(label = "1", type = "constant")
         ),
         paths = list(
-          list(from = "1", to = "x1", numberOfArrows = 1, free = "free"),
-          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0, free = "fixed")
+          list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE),
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0)
         )
       )
     )
@@ -251,9 +251,9 @@ test_that("End-to-end: Free parameter default values applied correctly", {
         ),
         paths = list(
           # Free path with NULL value should get 0.1 default
-          list(from = "F1", to = "x1", numberOfArrows = 1, value = NULL, free = "free"),
+          list(from = "F1", to = "x1", numberOfArrows = 1, value = NULL, freeParameter = TRUE),
           # Free path with explicit value should keep it
-          list(from = "x1", to = "x1", numberOfArrows = 2, value = 2.5, free = "free")
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 2.5, freeParameter = TRUE)
         )
       )
     )
@@ -279,8 +279,8 @@ test_that("End-to-end: Schema with unsupported features warns user", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          # 0-headed path (unsupported)
-          list(from = "x1", to = "x2", numberOfArrows = 0)
+          # 0-headed path (unsupported); value required since freeParameter absent = fixed
+          list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
         )
       )
     )

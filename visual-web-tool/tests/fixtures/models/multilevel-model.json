@@ -48,7 +48,7 @@
           "to": "Y_within",
           "numberOfArrows": 1,
           "value": 0.5,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression",
           "tags": ["within-level"]
         },
@@ -58,7 +58,7 @@
           "to": "Y_between",
           "numberOfArrows": 1,
           "value": 0.5,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression",
           "tags": ["between-level"]
         },
@@ -67,7 +67,7 @@
           "to": "X_within",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "tags": ["within-level"],
           "visual": { "loopSide": "left" }
@@ -77,7 +77,7 @@
           "to": "Y_within",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "tags": ["within-level"],
           "visual": { "loopSide": "top" }
@@ -87,7 +87,7 @@
           "to": "X_between",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "tags": ["between-level"],
           "visual": { "loopSide": "left" }
@@ -97,7 +97,7 @@
           "to": "Y_between",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "tags": ["between-level"],
           "visual": { "loopSide": "top" }

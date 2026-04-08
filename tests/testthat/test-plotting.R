@@ -35,8 +35,8 @@ load_fixture <- function(filename) {
               list(id = "Z", label = "Z", type = "variable", tags = list("manifest"))
             ),
             paths = list(
-              list(from = "X", to = "Y", numberOfArrows = 1, free = "free"),
-              list(from = "Y", to = "Z", numberOfArrows = 1, free = "free")
+              list(from = "X", to = "Y", numberOfArrows = 1, freeParameter = TRUE),
+              list(from = "Y", to = "Z", numberOfArrows = 1, freeParameter = TRUE)
             )
           )
         )
@@ -57,8 +57,8 @@ create_test_graphmodel <- function(nodes = NULL, paths = NULL) {
   
   if (is.null(paths)) {
     paths <- list(
-      list(from = "X", to = "Y", numberOfArrows = 1, free = "free", parameterType = "regression"),
-      list(from = "Y", to = "Z", numberOfArrows = 1, free = "free", parameterType = "regression")
+      list(from = "X", to = "Y", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression"),
+      list(from = "Y", to = "Z", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression")
     )
   }
   
@@ -239,9 +239,9 @@ describe("plotGraphModel()", {
         list(id = "Z", label = "Z", type = "variable", tags = list("manifest"))
       )
       paths <- list(
-        list(from = "1", to = "X", numberOfArrows = 1, free = "free", parameterType = "mean"),
-        list(from = "X", to = "Y", numberOfArrows = 1, free = "free", parameterType = "regression"),
-        list(from = "Y", to = "Z", numberOfArrows = 1, free = "free", parameterType = "regression")
+        list(from = "1", to = "X", numberOfArrows = 1, freeParameter = TRUE, parameterType = "mean"),
+        list(from = "X", to = "Y", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression"),
+        list(from = "Y", to = "Z", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression")
       )
       gm <- create_test_graphmodel(nodes = nodes, paths = paths)
       
@@ -261,9 +261,9 @@ describe("plotGraphModel()", {
         list(id = "Z", label = "Z", type = "variable", tags = list("manifest"))
       )
       paths <- list(
-        list(from = "1", to = "X", numberOfArrows = 1, free = "free", parameterType = "mean"),
-        list(from = "X", to = "Y", numberOfArrows = 1, free = "free", parameterType = "regression"),
-        list(from = "Y", to = "Z", numberOfArrows = 1, free = "free", parameterType = "regression")
+        list(from = "1", to = "X", numberOfArrows = 1, freeParameter = TRUE, parameterType = "mean"),
+        list(from = "X", to = "Y", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression"),
+        list(from = "Y", to = "Z", numberOfArrows = 1, freeParameter = TRUE, parameterType = "regression")
       )
       gm <- create_test_graphmodel(nodes = nodes, paths = paths)
       

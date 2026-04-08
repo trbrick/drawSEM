@@ -53,7 +53,7 @@ export interface Path {
   to: string                           // Target node label (must exist in nodes)
   numberOfArrows: 0 | 1 | 2
   value?: number | null                // Parameter value (null for dataset paths)
-  free?: 'free' | 'fixed'             // Whether parameter is estimated
+  freeParameter?: boolean | string    // true = free anonymous; non-empty string = free named; absent = fixed
   label?: string | null               // Optional path label/name
   description?: string
   parameterType?: string              // Reference to optimization.parameterTypes

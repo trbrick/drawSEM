@@ -66,8 +66,8 @@ type Path = {
   displayName?: string | null
   // numeric value for the path; defaults to 1.0 (null for dataset paths)
   value?: number | null
-  // whether the path parameter is free or fixed; defaults to 'free'
-  free?: 'free' | 'fixed'
+  // whether the path parameter is freely estimated; true = free anonymous, absent = fixed
+  freeParameter?: boolean | string
   // optional semantic category from optimization.parameterTypes
   parameterType?: string
   // when true and twoSided=false, the visual arrow direction is reversed (to→from instead of from→to)
@@ -986,7 +986,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function getPathDisplayText(path: Path): string | null {
     const value = path.value ?? 1.0
     const label = path.displayName || path.label
-    const isFree = (path.free ?? 'free') === 'free'
+    const isFree = path.freeParameter !== undefined ? !!path.freeParameter : true
 
     switch (pathLabelMode) {
       case 'labels':
@@ -1422,7 +1422,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       
       // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
       if (srcNode?.type === 'dataset') {
-        newPath.free = 'fixed'
+        // freeParameter absent = fixed; dataset paths are always fixed
         newPath.value = null as any // null value for data mapping
         newPath.parameterType = 'dataMapping'
         newPath.displayName = convertToUnicode(defaultLabel)
@@ -1631,7 +1631,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       
       // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
       if (srcNode?.type === 'dataset') {
-        p.free = 'fixed'
+        // freeParameter absent = fixed (dataset paths are always fixed)
         p.value = null as any // null value for data mapping
         p.parameterType = 'dataMapping'
         p.displayName = convertToUnicode(defaultLabel)
@@ -2636,12 +2636,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   <div>
                     <span className="font-medium">Free/Fixed:</span>
                     <select
-                      value={selectedPath.free ?? 'free'}
+                      value={selectedPath.freeParameter ? 'free' : 'fixed'}
                       onChange={(e) => {
                         setPaths((ps) =>
                           ps.map((p) =>
                             p.id === selectedPath.id
-                              ? { ...p, free: (e.target.value as 'free' | 'fixed') || 'free' }
+                              ? { ...p, freeParameter: e.target.value === 'free' ? true : undefined }
                               : p
                           )
                         )

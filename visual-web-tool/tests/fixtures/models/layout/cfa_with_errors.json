@@ -16,16 +16,16 @@
         { "label": "eps_x3", "type": "variable" }
       ],
       "paths": [
-        { "from": "F_1",    "to": "F_1",    "numberOfArrows": 2, "value": 1.0, "free": "fixed", "parameterType": "variance" },
-        { "from": "eps_x1", "to": "eps_x1", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
-        { "from": "eps_x3", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
-        { "from": "eps_x1", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
-        { "from": "x_2",    "to": "x_2",    "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "variance" },
-        { "from": "F_1",    "to": "x_1",    "numberOfArrows": 1, "value": 3.2, "free": "fixed", "parameterType": "loading" },
-        { "from": "F_1",    "to": "x_2",    "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
-        { "from": "F_1",    "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
-        { "from": "eps_x1", "to": "x_1",    "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
-        { "from": "eps_x3", "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" }
+        { "from": "F_1",    "to": "F_1",    "numberOfArrows": 2, "value": 1.0, "parameterType": "variance" },
+        { "from": "eps_x1", "to": "eps_x1", "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "errorVariance" },
+        { "from": "eps_x3", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "errorVariance" },
+        { "from": "eps_x1", "to": "eps_x3", "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "errorVariance" },
+        { "from": "x_2",    "to": "x_2",    "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "variance" },
+        { "from": "F_1",    "to": "x_1",    "numberOfArrows": 1, "value": 3.2, "parameterType": "loading" },
+        { "from": "F_1",    "to": "x_2",    "numberOfArrows": 1, "value": 1.0, "freeParameter": true,  "parameterType": "loading" },
+        { "from": "F_1",    "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "freeParameter": true,  "parameterType": "loading" },
+        { "from": "eps_x1", "to": "x_1",    "numberOfArrows": 1, "value": 1.0, "parameterType": "errorVariance" },
+        { "from": "eps_x3", "to": "x_3",    "numberOfArrows": 1, "value": 1.0, "parameterType": "errorVariance" }
       ]
     }
   }

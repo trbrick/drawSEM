@@ -3,7 +3,7 @@
  * Ensures visual consistency across all rendering contexts
  */
 
-import { Node } from '../core/types'
+import { Node, Path } from '../core/types'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from './constants'
 
 /**
@@ -30,18 +30,42 @@ export function escapeXml(text: string): string {
 }
 
 /**
- * Determine if a variable node should render as manifest or latent
+ * Determine if a variable node should render as manifest or latent.
+ *
+ * Rules (in priority order):
+ *   1. variableCharacteristics.manifestLatent is set → use it directly (explicit lock)
+ *   2. No lock AND node has at least one incoming one-headed path from a dataset node → manifest
+ *   3. Otherwise → latent
+ *
+ * @param node   The variable node to classify
+ * @param allNodes  All nodes in the model (needed to identify dataset sources)
+ * @param allPaths  All paths in the model (needed to find incoming data paths)
  */
-export function getVariableRenderType(node: Node): 'manifest' | 'latent' {
+export function getVariableRenderType(
+  node: Node,
+  allNodes?: Node[],
+  allPaths?: Path[]
+): 'manifest' | 'latent' {
   if (node.type !== 'variable') return 'manifest'
-  
-  // First priority: explicit variableCharacteristics.manifestLatent lock
-  // This is set by R code when creating GraphModel and takes precedence
-  if (node.variableCharacteristics?.manifestLatent) {
-    return node.variableCharacteristics.manifestLatent
+
+  // Priority 1: explicit lock via variableCharacteristics
+  // (present on runtime Node objects created by CanvasTool; cast via any for schema Nodes)
+  const vc = (node as any).variableCharacteristics
+  if (vc?.manifestLatent) {
+    return vc.manifestLatent
   }
 
-  // Default: latent (circle) unless explicitly marked as manifest or has visual dimensions
+  // Priority 2: infer from incoming data paths (schema-level detection)
+  if (allNodes && allPaths) {
+    const datasetLabels = new Set(
+      allNodes.filter((n) => n.type === 'dataset').map((n) => n.label)
+    )
+    const hasIncomingDataPath = allPaths.some(
+      (p) => p.to === node.label && p.numberOfArrows === 1 && datasetLabels.has(p.from)
+    )
+    if (hasIncomingDataPath) return 'manifest'
+  }
+
   return 'latent'
 }
 
@@ -109,9 +133,14 @@ export function renderConstantNodeSvg(pos: { x: number; y: number }): string {
 /**
  * Render any node as SVG based on its type
  */
-export function renderNodeSvg(node: Node, pos: { x: number; y: number }): string {
+export function renderNodeSvg(
+  node: Node,
+  pos: { x: number; y: number },
+  allNodes?: Node[],
+  allPaths?: Path[]
+): string {
   if (node.type === 'variable') {
-    const renderType = getVariableRenderType(node)
+    const renderType = getVariableRenderType(node, allNodes, allPaths)
     return renderType === 'latent' ? renderLatentNodeSvg(pos) : renderManifestNodeSvg(node, pos)
   }
 

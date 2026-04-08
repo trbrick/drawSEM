@@ -176,7 +176,7 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   for (path in one_paths) {
     expect_equal(path$numberOfArrows, 1)
     expect_equal(path$parameterType, "mean")
-    expect_equal(path$free, "free")
+    expect_true(isTRUE(path$freeParameter))
     expect_true(path$to %in% c('x', 'y'))
   }
   

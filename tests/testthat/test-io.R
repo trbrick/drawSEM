@@ -8,7 +8,7 @@ test_that("as.GraphModel creates GraphModel from list schema", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(from = "F1", to = "x1", numberOfArrows = 1, free = "free")
+          list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
         )
       )
     )
@@ -43,7 +43,7 @@ test_that("as.GraphModel detects unsupported features", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(from = "x1", to = "x2", numberOfArrows = 0)
+          list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
         )
       )
     )
@@ -65,7 +65,7 @@ test_that("as.GraphModel works with JSON string", {
           {"label": "x1", "type": "variable"}
         ],
         "paths": [
-          {"from": "F1", "to": "x1", "numberOfArrows": 1, "free": "free"}
+          {"from": "F1", "to": "x1", "numberOfArrows": 1, "freeParameter": true}
         ]
       }
     }
@@ -87,7 +87,7 @@ test_that("as.GraphModel works with file path", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(from = "F1", to = "x1", numberOfArrows = 1, free = "free")
+          list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
         )
       )
     )
@@ -224,10 +224,10 @@ test_that("as.MxModel converts GraphModel to MxModel", {
           list(label = "1", type = "constant")
         ),
         paths = list(
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0),
-          list(from = "x2", to = "x2", numberOfArrows = 2, free = "fixed", value = 1.0),
-          list(from = "1", to = "x1", numberOfArrows = 1, free = "free"),
-          list(from = "1", to = "x2", numberOfArrows = 1, free = "free")
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x2", to = "x2", numberOfArrows = 2, value = 1.0),
+          list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE),
+          list(from = "1", to = "x2", numberOfArrows = 1, freeParameter = TRUE)
         ),
         optimization = list(fitFunction = "ML")
       )
@@ -251,8 +251,8 @@ test_that("as.MxModel caches built model in GraphModel", {
           list(label = "1", type = "constant")
         ),
         paths = list(
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0),
-          list(from = "1", to = "x1", numberOfArrows = 1, free = "free")
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
         ),
         optimization = list(fitFunction = "ML")
       )

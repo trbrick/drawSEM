@@ -14,6 +14,12 @@ import {
 } from './constants'
 import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
 
+/** Context carried through all geometry helpers so manifest/latent detection has model scope */
+interface ModelContext {
+  allNodes: Node[]
+  allPaths: Path[]
+}
+
 /**
  * SVG export options
  */
@@ -63,9 +69,9 @@ function normalizeOptions(options?: SvgExportOptions): Required<SvgExportOptions
 /**
  * Get bounding box of a node based on its type and position
  */
-function getNodeBounds(node: Node, pos: { x: number; y: number }): BoundingBox {
+function getNodeBounds(node: Node, pos: { x: number; y: number }, ctx: ModelContext): BoundingBox {
   if (node.type === 'variable') {
-    const renderType = getVariableRenderType(node)
+    const renderType = getVariableRenderType(node, ctx.allNodes, ctx.allPaths)
     if (renderType === 'latent') {
       return {
         x: pos.x - LATENT_RADIUS,
@@ -119,7 +125,8 @@ function centerOf(pos: { x: number; y: number }): { x: number; y: number } {
 function getBoundaryPoint(
   node: Node,
   nodePos: { x: number; y: number },
-  towards: { x: number; y: number }
+  towards: { x: number; y: number },
+  ctx: ModelContext
 ): { x: number; y: number } {
   const cx = nodePos.x
   const cy = nodePos.y
@@ -128,7 +135,7 @@ function getBoundaryPoint(
   const dist = Math.hypot(dx, dy) || 1
 
   if (node.type === 'variable') {
-    const renderType = getVariableRenderType(node)
+    const renderType = getVariableRenderType(node, ctx.allNodes, ctx.allPaths)
     if (renderType === 'latent') {
       const r = LATENT_RADIUS
       return { x: cx + (dx * (r / dist)), y: cy + (dy * (r / dist)) }
@@ -198,7 +205,8 @@ function getBoundaryPoint(
 function buildSelfLoopPoints(
   node: Node,
   nodePos: { x: number; y: number },
-  side: 'top' | 'right' | 'bottom' | 'left' = 'bottom'
+  side: 'top' | 'right' | 'bottom' | 'left' = 'bottom',
+  ctx: ModelContext
 ): Array<{ x: number; y: number }> {
   const a = centerOf(nodePos)
   const loopRadius = 20
@@ -224,7 +232,7 @@ function buildSelfLoopPoints(
 
   let nodeRadAlongSide = LATENT_RADIUS
   if (node.type === 'variable') {
-    const renderType = getVariableRenderType(node)
+    const renderType = getVariableRenderType(node, ctx.allNodes, ctx.allPaths)
     if (renderType === 'manifest') {
       const w = node.visual?.width ?? MANIFEST_DEFAULT_W
       const h = node.visual?.height ?? MANIFEST_DEFAULT_H
@@ -284,8 +292,8 @@ function buildSelfLoopPoints(
 
   const ep1 = globalPts[0]
   const ep2 = globalPts[3]
-  const b1 = getBoundaryPoint(node, nodePos, ep1)
-  const b2 = getBoundaryPoint(node, nodePos, ep2)
+  const b1 = getBoundaryPoint(node, nodePos, ep1, ctx)
+  const b2 = getBoundaryPoint(node, nodePos, ep2, ctx)
 
   const d1 = { x: b1.x - ep1.x, y: b1.y - ep1.y }
   const d2 = { x: b2.x - ep2.x, y: b2.y - ep2.y }
@@ -304,19 +312,20 @@ function pathD(
   fromPos: { x: number; y: number },
   toPos: { x: number; y: number },
   fromNode: Node,
-  toNode: Node
+  toNode: Node,
+  ctx: ModelContext
 ): string {
   if (path.from === path.to) {
     // self-loop
     const side = (path.visual?.loopSide as any) || 'bottom'
-    const finalPts = buildSelfLoopPoints(fromNode, fromPos, side)
+    const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     return `M ${P0.x} ${P0.y} C ${P1.x} ${P1.y}, ${P2.x} ${P2.y}, ${P3.x} ${P3.y}`
   }
 
   // different nodes: straight for one-headed, curve for two-headed
-  const start = getBoundaryPoint(fromNode, fromPos, toPos)
-  const end = getBoundaryPoint(toNode, toPos, fromPos)
+  const start = getBoundaryPoint(fromNode, fromPos, toPos, ctx)
+  const end = getBoundaryPoint(toNode, toPos, fromPos, ctx)
 
   const dx = end.x - start.x
   const dy = end.y - start.y
@@ -370,12 +379,13 @@ function getPathLabelPos(
   fromPos: { x: number; y: number },
   toPos: { x: number; y: number },
   fromNode: Node,
-  toNode: Node
+  toNode: Node,
+  ctx: ModelContext
 ): { x: number; y: number } | null {
   if (path.from === path.to) {
     // self-loop: use cubic bezier midpoint
     const side = (path.visual?.loopSide as any) || 'bottom'
-    const finalPts = buildSelfLoopPoints(fromNode, fromPos, side)
+    const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     const t = 0.5
     const mt = 1 - t
@@ -392,8 +402,8 @@ function getPathLabelPos(
     return { x, y }
   }
 
-  const start = getBoundaryPoint(fromNode, fromPos, toPos)
-  const end = getBoundaryPoint(toNode, toPos, fromPos)
+  const start = getBoundaryPoint(fromNode, fromPos, toPos, ctx)
+  const end = getBoundaryPoint(toNode, toPos, fromPos, ctx)
 
   const dx = end.x - start.x
   const dy = end.y - start.y
@@ -432,8 +442,8 @@ function getPathLabelPos(
  * Render a single node as SVG
  * Uses shared node rendering logic from nodeRender.ts for consistency with CanvasTool
  */
-function renderNode(node: Node, pos: { x: number; y: number }): string {
-  return renderNodeSvg(node, pos)
+function renderNode(node: Node, pos: { x: number; y: number }, ctx: ModelContext): string {
+  return renderNodeSvg(node, pos, ctx.allNodes, ctx.allPaths)
 }
 
 /**
@@ -453,9 +463,10 @@ function renderPath(
   fromPos: { x: number; y: number },
   toPos: { x: number; y: number },
   fromNode: Node,
-  toNode: Node
+  toNode: Node,
+  ctx: ModelContext
 ): string {
-  const d = pathD(path, fromPos, toPos, fromNode, toNode)
+  const d = pathD(path, fromPos, toPos, fromNode, toNode, ctx)
   if (!d) return ''
 
   const markerEnd = 'url(#arrow-end)'
@@ -473,7 +484,8 @@ function renderPathLabel(
   toPos: { x: number; y: number },
   fromNode: Node,
   toNode: Node,
-  format: SvgExportOptions['pathLabelFormat']
+  format: SvgExportOptions['pathLabelFormat'],
+  ctx: ModelContext
 ): string | null {
   if (!format || format === 'neither' || format === null) return null
 
@@ -499,7 +511,7 @@ function renderPathLabel(
 
   if (!labelText) return null
 
-  const labelPos = getPathLabelPos(path, fromPos, toPos, fromNode, toNode)
+  const labelPos = getPathLabelPos(path, fromPos, toPos, fromNode, toNode, ctx)
   if (!labelPos) return null
 
   const yOffset = 5
@@ -536,6 +548,9 @@ export function modelToSVG(
   const model = getModel(schema, modelId)
   const nodesByLabel = getNodesByLabel(model)
 
+  // Model context for manifest/latent detection throughout all geometry helpers
+  const ctx: ModelContext = { allNodes: model.nodes, allPaths: model.paths }
+
   // Extract positions from schema.nodes[].visual (canonical/RAMPath space)
   const positions: Record<string, { x: number; y: number }> = {}
   model.nodes.forEach((n) => {
@@ -566,7 +581,7 @@ export function modelToSVG(
   visibleNodes.forEach((n) => {
     const pos = positions[n.label]
     if (!pos) return
-    const bounds = getNodeBounds(n, pos)
+    const bounds = getNodeBounds(n, pos, ctx)
     minX = Math.min(minX, bounds.x)
     minY = Math.min(minY, bounds.y)
     maxX = Math.max(maxX, bounds.x + bounds.width)
@@ -602,7 +617,7 @@ export function modelToSVG(
       const fromPos = positions[p.from]
       const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
-      return renderPath(p, fromPos, toPos, fromNode, toNode)
+      return renderPath(p, fromPos, toPos, fromNode, toNode, ctx)
     })
     .filter((s) => s)
     .join('\n')
@@ -615,7 +630,7 @@ export function modelToSVG(
       const fromPos = positions[p.from]
       const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
-      return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat)
+      return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat, ctx)
     })
     .filter((s) => s && s.length > 0)
     .join('\n')
@@ -625,7 +640,7 @@ export function modelToSVG(
     .map((n) => {
       const pos = positions[n.label]
       if (!pos) return ''
-      return renderNode(n, pos)
+      return renderNode(n, pos, ctx)
     })
     .filter((s) => s)
     .join('\n')

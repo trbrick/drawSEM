@@ -226,7 +226,7 @@ function detectErrorNodes(
   ;(model.paths ?? []).forEach((path: any) => {
     if (path.from === path.to && path.numberOfArrows === 2) {
       hasAnyOwnLoop.add(path.from)
-      if (path.free === 'free') hasFreeOwnLoop.add(path.from)
+      if (path.freeParameter) hasFreeOwnLoop.add(path.from)
     }
   })
 
@@ -240,7 +240,7 @@ function detectErrorNodes(
 
   // Index one-headed path properties by "from→to" key for O(1) lookup
   // (free/value are not stored in ArrowIndex, only topology is)
-  const oneHeadedProps = new Map<string, { free: string; value: number | null }>()
+  const oneHeadedProps = new Map<string, { freeParameter: boolean | string | undefined; value: number | null }>()
   ;(model.paths ?? []).forEach((path: any) => {
     if (
       path.numberOfArrows === 1 &&
@@ -248,7 +248,7 @@ function detectErrorNodes(
       variableNodes.has(path.to)
     ) {
       oneHeadedProps.set(`${path.from}\u2192${path.to}`, {
-        free: path.free,
+        freeParameter: path.freeParameter,
         value: path.value ?? null,
       })
     }
@@ -271,7 +271,7 @@ function detectErrorNodes(
     const props = oneHeadedProps.get(`${nodeId}\u2192${targetLabel}`)
 
     // 4a: path must be fixed at value 1.0
-    if (!props || props.free !== 'fixed' || props.value !== 1.0) return
+    if (!props || props.freeParameter || props.value !== 1.0) return
 
     // 4b: target must have no two-headed self-loop
     if (hasAnyOwnLoop.has(targetLabel)) return

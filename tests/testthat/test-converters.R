@@ -1,7 +1,7 @@
 test_that("buildPathList constructs correct mxPath specifications", {
   paths <- list(
-    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = 1.0),
-    list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = 1.0),
+    list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -20,7 +20,7 @@ test_that("buildPathList constructs correct mxPath specifications", {
 
 test_that("buildPathList converts constant node label to 'one'", {
   paths <- list(
-    list(from = "1", to = "x1", numberOfArrows = 1, free = "free")
+    list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
   )
 
   result <- buildPathList(paths, constantNodeLabel = "1")
@@ -30,7 +30,7 @@ test_that("buildPathList converts constant node label to 'one'", {
 
 test_that("buildPathList applies 0.1 default for free null parameters", {
   paths <- list(
-    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = NULL)
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = NULL)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -40,7 +40,7 @@ test_that("buildPathList applies 0.1 default for free null parameters", {
 
 test_that("buildPathList preserves non-null values for free parameters", {
   paths <- list(
-    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", value = 2.5)
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = 2.5)
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)
@@ -50,7 +50,7 @@ test_that("buildPathList preserves non-null values for free parameters", {
 
 test_that("buildPathList preserves labels when present", {
   paths <- list(
-    list(from = "F1", to = "x1", numberOfArrows = 1, free = "free", label = "loading_1")
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, label = "loading_1")
   )
 
   result <- buildPathList(paths, constantNodeLabel = NULL)

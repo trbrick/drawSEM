@@ -65,7 +65,6 @@
           "to": "X1",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "loading"
         },
         {
@@ -74,7 +73,7 @@
           "to": "X2",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "loading"
         },
         {
@@ -83,7 +82,7 @@
           "to": "X3",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "loading"
         },
         {
@@ -92,7 +91,6 @@
           "to": "X1",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "errorVariance"
         },
         {
@@ -101,7 +99,6 @@
           "to": "X2",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "errorVariance"
         },
         {
@@ -110,7 +107,6 @@
           "to": "X3",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "errorVariance"
         },
         {
@@ -119,7 +115,7 @@
           "to": "ε₁",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "errorVariance",
           "visual": { "loopSide": "left" }
         },
@@ -129,7 +125,7 @@
           "to": "ε₂",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "errorVariance",
           "visual": { "loopSide": "top" }
         },
@@ -139,7 +135,7 @@
           "to": "ε₃",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "errorVariance",
           "visual": { "loopSide": "right" }
         },
@@ -149,7 +145,7 @@
           "to": "F",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "visual": { "loopSide": "top" }
         }

@@ -35,7 +35,7 @@
           "to": "M",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression"
         },
         {
@@ -44,7 +44,7 @@
           "to": "Y",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression"
         },
         {
@@ -53,7 +53,7 @@
           "to": "Y",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "regression"
         },
         {
@@ -61,7 +61,6 @@
           "to": "X",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "variance",
           "visual": { "loopSide": "top" }
         },
@@ -70,7 +69,7 @@
           "to": "M",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "visual": { "loopSide": "top" }
         },
@@ -79,7 +78,7 @@
           "to": "Y",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance",
           "visual": { "loopSide": "top" }
         }

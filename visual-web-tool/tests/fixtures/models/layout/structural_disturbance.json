@@ -16,13 +16,13 @@
         { "label": "D_F2", "type": "variable" }
       ],
       "paths": [
-        { "from": "F1",   "to": "F1",   "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "variance" },
-        { "from": "D_F2", "to": "D_F2", "numberOfArrows": 2, "value": 1.0, "free": "free",  "parameterType": "errorVariance" },
-        { "from": "F1",   "to": "F2",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
-        { "from": "D_F2", "to": "F2",   "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "errorVariance" },
-        { "from": "F2",   "to": "X1",   "numberOfArrows": 1, "value": 1.0, "free": "fixed", "parameterType": "loading" },
-        { "from": "F2",   "to": "X2",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" },
-        { "from": "F2",   "to": "X3",   "numberOfArrows": 1, "value": 1.0, "free": "free",  "parameterType": "loading" }
+        { "from": "F1",   "to": "F1",   "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "variance" },
+        { "from": "D_F2", "to": "D_F2", "numberOfArrows": 2, "value": 1.0, "freeParameter": true,  "parameterType": "errorVariance" },
+        { "from": "F1",   "to": "F2",   "numberOfArrows": 1, "value": 1.0, "freeParameter": true,  "parameterType": "loading" },
+        { "from": "D_F2", "to": "F2",   "numberOfArrows": 1, "value": 1.0, "parameterType": "errorVariance" },
+        { "from": "F2",   "to": "X1",   "numberOfArrows": 1, "value": 1.0, "parameterType": "loading" },
+        { "from": "F2",   "to": "X2",   "numberOfArrows": 1, "value": 1.0, "freeParameter": true,  "parameterType": "loading" },
+        { "from": "F2",   "to": "X3",   "numberOfArrows": 1, "value": 1.0, "freeParameter": true,  "parameterType": "loading" }
       ]
     }
   }

@@ -189,7 +189,7 @@ test_that("validateOptimizationParams detects fixed without value", {
           list(label = "x1", type = "variable")
         ),
         paths = list(
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = NULL)
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = NULL)
         )
       )
     )
@@ -201,25 +201,28 @@ test_that("validateOptimizationParams detects fixed without value", {
   )
 })
 
-test_that("validateOptimizationParams detects invalid free value", {
-  schema <- list(
+test_that("validateOptimizationParams rejects invalid freeParameter values", {
+  schema_false <- list(
     schemaVersion = 1,
     models = list(
       model1 = list(
-        nodes = list(
-          list(label = "x1", type = "variable")
-        ),
-        paths = list(
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "maybe")
-        )
+        nodes = list(list(label = "x1", type = "variable")),
+        paths = list(list(from = "x1", to = "x1", numberOfArrows = 2, freeParameter = FALSE))
       )
     )
   )
+  expect_error(validateOptimizationParams(schema_false), "freeParameter: false is not valid")
 
-  expect_error(
-    validateOptimizationParams(schema),
-    "free must be 'free' or 'fixed'"
+  schema_bad <- list(
+    schemaVersion = 1,
+    models = list(
+      model1 = list(
+        nodes = list(list(label = "x1", type = "variable")),
+        paths = list(list(from = "x1", to = "x1", numberOfArrows = 2, freeParameter = 42L))
+      )
+    )
   )
+  expect_error(validateOptimizationParams(schema_bad), "freeParameter must be TRUE or a non-empty string")
 })
 
 test_that("validateOptimizationParams passes with valid params", {
@@ -232,8 +235,8 @@ test_that("validateOptimizationParams passes with valid params", {
           list(label = "x2", type = "variable")
         ),
         paths = list(
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0),
-          list(from = "x1", to = "x2", numberOfArrows = 1, free = "free")
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x1", to = "x2", numberOfArrows = 1, freeParameter = TRUE)
         )
       )
     )
@@ -256,9 +259,9 @@ test_that("validateSchema orchestrates all validators", {
           list(label = "1", type = "constant")
         ),
         paths = list(
-          list(from = "F1", to = "x1", numberOfArrows = 1, free = "free"),
-          list(from = "1", to = "x1", numberOfArrows = 1, free = "free", value = 0),
-          list(from = "x1", to = "x1", numberOfArrows = 2, free = "fixed", value = 1.0)
+          list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE),
+          list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = 0),
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0)
         )
       )
     )

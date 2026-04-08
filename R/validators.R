@@ -214,7 +214,7 @@ validatePathReferences <- function(schema) {
 #' Checks that:
 #' - Fixed parameters have values (not null)
 #' - Free parameters have valid values or are null (will default to 0.1)
-#' - Free is "free" or "fixed"
+#' - freeParameter is TRUE, a non-empty string, or absent (absent means fixed; FALSE is rejected)
 #'
 #' @param schema A validated schema list
 #'
@@ -233,19 +233,31 @@ validateOptimizationParams <- function(schema) {
         next
       }
       
-      # Check free/fixed
-      if (!is.null(path$free) && !(path$free %in% c("free", "fixed"))) {
-        stop(
-          sprintf(
-            "Model '%s': path %d: 'free' must be 'free' or 'fixed' (got '%s')",
-            model_id, i, path$free
-          ),
-          call. = FALSE
-        )
+      # Check freeParameter
+      if (!is.null(path$freeParameter)) {
+        if (isFALSE(path$freeParameter)) {
+          stop(
+            sprintf(
+              "Model '%s': path %d: freeParameter: false is not valid; omit freeParameter to indicate a fixed parameter",
+              model_id, i
+            ),
+            call. = FALSE
+          )
+        }
+        if (!isTRUE(path$freeParameter) && !(is.character(path$freeParameter) && nzchar(path$freeParameter))) {
+          stop(
+            sprintf(
+              "Model '%s': path %d: freeParameter must be TRUE or a non-empty string (got '%s')",
+              model_id, i, path$freeParameter
+            ),
+            call. = FALSE
+          )
+        }
       }
       
       # Fixed parameters must have values
-      if (!is.null(path$free) && path$free == "fixed" && is.null(path$value)) {
+      is_path_fixed <- is.null(path$freeParameter) || isFALSE(path$freeParameter)
+      if (is_path_fixed && is.null(path$value)) {
         stop(
           sprintf(
             "Model '%s': path %d: fixed parameters must have a value (got NULL)",

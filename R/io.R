@@ -873,7 +873,7 @@ setMethod(
     to = to_label,
     numberOfArrows = num_arrows,
               value = val,
-              free = if (free) "free" else "fixed",
+              freeParameter = if (free) TRUE else NULL,
               label = label,
               parameterType = param_type
             )
@@ -912,7 +912,6 @@ setMethod(
             to = var,
             numberOfArrows = 1,
             value = NA_real_,
-            free = "fixed",
             label = NA,
             parameterType = "dataMapping"
             # Note: no optimization field for data mapping paths
@@ -952,7 +951,7 @@ setMethod(
                 to = var_name,
                 numberOfArrows = 1,
                 value = val,
-                free = if (free) "free" else "fixed",
+                freeParameter = if (free) TRUE else NULL,
                 label = label,
                 parameterType = "mean"
               )

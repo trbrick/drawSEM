@@ -21,7 +21,6 @@
           "to": "X1",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "loading"
         },
         {
@@ -29,7 +28,7 @@
           "to": "X2",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "loading"
         },
         {
@@ -37,7 +36,7 @@
           "to": "X3",
           "numberOfArrows": 1,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "loading"
         },
         {
@@ -45,7 +44,7 @@
           "to": "X1",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -53,7 +52,7 @@
           "to": "X2",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -61,7 +60,7 @@
           "to": "X3",
           "numberOfArrows": 1,
           "value": 0.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "mean"
         },
         {
@@ -69,7 +68,6 @@
           "to": "F",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "fixed",
           "parameterType": "variance"
         },
         {
@@ -77,7 +75,7 @@
           "to": "X1",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance"
         },
         {
@@ -85,7 +83,7 @@
           "to": "X2",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance"
         },
         {
@@ -93,7 +91,7 @@
           "to": "X3",
           "numberOfArrows": 2,
           "value": 1.0,
-          "free": "free",
+          "freeParameter": true,
           "parameterType": "variance"
         },
         {
@@ -101,7 +99,6 @@
           "to": "X1",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
@@ -109,7 +106,6 @@
           "to": "X2",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         },
         {
@@ -117,7 +113,6 @@
           "to": "X3",
           "numberOfArrows": 1,
           "value": null,
-          "free": "fixed",
           "parameterType": "dataMapping"
         }
       ]
