@@ -13,8 +13,8 @@ NULL
 #'
 #' @details
 #' Includes in hash:
-#' - Node structure (id, label, type, variableCharacteristics)
-#' - Path structure (from, to, numberOfArrows, free, parameterType)
+#' - Node structure (label, type, variableCharacteristics)
+#' - Path structure (from, to, numberOfArrows, freeParameter, parameterType)
 #' - Optimization parameters (fitFunction, missingness, parameterTypes)
 #'
 #' Excludes:
@@ -43,7 +43,6 @@ hashStructure <- function(graphModel, model_id = NULL) {
   relevant_parts <- list(
     nodes = lapply(model$nodes %||% list(), function(n) {
       list(
-        id = n$id,
         label = n$label,
         type = n$type,
         variableCharacteristics = n$variableCharacteristics
@@ -54,7 +53,7 @@ hashStructure <- function(graphModel, model_id = NULL) {
         from = p$from,
         to = p$to,
         numberOfArrows = p$numberOfArrows,
-        free = p$free,
+        freeParameter = p$freeParameter,
         parameterType = p$parameterType
       )
     }),
@@ -85,17 +84,17 @@ hashStructure <- function(graphModel, model_id = NULL) {
 #' @param index Integer; if specified, gets the fit at this position (overrides `which`)
 #'
 #' @return
-#' For `which = "latest"`: A list with fit data (fitValue, parameters, SE, etc),
+#' For `which = "latest"`: A list with fit data (fitValue, parameterEstimates, SE, etc),
 #' or NULL if no fit available, or NA if fit is stale (unless includeStale = TRUE).
 #'
-#' For `which = "all"`: A list of all fit results, each with isDirty flag.
+#' For `which = "all"`: A list of all fit results, each with transient `isStale` flag.
 #'
 #' For `index`: The fit at that position.
 #'
 #' @details
 #' Staleness detection:
 #' - Compares structureHash in fit result vs. current model structure
-#' - If different, marks isDirty = TRUE
+#' - If different, marks transient `isStale = TRUE`
 #' - By default, NA is returned to prevent use of stale data
 #' - Use includeStale = TRUE to override (with warning)
 #'
@@ -134,10 +133,10 @@ getFitResults <- function(
     }
     fit <- fit_results[[index]]
   } else if (which == "all") {
-    # Return all with updated isDirty flags
+    # Return all with transient isStale flags
     current_hash <- hashStructure(graphModel, model_id)
     fit_results <- lapply(fit_results, function(fit) {
-      fit$isDirty <- !identical(fit$structureHash, current_hash)
+      fit$isStale <- !identical(fit$structureHash, current_hash)
       fit
     })
     return(fit_results)
@@ -150,7 +149,7 @@ getFitResults <- function(
   if (!is.null(fit)) {
     current_hash <- hashStructure(graphModel, model_id)
     is_stale <- !identical(fit$structureHash, current_hash)
-    fit$isDirty <- is_stale
+    fit$isStale <- is_stale
     
     if (is_stale && !includeStale) {
       warning(
@@ -362,13 +361,12 @@ runOpenMx <- function(
     timestamp = format(Sys.time(), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     backend = "OpenMx",
     converged = converged,
-    isDirty = FALSE,
     structureHash = current_hash,
     statusRemarks = status_remarks,
     fitValue = fit_value,
     degreesOfFreedom = degrees_of_freedom,
     sampleSize = sample_size,
-    parameters = as.list(estimates),
+    parameterEstimates = as.list(estimates),
     standardErrors = as.list(standard_errors)
   )
   

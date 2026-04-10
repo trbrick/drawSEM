@@ -202,10 +202,6 @@
                       "type": "boolean",
                       "description": "Whether the optimizer converged"
                     },
-                    "isDirty": {
-                      "type": "boolean",
-                      "description": "Whether this fit is stale (model structure has changed since fit was run)"
-                    },
                     "structureHash": {
                       "type": "string",
                       "description": "Hash of model structure at time of fitting. Compare to provenance.structureHash to detect staleness."
@@ -226,14 +222,14 @@
                       "type": "integer",
                       "description": "Number of observations used in fitting"
                     },
-                    "parameters": {
+                    "parameterEstimates": {
                       "type": "object",
-                      "description": "Fitted parameter values, indexed by path ID",
+                      "description": "Fitted parameter values, indexed by free parameter name",
                       "additionalProperties": { "type": "number" }
                     },
                     "standardErrors": {
                       "type": "object",
-                      "description": "Standard errors for fitted parameters, indexed by path ID",
+                      "description": "Standard errors for fitted parameters, indexed by free parameter name",
                       "additionalProperties": { "type": "number" }
                     }
                   },

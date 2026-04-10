@@ -116,13 +116,12 @@ test_that("getFitResults() returns NA with warning when fit is stale", {
               timestamp = "2025-02-11T10:00:00Z",
               backend = "OpenMx",
               converged = TRUE,
-              isDirty = FALSE,
               structureHash = "old_different_hash",  # Doesn't match current structure
               statusRemarks = "Converged",
               fitValue = 100.5,
               degreesOfFreedom = 50,
               sampleSize = 500,
-              parameters = list(p1 = 0.5),
+              parameterEstimates = list(p1 = 0.5),
               standardErrors = list(p1 = 0.05)
             )
           )
@@ -156,11 +155,10 @@ test_that("getFitResults() works with includeStale = TRUE", {
               timestamp = "2025-02-11T10:00:00Z",
               backend = "OpenMx",
               converged = TRUE,
-              isDirty = FALSE,
               structureHash = "old_different_hash",  # Intentionally different
               statusRemarks = "Converged",
               fitValue = 100.5,
-              parameters = list(p1 = 0.5),
+              parameterEstimates = list(p1 = 0.5),
               standardErrors = list(p1 = 0.05)
             )
           )
@@ -177,7 +175,7 @@ test_that("getFitResults() works with includeStale = TRUE", {
     "stale"
   )
   expect_equal(result$fitValue, 100.5)
-  expect_true(result$isDirty)  # Should be marked dirty now
+  expect_true(result$isStale)  # Should be marked stale now
 })
 
 test_that("getFitResults(which = 'all') returns all fits", {
@@ -201,8 +199,8 @@ test_that("getFitResults(which = 'all') returns all fits", {
   schema$models$model1$provenance <- list(
     structureHash = actual_hash,
     fitResults = list(
-      list(timestamp = "2025-02-11T10:00:00Z", backend = "OpenMx", converged = TRUE, structureHash = actual_hash, fitValue = 100.5, parameters = list(), standardErrors = list()),
-      list(timestamp = "2025-02-11T11:00:00Z", backend = "OpenMx", converged = TRUE, structureHash = actual_hash, fitValue = 99.5, parameters = list(), standardErrors = list())
+      list(timestamp = "2025-02-11T10:00:00Z", backend = "OpenMx", converged = TRUE, structureHash = actual_hash, fitValue = 100.5, parameterEstimates = list(), standardErrors = list()),
+      list(timestamp = "2025-02-11T11:00:00Z", backend = "OpenMx", converged = TRUE, structureHash = actual_hash, fitValue = 99.5, parameterEstimates = list(), standardErrors = list())
     )
   )
   
@@ -285,7 +283,7 @@ test_that("coef() returns parameters from fit", {
         converged = TRUE,
         structureHash = actual_hash,
         fitValue = 100,
-        parameters = list(p1 = 0.5, p2 = 0.7),
+        parameterEstimates = list(p1 = 0.5, p2 = 0.7),
         standardErrors = list(p1 = 0.05, p2 = 0.07)
       )
     )
@@ -324,7 +322,7 @@ test_that("confint() returns confidence interval data frame", {
         converged = TRUE,
         structureHash = actual_hash,
         fitValue = 100,
-        parameters = list(p1 = 0.5),
+        parameterEstimates = list(p1 = 0.5),
         standardErrors = list(p1 = 0.05)
       )
     )

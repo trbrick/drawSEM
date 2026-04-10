@@ -233,7 +233,7 @@ setMethod("coef", "GraphModel", function(object, ...) {
   }
   
   # Convert to numeric vector
-  params <- fit_info$parameters %||% list()
+  params <- fit_info$parameterEstimates %||% list()
   unlist(params)
 })
 
@@ -335,7 +335,7 @@ setMethod("confint", "GraphModel", function(object, level = 0.95, ...) {
   }
   
   # Extract parameters and SEs
-  params <- unlist(fit_info$parameters %||% list())
+  params <- unlist(fit_info$parameterEstimates %||% list())
   se_vals <- unlist(fit_info$standardErrors %||% list())
   
   if (length(params) != length(se_vals)) {
@@ -368,9 +368,9 @@ setMethod("confint", "GraphModel", function(object, level = 0.95, ...) {
 #' Invisibly returns a list with summary information:
 #' - converged: logical
 #' - fitValue: numeric
-#' - parameters: named numeric vector
+#' - parameterEstimates: named numeric vector
 #' - standardErrors: named numeric vector
-#' - isDirty: logical (fit is stale)
+#' - isStale: logical (fit is stale)
 #'
 #' @details
 #' Prints:
@@ -400,8 +400,8 @@ setMethod("summary", "GraphModel", function(object, ...) {
     return(invisible(list(
       converged = NA,
       fitValue = NA,
-      parameters = NA,
-      isDirty = NA
+      parameterEstimates = NA,
+      isStale = NA
     )))
   }
   
@@ -425,8 +425,8 @@ setMethod("summary", "GraphModel", function(object, ...) {
   }
   
   # Staleness warning
-  is_dirty <- latest_fit$isDirty %||% FALSE
-  if (is_dirty) {
+  is_stale <- latest_fit$isStale %||% FALSE
+  if (is_stale) {
     cat("\n⚠️  WARNING: Fit results are STALE\n")
     cat("   (Model has been modified since fitting.)\n")
     cat("   Re-run with: runOpenMx(model)\n\n")
@@ -449,7 +449,7 @@ setMethod("summary", "GraphModel", function(object, ...) {
   cat("\n")
   
   # Parameter estimates table
-  params <- unlist(latest_fit$parameters %||% list())
+  params <- unlist(latest_fit$parameterEstimates %||% list())
   se_vals <- unlist(latest_fit$standardErrors %||% list())
   
   if (length(params) > 0) {
@@ -466,8 +466,8 @@ setMethod("summary", "GraphModel", function(object, ...) {
   invisible(list(
     converged = converged,
     fitValue = latest_fit$fitValue,
-    parameters = params,
+    parameterEstimates = params,
     standardErrors = se_vals,
-    isDirty = is_dirty
+    isStale = is_stale
   ))
 })
