@@ -17,7 +17,7 @@ Checks that:
 \itemize{
 \item Fixed parameters have values (not null)
 \item Free parameters have valid values or are null (will default to 0.1)
-\item Free is "free" or "fixed"
+\item freeParameter is TRUE, a non-empty string, or absent (absent means fixed; FALSE is rejected)
 }
 }
 \keyword{internal}

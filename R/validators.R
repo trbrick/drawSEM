@@ -116,7 +116,9 @@ validateNodeIntegrity <- function(schema) {
 #' Checks that:
 #' - All paths reference existing nodes (by label)
 #' - from and to are non-empty strings
-#' - numberOfArrows is valid (0, 1, or 2)
+#' - `type = "data"` paths omit `numberOfArrows`
+#' - Non-data paths use `numberOfArrows` 0, 1, or 2 (with 0 retained only for
+#'   OpenMx compatibility and flagged unsupported later)
 #'
 #' @param schema A validated schema list
 #'

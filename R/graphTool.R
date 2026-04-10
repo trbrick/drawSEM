@@ -26,7 +26,7 @@
 #' \dontrun{
 #' # In a Shiny app:
 #' library(shiny)
-#' library(visualWebTool)
+#' library(OpenMxWebUI)
 #'
 #' ui <- fluidPage(
 #'   titlePanel("Model Editor"),

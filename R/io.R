@@ -619,7 +619,7 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
 #' @param manifest_vars Character vector of manifest variable labels
 #' @param latent_vars Character vector of latent variable labels
 #'
-#' @return Character; parameter type ("loading", "regression", "covariance", "variance", "mean", "dataMapping")
+#' @return Character; parameter type ("loading", "regression", "covariance", "variance", "mean", or fallback "parameter")
 #'
 
 

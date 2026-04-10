@@ -24,7 +24,7 @@ inferParameterTypeFromStructure(
 \item{latent_vars}{Character vector of latent variable labels}
 }
 \value{
-Character; parameter type ("loading", "regression", "covariance", "variance", "mean", "dataMapping")
+Character; parameter type ("loading", "regression", "covariance", "variance", "mean", or fallback "parameter")
 }
 \description{
 Determine semantic parameter type based on path endpoints and node types.

@@ -106,8 +106,9 @@ Key mistakes to avoid:
 - **`from = "one"`** is the OpenMx convention for the unit constant (means and
   intercepts). `"1"`, `"constant"`, or `"intercept"` will not work.
 - **`free` is logical**, not a string. `free = "free"` is wrong; `free = TRUE`
-  is correct. (The schema uses the string `"free"`/`"fixed"` internally; the
-  converter translates these to `TRUE`/`FALSE` before calling `mxPath()`.)
+  is correct. (The schema uses `freeParameter`, where `TRUE` means free,
+  a non-empty string means free with a named parameter label, and absence means
+  fixed; the converter translates that into OpenMx's logical `free` argument.)
 - **Multiple paths in one call:** `mxPath(from="F1", to=c("x1","x2"), ...)`
   generates one path per target. `values` and `labels` can be vectors of the
   same length, or scalars that are recycled. This is idiomatic OpenMx — prefer

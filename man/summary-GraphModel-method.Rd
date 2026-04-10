@@ -16,9 +16,9 @@ Invisibly returns a list with summary information:
 \itemize{
 \item converged: logical
 \item fitValue: numeric
-\item parameters: named numeric vector
+\item parameterEstimates: named numeric vector
 \item standardErrors: named numeric vector
-\item isDirty: logical (fit is stale)
+\item isStale: logical (fit is stale)
 }
 }
 \description{

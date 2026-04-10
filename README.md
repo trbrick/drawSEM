@@ -1,6 +1,9 @@
-# visualWebTool
+# OpenMxWebUI
 
-Interactive visual editor for building structural equation models (SEMs) with OpenMx, lavaan, and blavaan. Visualize model structure, validate assumptions, and export to R code.
+Interactive visual editor for building structural equation models (SEMs). The
+project is schema-first: the JSON schema is the source of truth, and backend
+objects are derived from it on demand. OpenMx is the current fitting backend;
+lavaan and blavaan are planned.
 
 ## Installation
 
@@ -12,7 +15,7 @@ No TypeScript or Node.js required. Just install the R package:
 devtools::install_github("trb21/OpenMx_WebUI")
 
 # Then use it
-library(visualWebTool)
+library(OpenMxWebUI)
 
 # In a Shiny app:
 ui <- fluidPage(graphTool(outputId = "myGraph"))
@@ -44,7 +47,8 @@ npm run dev
 npm run build
 ```
 
-The built widget automatically commits before you push (via git hooks).
+The built widget assets are committed into `inst/htmlwidgets/lib/app/`, so R
+users do not need Node.js.
 
 ## Usage
 
@@ -62,7 +66,7 @@ server <- function(input, output) {
 
 ### In Quarto / RMarkdown
 ```r
-library(visualWebTool)
+library(OpenMxWebUI)
 graphTool()  # Interactive widget in document
 ```
 
@@ -73,6 +77,10 @@ schema <- loadSchema("mymodel.json")
 
 # Validate structure
 validateSchema(schema)
+
+# Build a GraphModel and fit it in OpenMx
+g <- as.GraphModel(schema)
+g_fit <- runOpenMx(g)
 
 # Save modified schema
 saveSchema(schema, "mymodel_v2.json")
@@ -126,16 +134,17 @@ npm run test -- --run   # One-time run
 npm run test            # Watch mode
 ```
 
-## Future: Backend Export Functions
+## Current Status
 
-Currently supports schema loading, saving, and validation. 
+Implemented now:
+- Schema validation, import/export, and GraphModel round-tripping
+- OpenMx conversion and fitting via `as.MxModel()` and `runOpenMx()`
+- Interactive htmlwidget and standalone web editor builds
 
-Planned:
-- `exportToOpenMx()` - Generate OpenMx code
-- `exportToLavaan()` - Generate lavaan syntax
-- `exportToBlavaan()` - Generate blavaan syntax
-- `runOpenMx()`, `runLavaan()` - Execute models
-- More coming as GraphModel architecture develops
+Planned next:
+- lavaan and blavaan backends
+- richer node types such as link functions and operators
+- broader multi-model and composition workflows
 
 ## Architecture
 
@@ -144,6 +153,11 @@ The system is built on the **Adapter Pattern**:
 - **Pluggable exporters** for different backends (OpenMx, lavaan, blavaan)
 - **Context-based injection** (no props drilling)
 - **Schema is source of truth** (JSON, backend-agnostic)
+
+Key schema conventions in the current implementation:
+- Dataset bindings are represented by paths with `type: "data"`
+- Schema objects do not store runtime-only node/path ids
+- Path parameter state is carried by `freeParameter`
 
 See `visual-web-tool/README.md` for TypeScript architecture details.
 

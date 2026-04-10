@@ -16,8 +16,10 @@ Invisibly returns TRUE. Throws error if invalid.
 Checks that:
 \itemize{
 \item All paths reference existing nodes (by label)
-\item fromLabel and toLabel are non-empty strings
-\item numberOfArrows is valid (0, 1, or 2)
+\item from and to are non-empty strings
+\item \code{type = "data"} paths omit \code{numberOfArrows}
+\item Non-data paths use \code{numberOfArrows} 0, 1, or 2 (with 0 retained only for
+OpenMx compatibility and flagged unsupported later)
 }
 }
 \keyword{internal}
