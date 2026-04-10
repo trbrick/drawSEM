@@ -278,7 +278,10 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["from", "to", "numberOfArrows"],
+              "required": ["from", "to"],
+              "if": { "properties": { "type": { "const": "data" } }, "required": ["type"] },
+              "then": { "not": { "required": ["numberOfArrows"] } },
+              "else": { "required": ["from", "to", "numberOfArrows"] },
               "properties": {
                 "id": { "type": "string" },
                 "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
@@ -314,7 +317,12 @@
                 },
                 "from": { "type": "string", "description": "Label of the source node (must match a node label exactly)" },
                 "to": { "type": "string", "description": "Label of the target node (must match a node label exactly)" },
-                "numberOfArrows": { "type": "integer", "minimum": 0, "maximum": 2 },
+                "type": {
+                  "type": "string",
+                  "enum": ["data", "constant"],
+                  "description": "Optional path type: 'data' = dataset-to-variable mapping (numberOfArrows must be absent); 'constant' = mean/intercept from a constant node; absent = ordinary structural path."
+                },
+                "numberOfArrows": { "type": "integer", "minimum": 1, "maximum": 2, "description": "1 = directed path; 2 = bidirectional covariance. Must be absent on type='data' paths." },
                 "tags": {
                   "type": "array",
                   "items": { "type": "string" },

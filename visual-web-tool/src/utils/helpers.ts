@@ -47,6 +47,7 @@ export interface Path {
   // true = free anonymous; non-empty string = free named (equality-constrained); absent = fixed
   freeParameter?: boolean | string
   reversed?: boolean
+  type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept
   parameterType?: string
   optimization?: {
     prior?: Record<string, any> | null
@@ -55,8 +56,9 @@ export interface Path {
   }
 }
 
-// Helper: Check if a path originates from a dataset node
+// Helper: Check if a path is a dataset-to-variable mapping path
 export function isDatasetPath(path: Path, nodes: Node[]): boolean {
+  if (path.type === 'data') return true
   const srcNode = nodes.find((n) => n.id === path.from)
   return srcNode?.type === 'dataset'
 }

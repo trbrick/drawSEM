@@ -157,8 +157,8 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
           list(from = "1", to = "x2", numberOfArrows = 1, value = 1.0, freeParameter = TRUE),
           list(from = "e1", to = "x1", numberOfArrows = 1, value = 1.0),
           list(from = "e2", to = "x2", numberOfArrows = 1, value = 1.0),
-          list(from = "sample", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-          list(from = "sample", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+          list(from = "sample", to = "x1", type = "data"),
+          list(from = "sample", to = "x2", type = "data")
         ),
         optimization = list(fitFunction = "ML")
       )
@@ -188,8 +188,8 @@ test_that("End-to-end: Manifest/latent variable inference works correctly", {
         ),
         paths = list(
           # Data paths for x1, x2 only
-          list(from = "sample", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-          list(from = "sample", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+          list(from = "sample", to = "x1", type = "data"),
+          list(from = "sample", to = "x2", type = "data")
         )
       )
     )

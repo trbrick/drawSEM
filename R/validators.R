@@ -183,25 +183,39 @@ validatePathReferences <- function(schema) {
         )
       }
       
+      # type: "data" paths do not have numberOfArrows
+      is_data_path <- isTRUE(path$type == "data")
+      
       # Check numberOfArrows (unlist in case jsonlite wrapped it)
       num_arrows <- path$numberOfArrows
       if (is.list(num_arrows)) num_arrows <- unlist(num_arrows)
       
-      if (is.null(num_arrows) || !is.numeric(num_arrows)) {
-        stop(
-          sprintf("Model '%s': path %d missing or invalid 'numberOfArrows'", model_id, i),
-          call. = FALSE
-        )
-      }
-      
-      if (!(num_arrows %in% c(0, 1, 2))) {
-        stop(
-          sprintf(
-            "Model '%s': path %d: numberOfArrows must be 0, 1, or 2 (got %d)",
-            model_id, i, num_arrows
-          ),
-          call. = FALSE
-        )
+      if (is_data_path) {
+        if (!is.null(num_arrows)) {
+          stop(
+            sprintf("Model '%s': path %d: numberOfArrows must be absent on type='data' paths", model_id, i),
+            call. = FALSE
+          )
+        }
+      } else {
+        if (is.null(num_arrows) || !is.numeric(num_arrows)) {
+          stop(
+            sprintf("Model '%s': path %d missing or invalid 'numberOfArrows'", model_id, i),
+            call. = FALSE
+          )
+        }
+
+        # 0-headed paths (OpenMx selection operator) are structurally valid R-side
+        # but flagged unsupported by collectUnsupportedFeatures
+        if (!(num_arrows %in% c(0, 1, 2))) {
+          stop(
+            sprintf(
+              "Model '%s': path %d: numberOfArrows must be 0, 1, or 2 (got %d)",
+              model_id, i, num_arrows
+            ),
+            call. = FALSE
+          )
+        }
       }
     }
   }
@@ -228,8 +242,9 @@ validateOptimizationParams <- function(schema) {
     for (i in seq_along(model$paths)) {
       path <- model$paths[[i]]
       
-      # Skip data mapping paths (no parameter semantics)
-      if (!is.null(path$parameterType) && isTRUE(path$parameterType == "dataMapping")) {
+      # Skip data paths (no parameter semantics)
+      if (isTRUE(path$type == "data") ||
+          (!is.null(path$parameterType) && isTRUE(path$parameterType == "dataMapping"))) {
         next
       }
       

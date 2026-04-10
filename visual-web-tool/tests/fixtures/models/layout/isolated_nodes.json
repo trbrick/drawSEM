@@ -29,11 +29,11 @@
         {"from": "Z", "to": "Z", "numberOfArrows": 2, "value": 1.0, "freeParameter": true, "parameterType": "variance"},
         {"from": "A", "to": "A", "numberOfArrows": 2, "value": 1.0, "freeParameter": true, "parameterType": "variance"},
         {"from": "B", "to": "B", "numberOfArrows": 2, "value": 1.0, "freeParameter": true, "parameterType": "variance"},
-        {"from": "data", "to": "X", "numberOfArrows": 1, "value": null, "parameterType": "dataMapping"},
-        {"from": "data", "to": "Y", "numberOfArrows": 1, "value": null, "parameterType": "dataMapping"},
-        {"from": "data", "to": "Z", "numberOfArrows": 1, "value": null, "parameterType": "dataMapping"},
-        {"from": "data", "to": "A", "numberOfArrows": 1, "value": null, "parameterType": "dataMapping"},
-        {"from": "data", "to": "B", "numberOfArrows": 1, "value": null, "parameterType": "dataMapping"}
+        {"from": "data", "to": "X", "type": "data", "value": null},
+        {"from": "data", "to": "Y", "type": "data", "value": null},
+        {"from": "data", "to": "Z", "type": "data", "value": null},
+        {"from": "data", "to": "A", "type": "data", "value": null},
+        {"from": "data", "to": "B", "type": "data", "value": null}
       ]
     }
   }

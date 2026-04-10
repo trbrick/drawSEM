@@ -68,6 +68,8 @@ type Path = {
   value?: number | null
   // whether the path parameter is freely estimated; true = free anonymous, absent = fixed
   freeParameter?: boolean | string
+  // path type: 'data' = dataset mapping; 'constant' = mean/intercept; absent = structural
+  type?: 'data' | 'constant'
   // optional semantic category from optimization.parameterTypes
   parameterType?: string
   // when true and twoSided=false, the visual arrow direction is reversed (to→from instead of from→to)
@@ -1420,11 +1422,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || np.id) : np.id
       const newPath: Path = { ...np, label: defaultLabel }
       
-      // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
+      // For paths from dataset nodes, set type='data'; no parameterType, no freeParameter
       if (srcNode?.type === 'dataset') {
         // freeParameter absent = fixed; dataset paths are always fixed
         newPath.value = null as any // null value for data mapping
-        newPath.parameterType = 'dataMapping'
+        newPath.type = 'data'
         newPath.displayName = convertToUnicode(defaultLabel)
       } else {
         // Auto-generate a readable unicode display name from node labels
@@ -1629,11 +1631,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || newId) : newId
       const p: Path = { id: newId, from: src, to: dst, twoSided, label: defaultLabel }
       
-      // For paths from dataset nodes, set fixed constraints and dataMapping parameter type
+      // For paths from dataset nodes, set type='data'; no parameterType, no freeParameter
       if (srcNode?.type === 'dataset') {
         // freeParameter absent = fixed (dataset paths are always fixed)
         p.value = null as any // null value for data mapping
-        p.parameterType = 'dataMapping'
+        p.type = 'data'
         p.displayName = convertToUnicode(defaultLabel)
       } else {
         // Auto-generate a readable unicode display name from node labels
@@ -2681,7 +2683,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     <div>• Connects a dataset to a variable</div>
                     <div>• Label: required (should match CSV column)</div>
                     <div>• Value: always null (data from CSV)</div>
-                    <div>• Type: 'dataMapping' (fixed, no optimization)</div>
+                    <div>• Type: 'data' (fixed, no optimization)</div>
                   </div>
                 )}
 

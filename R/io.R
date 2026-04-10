@@ -912,11 +912,10 @@ setMethod(
           data_path <- list(
             from = "data",
             to = var,
-            numberOfArrows = 1,
+            type = "data",
             value = NA_real_,
-            label = NA,
-            parameterType = "dataMapping"
-            # Note: no optimization field for data mapping paths
+            label = var
+            # numberOfArrows absent on type='data' paths
           )
           data_paths[[length(data_paths) + 1]] <- data_path
         }

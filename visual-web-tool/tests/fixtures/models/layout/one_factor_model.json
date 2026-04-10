@@ -96,24 +96,18 @@
         },
         {
           "from": "data",
-          "to": "X1",
-          "numberOfArrows": 1,
-          "value": null,
-          "parameterType": "dataMapping"
+          "to": "X1", "type": "data",
+          "value": null
         },
         {
           "from": "data",
-          "to": "X2",
-          "numberOfArrows": 1,
-          "value": null,
-          "parameterType": "dataMapping"
+          "to": "X2", "type": "data",
+          "value": null
         },
         {
           "from": "data",
-          "to": "X3",
-          "numberOfArrows": 1,
-          "value": null,
-          "parameterType": "dataMapping"
+          "to": "X3", "type": "data",
+          "value": null
         }
       ]
     }

@@ -79,11 +79,14 @@ inferManifestVariables <- function(nodes, paths) {
   inferred_manifest <- sapply(
     paths,
     function(p) {
-      if (p$from %in% dataset_labels && 
-          (is.null(p$parameterType) || p$parameterType == "dataMapping")) {
-        return(p$to)
+      # Detect data paths by explicit type or by source being a dataset node
+      if (p$from %in% dataset_labels &&
+          (isTRUE(p$type == "data") ||
+           (!is.null(p$parameterType) && p$parameterType == "dataMapping"))) {
+        p$to
+      } else {
+        NULL
       }
-      NULL
     }
   )
   
@@ -148,9 +151,9 @@ collectUnsupportedFeatures <- function(schema) {
   
   # Iterate through all models
   for (model in schema$models) {
-    # Check for 0-headed paths
+    # Check for 0-headed paths (guard against NULL for type='data' paths)
     for (path in model$paths) {
-      if (path$numberOfArrows == 0) {
+      if (!is.null(path$numberOfArrows) && path$numberOfArrows == 0) {
         unsupported$zeroHeadedPaths <- TRUE
         break
       }
@@ -196,8 +199,9 @@ storeOptimizationMetadata <- function(paths) {
   for (i in seq_along(paths)) {
     path <- paths[[i]]
     
-    # Skip data mapping paths
-    if (!is.null(path$parameterType) && path$parameterType == "dataMapping") {
+    # Skip data paths (no parameter semantics)
+    if (isTRUE(path$type == "data") ||
+        (!is.null(path$parameterType) && path$parameterType == "dataMapping")) {
       next
     }
     
@@ -229,13 +233,14 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
   paths_list <- list()
   
   for (path in paths) {
-    # Skip data mapping paths
-    if (!is.null(path$parameterType) && path$parameterType == "dataMapping") {
+    # Skip data paths (dataset→variable mappings, no structural mxPath entry)
+    if (isTRUE(path$type == "data") ||
+        (!is.null(path$parameterType) && path$parameterType == "dataMapping")) {
       next
     }
-    
-    # Skip unsupported 0-headed paths
-    if (path$numberOfArrows == 0) {
+
+    # Skip 0-headed paths (OpenMx selection operator; unsupported in schema)
+    if (!is.null(path$numberOfArrows) && path$numberOfArrows == 0) {
       next
     }
     

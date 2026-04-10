@@ -51,7 +51,8 @@ export interface Path {
   id?: string
   from: string                         // Source node label (must exist in nodes)
   to: string                           // Target node label (must exist in nodes)
-  numberOfArrows: 0 | 1 | 2
+  type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept; absent = structural
+  numberOfArrows?: 0 | 1 | 2          // Must be absent on type='data' paths; required otherwise
   value?: number | null                // Parameter value (null for dataset paths)
   freeParameter?: boolean | string    // true = free anonymous; non-empty string = free named; absent = fixed
   label?: string | null               // Optional path label/name

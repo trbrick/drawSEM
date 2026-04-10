@@ -131,8 +131,8 @@ test_that("inferManifestVariables identifies variables with dataset paths", {
   )
 
   paths <- list(
-    list(from = "data", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-    list(from = "data", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+    list(from = "data", to = "x1", type = "data"),
+    list(from = "data", to = "x2", type = "data")
   )
 
   result <- inferManifestVariables(nodes, paths)
@@ -149,8 +149,8 @@ test_that("inferLatentVariables identifies non-manifest variables", {
   )
 
   paths <- list(
-    list(from = "data", to = "x1", numberOfArrows = 1, parameterType = "dataMapping"),
-    list(from = "data", to = "x2", numberOfArrows = 1, parameterType = "dataMapping")
+    list(from = "data", to = "x1", type = "data"),
+    list(from = "data", to = "x2", type = "data")
   )
 
   manifest <- inferManifestVariables(nodes, paths)

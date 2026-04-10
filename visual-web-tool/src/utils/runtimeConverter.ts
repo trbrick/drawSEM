@@ -84,8 +84,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const to = labelToId[toLabel] || slugifyLabel(toLabel)
     if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
     if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
-    const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : 1
-    const twoSided = numberOfArrows >= 2
+    const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : (p.type === 'data' ? undefined : 1)
+    const twoSided = numberOfArrows !== undefined ? numberOfArrows >= 2 : false
     const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
     const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
     const id = mkPathId(idBase)
@@ -114,6 +114,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     out.value = p.value !== undefined ? p.value : 1.0
     // freeParameter: true = free anonymous; non-empty string = free named; absent = fixed (never set false)
     if (p.freeParameter !== undefined && p.freeParameter !== false) out.freeParameter = p.freeParameter
+    // Add path type if present
+    if (p.type) out.type = p.type
     // Add optimization metadata: parameterType and optional overrides
     if (p.parameterType) out.parameterType = p.parameterType
     if (p.optimization) out.optimization = p.optimization

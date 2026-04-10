@@ -58,8 +58,8 @@
         { "label": "\\mu_{x_3}",          "from": "1",               "to": "x_3",             "numberOfArrows": 1, "value": 1.0,  "freeParameter": true, "parameterType": "mean" },
         { "label": null,                  "from": "\\epsilon_{x_1}", "to": "x_1",             "numberOfArrows": 1, "value": 1.0,  "parameterType": "errorVariance" },
         { "label": null,                  "from": "\\epsilon_{x_3}", "to": "x_3",             "numberOfArrows": 1, "value": 1.0,  "parameterType": "errorVariance" },
-        { "label": "x_1",                 "from": "sample",          "to": "x_1",             "numberOfArrows": 1, "value": null, "parameterType": "dataMapping", "description": "CSV column x_1 linked to manifest variable x_1" },
-        { "label": "x_3",                 "from": "sample",          "to": "x_3",             "numberOfArrows": 1, "value": null, "parameterType": "dataMapping", "description": "CSV column x_3 linked to manifest variable x_3" }
+        { "label": "x_1",                 "from": "sample",          "to": "x_1",             "type": "data", "value": null, "description": "CSV column x_1 linked to manifest variable x_1" },
+        { "label": "x_3",                 "from": "sample",          "to": "x_3",             "type": "data", "value": null, "description": "CSV column x_3 linked to manifest variable x_3" }
       ]
     }
   }

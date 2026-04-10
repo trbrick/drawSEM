@@ -61,7 +61,10 @@ export function getVariableRenderType(
       allNodes.filter((n) => n.type === 'dataset').map((n) => n.label)
     )
     const hasIncomingDataPath = allPaths.some(
-      (p) => p.to === node.label && p.numberOfArrows === 1 && datasetLabels.has(p.from)
+      (p) =>
+        p.to === node.label &&
+        datasetLabels.has(p.from) &&
+        (p.type === 'data' || p.numberOfArrows === 1 || p.parameterType === 'dataMapping')
     )
     if (hasIncomingDataPath) return 'manifest'
   }

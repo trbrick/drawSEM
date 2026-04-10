@@ -181,7 +181,6 @@ describe('Schema Validation', () => {
             { label: 'X', type: 'variable', visual: { x: 0, y: 0 } },
           ],
           paths: [
-            { from: 'X', to: 'X', numberOfArrows: 0 },
             { from: 'X', to: 'X', numberOfArrows: 1 },
             { from: 'X', to: 'X', numberOfArrows: 2 },
           ],
@@ -191,6 +190,23 @@ describe('Schema Validation', () => {
     
     const result = validateGraph(validGraph);
     expect(result.ok).toBe(true);
+  });
+
+  it('should reject numberOfArrows: 0', () => {
+    const invalidGraph = {
+      schemaVersion: 1,
+      models: {
+        model1: {
+          nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
+          paths: [
+            { from: 'X', to: 'X', numberOfArrows: 0 },
+          ],
+        },
+      },
+    };
+    
+    const result = validateGraph(invalidGraph);
+    expect(result.ok).toBe(false);
   });
 
   it('should reject numberOfArrows outside valid range', () => {
@@ -387,5 +403,62 @@ describe('Schema Validation', () => {
     
     const result = validateGraph(validGraph);
     expect(result.ok).toBe(true);
+  });
+
+  it('should accept type="data" paths without numberOfArrows', () => {
+    const validGraph = {
+      schemaVersion: 1,
+      models: {
+        model1: {
+          nodes: [
+            { label: 'data', type: 'dataset', visual: { x: 0, y: 100 } },
+            { label: 'X', type: 'variable', visual: { x: 100, y: 0 } },
+          ],
+          paths: [
+            { from: 'data', to: 'X', type: 'data', value: null, label: 'x_col' },
+          ],
+        },
+      },
+    };
+
+    const result = validateGraph(validGraph);
+    expect(result.ok).toBe(true);
+  });
+
+  it('should reject type="data" paths that include numberOfArrows', () => {
+    const invalidGraph = {
+      schemaVersion: 1,
+      models: {
+        model1: {
+          nodes: [
+            { label: 'data', type: 'dataset', visual: { x: 0, y: 100 } },
+            { label: 'X', type: 'variable', visual: { x: 100, y: 0 } },
+          ],
+          paths: [
+            { from: 'data', to: 'X', type: 'data', numberOfArrows: 1, value: null },
+          ],
+        },
+      },
+    };
+
+    const result = validateGraph(invalidGraph);
+    expect(result.ok).toBe(false);
+  });
+
+  it('should reject unknown path type values', () => {
+    const invalidGraph = {
+      schemaVersion: 1,
+      models: {
+        model1: {
+          nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
+          paths: [
+            { from: 'X', to: 'X', type: 'unknown', numberOfArrows: 1, value: 1.0 },
+          ],
+        },
+      },
+    };
+
+    const result = validateGraph(invalidGraph);
+    expect(result.ok).toBe(false);
   });
 });
