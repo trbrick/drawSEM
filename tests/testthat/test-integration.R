@@ -144,8 +144,7 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
           list(label = "e1", type = "variable"),
           list(label = "e2", type = "variable"),
           list(label = "sample", type = "dataset", 
-               levelOfMeasurement = "individual",
-               mappings = list(x1 = "x1", x2 = "x2"))
+            levelOfMeasurement = "individual")
         ),
         paths = list(
           list(from = "F1", to = "F1", numberOfArrows = 2, value = 1.0),

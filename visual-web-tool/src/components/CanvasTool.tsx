@@ -19,13 +19,14 @@ type Node = {
   y: number
   label: string
   type: NodeType
+  description?: string
+  tags?: string[]
   // optional display name (for UI only) - separate from label used for matching/export
   displayName?: string
-  // for variable nodes: semantic characteristics (manifestLatent, exogeneity, customTags)
+  // for variable nodes: semantic characteristics (manifestLatent, exogeneity)
   variableCharacteristics?: {
     manifestLatent?: 'manifest' | 'latent'
     exogeneity?: 'exogenous' | 'endogenous'
-    customTags?: string[]
   }
   // optional level of measurement (for multilevel models)
   levelOfMeasurement?: string // e.g., 'within', 'between', 'between-person', etc.
@@ -38,8 +39,8 @@ type Node = {
     headers: string[]
     columns: any[]
   }
-  // optional column mappings for dataset nodes: { columnName: targetNodeId }
-  mappings?: Record<string, string>
+  // optional logical binding names for dataset nodes: { sourceColumn: bindingName }
+  bindingMappings?: Record<string, string>
   // optional dataset source metadata from schema (file-based or embedded)
   datasetSource?: {
     type: 'file' | 'embedded'
@@ -79,6 +80,9 @@ type Path = {
     prior?: Record<string, any> | null
     bounds?: [number | null, number | null] | null
     start?: number | string | null
+  }
+  visual?: {
+    midpointOffset?: { x: number; y: number }
   }
 }
 
@@ -676,15 +680,49 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   React.useEffect(() => {
     if (onModelChange && currentModel) {
       try {
-        // Build a GraphSchema from current model state
-        // Note: This is simplified - in a full implementation you'd convert the full runtime state back to schema
+        // Build a GraphSchema from current runtime state, stripping runtime-only ids.
+        const idToLabel: Record<string, string> = {}
+        currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
         const modelSchema: GraphSchema = {
           schemaVersion: 1,
           models: {
             [currentModel.id]: {
               label: currentModel.label,
-              nodes: currentModel.nodes,
-              paths: currentModel.paths,
+              nodes: currentModel.nodes.map((n) => ({
+                label: n.label,
+                type: n.type,
+                ...(n.description ? { description: n.description } : {}),
+                ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
+                ...(n.tags ? { tags: n.tags } : {}),
+                ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
+                ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
+                ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
+                visual: {
+                  x: n.x,
+                  y: n.y,
+                  ...(n.width ? { width: n.width } : {}),
+                  ...(n.height ? { height: n.height } : {}),
+                },
+              })),
+              paths: currentModel.paths.map((p) => ({
+                from: idToLabel[p.from] ?? p.from,
+                to: idToLabel[p.to] ?? p.to,
+                ...(p.type ? { type: p.type } : {}),
+                ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
+                ...(p.label !== undefined ? { label: p.label } : {}),
+                ...(p.value !== undefined ? { value: p.value } : {}),
+                ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
+                ...(p.parameterType ? { parameterType: p.parameterType } : {}),
+                ...(p.optimization ? { optimization: p.optimization } : {}),
+                ...(p.side || p.visual?.midpointOffset
+                  ? {
+                      visual: {
+                        ...(p.side ? { loopSide: p.side } : {}),
+                        ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
+                      },
+                    }
+                  : {}),
+              })),
               optimization: {
                 parameterTypes: currentModel.parameterTypes
               }

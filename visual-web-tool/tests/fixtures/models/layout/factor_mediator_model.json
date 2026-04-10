@@ -8,14 +8,14 @@
     "factor_mediator": {
       "label": "Factor Mediator Model",
       "nodes": [
-        {"id": "X1", "label": "X1", "type": "variable", "tags": ["manifest", "predictor"]},
-        {"id": "X2", "label": "X2", "type": "variable", "tags": ["manifest", "predictor"]},
-        {"id": "F", "label": "F", "type": "variable", "tags": ["latent", "mediator"]},
-        {"id": "X3", "label": "X3", "type": "variable", "tags": ["manifest", "outcome"]},
-        {"id": "X4", "label": "X4", "type": "variable", "tags": ["manifest", "outcome"]},
-        {"id": "X5", "label": "X5", "type": "variable", "tags": ["manifest", "outcome"]},
-        {"id": "const", "label": "1", "type": "constant"},
-        {"id": "data", "label": "data", "type": "dataset"}
+        {"label": "X1", "type": "variable", "tags": ["manifest", "predictor"]},
+        {"label": "X2", "type": "variable", "tags": ["manifest", "predictor"]},
+        {"label": "F", "type": "variable", "tags": ["latent", "mediator"]},
+        {"label": "X3", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"label": "X4", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"label": "X5", "type": "variable", "tags": ["manifest", "outcome"]},
+        {"label": "1", "type": "constant"},
+        {"label": "data", "type": "dataset"}
       ],
       "paths": [
         {"from": "X1", "to": "F", "numberOfArrows": 1, "value": 1.0, "parameterType": "regression"},

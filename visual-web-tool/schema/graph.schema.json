@@ -67,9 +67,9 @@
               "type": "object",
               "required": ["label", "type"],
               "properties": {
-                "id": { "type": "string" },
                 "label": { "type": "string", "minLength": 1 },
                 "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
+                "description": { "type": "string", "description": "Optional human-readable description of the node" },
                 "variableCharacteristics": {
                   "type": "object",
                   "description": "For variable nodes: semantic characteristics defining how the variable behaves structurally",
@@ -83,11 +83,6 @@
                       "type": "string",
                       "enum": ["exogenous", "endogenous"],
                       "description": "Whether the variable is externally determined (exogenous) or internally determined by the model (endogenous)"
-                    },
-                    "customTags": {
-                      "type": "array",
-                      "items": { "type": "string" },
-                      "description": "User-defined tags for additional classification or metadata"
                     }
                   },
                   "additionalProperties": false
@@ -110,9 +105,9 @@
                   },
                   "additionalProperties": false
                 },
-                "mappings": {
+                "bindingMappings": {
                   "type": "object",
-                  "description": "For dataset nodes: mapping of CSV column names to target node IDs",
+                  "description": "For dataset nodes: mapping of source column names (or 'row_number') to logical binding names",
                   "additionalProperties": { "type": "string" }
                 },
                 "datasetSource": {
@@ -283,7 +278,6 @@
               "then": { "not": { "required": ["numberOfArrows"] } },
               "else": { "required": ["from", "to", "numberOfArrows"] },
               "properties": {
-                "id": { "type": "string" },
                 "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
                 "description": { "type": "string", "description": "Optional human-readable description of the path" },
                 "value": { "type": ["number", "null"], "default": 1.0, "description": "Numeric value for the path parameter; defaults to 1.0. For dataset-to-node paths, must be null." },

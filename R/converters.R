@@ -239,14 +239,29 @@ buildMxData <- function(model, data) {
     )
   }
   
-  # Build column mapping from dataset node's mappings field (structural approach)
+  # Build column mapping from data paths for this dataset node.
+  # Path label is the source column name; path$to is the variable label.
   mapping <- list()
-  if (!is.null(dataset_node$mappings) && length(dataset_node$mappings) > 0) {
-    # mappings is a named list where names are CSV columns and values are variable node IDs/labels
-    mapping <- dataset_node$mappings
+  data_paths <- Filter(function(path) {
+    identical(path$from, dataset_label) &&
+      (isTRUE(path$type == "data") || identical(dataset_node$type, "dataset")) &&
+      !is.null(path$to)
+  }, model$paths %||% list())
+
+  if (length(data_paths) > 0) {
+    mapping <- setNames(
+      lapply(data_paths, function(path) path$to),
+      vapply(data_paths, function(path) {
+        if (!is.null(path$label) && nzchar(as.character(path$label))) {
+          as.character(path$label)
+        } else {
+          as.character(path$to)
+        }
+      }, character(1))
+    )
   }
   
-  # If no explicit mappings, use all columns as-is
+  # If no explicit data paths, use matching columns as-is (legacy fallback)
   if (length(mapping) == 0) {
     # Assume column names match variable names
     # Filter to only columns that exist in data
@@ -264,7 +279,7 @@ buildMxData <- function(model, data) {
     
     df <- df[, vars_in_data, drop = FALSE]
   } else {
-    # Handle column mappings: names = CSV columns, values = variable names
+    # Handle data-path mappings: names = CSV columns, values = variable names
     # Select only the mapped columns and rename them
     csv_cols <- names(mapping)
     var_names <- unlist(mapping)

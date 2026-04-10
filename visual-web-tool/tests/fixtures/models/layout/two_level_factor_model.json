@@ -8,17 +8,17 @@
     "two_level_factor": {
       "label": "Two-Level Factor Model",
       "nodes": [
-        {"id": "F3", "label": "F3", "type": "variable", "tags": ["latent", "higher-order"]},
-        {"id": "F1", "label": "F1", "type": "variable", "tags": ["latent", "factor"]},
-        {"id": "F2", "label": "F2", "type": "variable", "tags": ["latent", "factor"]},
-        {"id": "X1", "label": "X1", "type": "variable", "tags": ["manifest"]},
-        {"id": "X2", "label": "X2", "type": "variable", "tags": ["manifest"]},
-        {"id": "X3", "label": "X3", "type": "variable", "tags": ["manifest"]},
-        {"id": "X4", "label": "X4", "type": "variable", "tags": ["manifest"]},
-        {"id": "X5", "label": "X5", "type": "variable", "tags": ["manifest"]},
-        {"id": "X6", "label": "X6", "type": "variable", "tags": ["manifest"]},
-        {"id": "const", "label": "1", "type": "constant"},
-        {"id": "data", "label": "data", "type": "dataset"}
+        {"label": "F3", "type": "variable", "tags": ["latent", "higher-order"]},
+        {"label": "F1", "type": "variable", "tags": ["latent", "factor"]},
+        {"label": "F2", "type": "variable", "tags": ["latent", "factor"]},
+        {"label": "X1", "type": "variable", "tags": ["manifest"]},
+        {"label": "X2", "type": "variable", "tags": ["manifest"]},
+        {"label": "X3", "type": "variable", "tags": ["manifest"]},
+        {"label": "X4", "type": "variable", "tags": ["manifest"]},
+        {"label": "X5", "type": "variable", "tags": ["manifest"]},
+        {"label": "X6", "type": "variable", "tags": ["manifest"]},
+        {"label": "1", "type": "constant"},
+        {"label": "data", "type": "dataset"}
       ],
       "paths": [
         {"from": "F3", "to": "F1", "numberOfArrows": 1, "value": 1.0, "parameterType": "loading"},

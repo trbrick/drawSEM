@@ -42,7 +42,7 @@
         { "label": "1", "type": "constant", "visual": { "x": 220, "y": 400 } },
         { "label": "\\epsilon_{x_1}", "type": "variable", "visual": { "x": 100, "y": 350 } },
         { "label": "\\epsilon_{x_3}", "type": "variable", "visual": { "x": 340, "y": 350 } },
-        { "label": "sample", "type": "dataset", "levelOfMeasurement": "individual", "visual": { "x": 220, "y": 500 }, "mappings": { "x_1": "x_1", "x_3": "x_3" }, "datasetSource": { "type": "file", "location": "sample.csv", "format": "csv", "encoding": "UTF-8", "columnTypes": {"x_1": "number", "x_2": "number", "x_3": "number"}, "md5": "d865e2fa67544050da562cdfb55ec1bd", "rowCount": 10 } }
+        { "label": "sample", "type": "dataset", "levelOfMeasurement": "individual", "visual": { "x": 220, "y": 500 }, "datasetSource": { "type": "file", "location": "sample.csv", "format": "csv", "encoding": "UTF-8", "columnTypes": {"x_1": "number", "x_2": "number", "x_3": "number"}, "md5": "d865e2fa67544050da562cdfb55ec1bd", "rowCount": 10 } }
       ],
       "paths": [
         { "label": "V_{F_1}",             "from": "F_1",             "to": "F_1",             "numberOfArrows": 2, "value": 1.0,  "parameterType": "variance",     "visual": { "loopSide": "top" } },

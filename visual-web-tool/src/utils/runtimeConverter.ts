@@ -66,8 +66,10 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
       out.height = typeof visual.height === 'number' ? visual.height : DATASET_DEFAULT_H
     }
     // Copy optional fields
+    if (n.description) out.description = n.description
     if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
-    if (n.mappings) out.mappings = n.mappings
+    if (n.tags) out.tags = n.tags
+    if (n.bindingMappings) out.bindingMappings = n.bindingMappings
     if (n.datasetSource) out.datasetSource = n.datasetSource
     if (n.variableCharacteristics) out.variableCharacteristics = n.variableCharacteristics
     return out

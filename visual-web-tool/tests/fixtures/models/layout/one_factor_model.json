@@ -8,12 +8,12 @@
     "one_factor": {
       "label": "One Factor Model",
       "nodes": [
-        {"id": "F", "label": "F", "type": "variable", "tags": ["latent", "factor"]},
-        {"id": "X1", "label": "X1", "type": "variable", "tags": ["manifest"]},
-        {"id": "X2", "label": "X2", "type": "variable", "tags": ["manifest"]},
-        {"id": "X3", "label": "X3", "type": "variable", "tags": ["manifest"]},
-        {"id": "const", "label": "1", "type": "constant"},
-        {"id": "data", "label": "data", "type": "dataset"}
+        {"label": "F", "type": "variable", "tags": ["latent", "factor"]},
+        {"label": "X1", "type": "variable", "tags": ["manifest"]},
+        {"label": "X2", "type": "variable", "tags": ["manifest"]},
+        {"label": "X3", "type": "variable", "tags": ["manifest"]},
+        {"label": "1", "type": "constant"},
+        {"label": "data", "type": "dataset"}
       ],
       "paths": [
         {

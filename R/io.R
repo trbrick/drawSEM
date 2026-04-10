@@ -780,7 +780,6 @@ setMethod(
         data_as_json <- dataFrameToJSON(df)
         
         dataset_node <- list(
-          id = "dataset_primary",
           label = "data",
           type = "dataset",
           datasetSource = list(
@@ -790,10 +789,6 @@ setMethod(
             columnTypes = data_as_json$columnTypes,
             object = data_as_json$object,
             rowCount = nrow(df)
-          ),
-          mappings = setNames(
-            names(df),
-            names(df)
           )
         )
       }
@@ -821,9 +816,10 @@ setMethod(
       )
     }
     
-    # Add constant node (for means) - use "one" to match OpenMx variable names
+    # Add constant node for schema representation.
+    # The schema uses label "1"; buildPathList later converts that to OpenMx's "one".
     nodes[[length(nodes) + 1]] <- list(
-      label = "one",
+      label = "1",
       type = "constant"
     )
     
@@ -839,9 +835,13 @@ setMethod(
     add_paths_from_matrix <- function(matrix_name, num_arrows, symmetric = FALSE) {
       mat <- x[[matrix_name]]
       if (is.null(mat)) return(NULL)
-      
-      row_names <- rownames(mat$values) %||% seq_len(nrow(mat$values))
-      col_names <- colnames(mat$values) %||% seq_len(ncol(mat$values))
+
+      # Fall back to RAM expectation dimnames when the matrix itself has no dimnames.
+      # OpenMx often stores unlabeled matrices with the semantic variable names only on
+      # the expectation, and numeric fallbacks like 1,2,3 would create invalid paths.
+      default_names <- x$expectation$dims %||% all_vars %||% seq_len(nrow(mat$values))
+      row_names <- rownames(mat$values) %||% default_names
+      col_names <- colnames(mat$values) %||% default_names
       
       path_list <- list()
       for (i in seq_len(nrow(mat$values))) {
@@ -856,8 +856,8 @@ setMethod(
             label <- mat$labels[i, j] %||% NA
             free <- mat$free[i, j] %||% FALSE
 
-            from_label <- col_names[j]
-            to_label <- row_names[i]
+            from_label <- as.character(col_names[j])
+            to_label <- as.character(row_names[i])
             
             # Infer parameter type from structure
             param_type <- inferParameterTypeFromStructure(
@@ -923,7 +923,7 @@ setMethod(
     }
     if (!is.null(data_paths)) paths <- c(paths, data_paths)
     
-    # Extract means from M vector - create paths from "one" (constant) to variables
+    # Extract means from M vector - create paths from schema constant node "1" to variables
     m_paths <- NULL
     m_name <- x$expectation$M
     if (!is.null(m_name) && is.character(m_name) && !is.na(m_name)) {
@@ -948,7 +948,7 @@ setMethod(
               opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
               
               mean_path <- list(
-                from = "one",
+                from = "1",
                 to = var_name,
                 numberOfArrows = 1,
                 value = val,

@@ -8,12 +8,12 @@
     "diamond": {
       "label": "Diamond Model",
       "nodes": [
-        {"id": "X", "label": "X", "type": "variable", "tags": ["manifest"]},
-        {"id": "Y", "label": "Y", "type": "variable", "tags": ["manifest"]},
-        {"id": "Z", "label": "Z", "type": "variable", "tags": ["manifest"]},
-        {"id": "W", "label": "W", "type": "variable", "tags": ["manifest"]},
-        {"id": "const", "label": "1", "type": "constant"},
-        {"id": "data", "label": "data", "type": "dataset"}
+        {"label": "X", "type": "variable", "tags": ["manifest"]},
+        {"label": "Y", "type": "variable", "tags": ["manifest"]},
+        {"label": "Z", "type": "variable", "tags": ["manifest"]},
+        {"label": "W", "type": "variable", "tags": ["manifest"]},
+        {"label": "1", "type": "constant"},
+        {"label": "data", "type": "dataset"}
       ],
       "paths": [
         {"from": "X", "to": "Y", "numberOfArrows": 1, "value": 1.0, "freeParameter": true, "parameterType": "regression"},

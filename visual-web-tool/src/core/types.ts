@@ -31,13 +31,13 @@ export interface Model {
  * "type" determines how it participates in paths
  */
 export interface Node {
-  id?: string                          // Auto-generated if missing
   label: string                        // Required identifier
   type: 'variable' | 'constant' | 'dataset'
+  description?: string
   levelOfMeasurement?: string          // 'within' | 'between' for multilevel
   tags?: string[]                      // Classification tags
   visual?: VisualProperties
-  mappings?: Record<string, string>    // CSV column → node ID mappings (dataset only)
+  bindingMappings?: Record<string, string>
   datasetSource?: DatasetSource        // For dataset nodes: metadata and source of data
 }
 
@@ -48,11 +48,10 @@ export interface Node {
  * - 2 = covariance/bidirectional (↔)
  */
 export interface Path {
-  id?: string
   from: string                         // Source node label (must exist in nodes)
   to: string                           // Target node label (must exist in nodes)
   type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept; absent = structural
-  numberOfArrows?: 0 | 1 | 2          // Must be absent on type='data' paths; required otherwise
+  numberOfArrows?: 1 | 2              // Must be absent on type='data' paths; required otherwise
   value?: number | null                // Parameter value (null for dataset paths)
   freeParameter?: boolean | string    // true = free anonymous; non-empty string = free named; absent = fixed
   label?: string | null               // Optional path label/name

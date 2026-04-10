@@ -326,16 +326,17 @@ describe('Schema Validation', () => {
               label: 'data',
               type: 'dataset',
               visual: { x: 0, y: 0 },
-              datasetFile: {
-                fileName: 'sample.csv',
+              datasetSource: {
+                type: 'file',
+                location: 'sample.csv',
+                format: 'csv',
+                encoding: 'UTF-8',
+                columnTypes: {
+                  x1: 'number',
+                  x2: 'number',
+                },
                 md5: 'd865e2fa67544050da562cdfb55ec1bd',
                 rowCount: 100,
-                columnCount: 3,
-                columns: ['x1', 'x2', 'x3'],
-              },
-              mappings: {
-                x1: 'X1',
-                x2: 'X2',
               },
             },
           ],

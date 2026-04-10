@@ -9,10 +9,11 @@ export interface Node {
   y: number
   label: string
   type: 'variable' | 'constant' | 'dataset'
+  description?: string
+  tags?: string[]
   variableCharacteristics?: {
     manifestLatent?: 'manifest' | 'latent'
     exogeneity?: 'exogenous' | 'endogenous'
-    customTags?: string[]
   }
   levelOfMeasurement?: string
   width?: number
@@ -22,7 +23,7 @@ export interface Node {
     headers: string[]
     columns: any[]
   }
-  mappings?: Record<string, string>
+  bindingMappings?: Record<string, string>
   datasetSource?: {
     type: 'file' | 'embedded'
     location?: string          // For type='file': path to CSV file
@@ -53,6 +54,9 @@ export interface Path {
     prior?: Record<string, any> | null
     bounds?: [number | null, number | null] | null
     start?: number | string | null
+  }
+  visual?: {
+    midpointOffset?: { x: number; y: number }
   }
 }
 

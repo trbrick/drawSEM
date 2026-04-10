@@ -118,11 +118,13 @@ test_that("loadSchema loads embedded data correctly", {
                 list(x = 1, y = 2),
                 list(x = 3, y = 4)
               )
-            ),
-            mappings = list(x = "x", y = "y")
+            )
           )
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x"),
+          list(from = "data", to = "y", type = "data", label = "y")
+        )
       )
     )
   )
@@ -155,11 +157,15 @@ test_that("saveSchema exports data when writeData=TRUE", {
     models = list(
       model1 = list(
         nodes = list(
+          list(id = "x", label = "x", type = "variable"),
+          list(id = "y", label = "y", type = "variable"),
           list(id = "d", label = "data", type = "dataset",
-               datasetSource = list(type = "file"),
-               mappings = list())
+               datasetSource = list(type = "file"))
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x"),
+          list(from = "data", to = "y", type = "data", label = "y")
+        )
       )
     )
   )
@@ -188,7 +194,9 @@ test_that("saveSchema exports data when writeData=TRUE", {
   
   # Check schema was updated
   schema_read <- jsonlite::read_json(tmpfile, simplifyVector = FALSE, simplifyDataFrame = FALSE)
-  ds_type <- schema_read$models$model1$nodes[[1]]$datasetSource$type
+  dataset_nodes <- Filter(function(n) n$type == "dataset", schema_read$models$model1$nodes)
+  expect_length(dataset_nodes, 1)
+  ds_type <- dataset_nodes[[1]]$datasetSource$type
   if (is.list(ds_type)) ds_type <- unlist(ds_type)  # Handle jsonlite list-wrapping
   expect_equal(ds_type, "file")
 })
@@ -201,11 +209,13 @@ test_that("saveSchema with writeData=NA warns if file exists", {
     models = list(
       model1 = list(
         nodes = list(
+          list(id = "x", label = "x", type = "variable"),
           list(id = "d", label = "data", type = "dataset",
-               datasetSource = list(type = "file"),
-               mappings = list())
+               datasetSource = list(type = "file"))
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x")
+        )
       )
     )
   )
@@ -242,11 +252,13 @@ test_that("saveSchema with strictData=TRUE errors on missing data", {
     models = list(
       model1 = list(
         nodes = list(
+          list(id = "x", label = "x", type = "variable"),
           list(id = "d", label = "data", type = "dataset",
-               datasetSource = list(type = "file"),
-               mappings = list())
+               datasetSource = list(type = "file"))
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x")
+        )
       )
     )
   )
@@ -286,10 +298,10 @@ test_that("as.GraphModel.MxRAMModel creates embedded datasetSource", {
   # Convert to GraphModel
   g <- as.GraphModel(model)
   
-  expect_is(g, "GraphModel")
+  expect_s4_class(g, "GraphModel")
   
   # Check that data is embedded
-  schema <- schema(g)
+  schema <- g@schema
   nodes <- schema$models$test_model$nodes
   
   # Find dataset node
@@ -328,11 +340,13 @@ test_that("buildMxData loads embedded data correctly", {
                 list(x = 1, y = 2),
                 list(x = 3, y = 4)
               )
-            ),
-            mappings = list(x = "x", y = "y")
+            )
           )
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x"),
+          list(from = "data", to = "y", type = "data", label = "y")
+        )
       )
     )
   )
@@ -343,7 +357,7 @@ test_that("buildMxData loads embedded data correctly", {
   # This is difficult to test without a full model context
   # Just verify that buildMxData can be called
   # The actual test is in the full integration tests
-  expect_is(g, "GraphModel")
+  expect_s4_class(g, "GraphModel")
 })
 
 # ============================================================================
@@ -394,9 +408,9 @@ test_that("Round-trip: MxModel -> GraphModel -> save/load -> rebuild", {
   g2 <- loadSchema(tmpfile, loadData = TRUE, dataPath = tmpdir)
   
   # Verify data is preserved
-  expect_true("data" %in% names(data(g2)))
-  df_loaded <- data(g2)$data
-  expect_is(df_loaded, "data.frame")
+  expect_true("data" %in% names(g2@data))
+  df_loaded <- g2@data$data
+  expect_s3_class(df_loaded, "data.frame")
   expect_equal(nrow(df_loaded), 30)
   expect_equal(names(df_loaded), c("x", "y", "z"))
 })
@@ -418,11 +432,12 @@ test_that("loadSchema smart-loads based on file size", {
               type = "file",
               location = "small.csv",
               format = "csv"
-            ),
-            mappings = list(x = "x")
+            )
           )
         ),
-        paths = list()
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x")
+        )
       )
     )
   )
@@ -443,6 +458,6 @@ test_that("loadSchema smart-loads based on file size", {
   g <- loadSchema(tmpfile, loadData = NA, dataPath = tmpdir)
   
   # File should be loaded (< 10MB)
-  expect_true("data" %in% names(data(g)))
-  expect_is(data(g)$data, "data.frame")
+  expect_true("data" %in% names(g@data))
+  expect_s3_class(g@data$data, "data.frame")
 })
