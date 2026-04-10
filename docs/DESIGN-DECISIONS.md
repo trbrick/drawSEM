@@ -39,9 +39,9 @@ This document has two sections:
 
 - Manifest vs. latent is **inferred** from structure, not required as a node
   property.  
-- A `variable` node is manifest if it has an incoming `dataMapping` path from a
-  `dataset` node, or if `variableCharacteristics.manifestLatent` is explicitly
-  set to `"manifest"`.
+- A `variable` node is manifest if it has an incoming `type: "data"` path from
+  a `dataset` node, or if `variableCharacteristics.manifestLatent` is
+  explicitly set to `"manifest"`.
 - All other `variable` nodes are treated as latent.
 - Explicit `variableCharacteristics.manifestLatent` always overrides inference.
 
@@ -57,8 +57,9 @@ intentional.
 ### Constant Nodes
 
 - Constant nodes represent the unit vector (means/intercepts).
-- The node's label becomes `"one"` when building OpenMx `mxPath` entries
-  (OpenMx RAM convention).
+- In the schema, the constant node label is `"1"`.
+- That schema label is translated to `"one"` only when building OpenMx
+  `mxPath` entries (OpenMx RAM convention).
 - Multiple constant nodes are allowed (e.g., for layout); all contribute to the
   means model.
 
@@ -74,15 +75,15 @@ intentional.
 
 ### Data Connection (Current Implementation)
 
-- Data column → variable mapping is done via **`dataMapping` paths** from a
-  `dataset` node to a `variable` node. The path's `label` is the CSV column
-  name.
-- The `dataset` node also has a `mappings` field (named list: CSV column →
-  variable label) used during data loading in the R converter.
-- `dataMapping` paths do NOT generate `mxPath` entries; they are used only to
+- Data column → variable mapping is done via **`type: "data"` paths** from a
+  `dataset` node to a `variable` node.
+- The path's `label` is the source column name in the dataset.
+- Dataset nodes do **not** carry a separate `mappings` field in the schema.
+- `type: "data"` paths do NOT generate `mxPath` entries; they are used only to
   identify observed variables and build `mxData`.
-- **This may be reworked** (see Open Questions below) if there is sufficient
-  reason to change the representation.
+- For backward compatibility, the R layer may still recognize legacy
+  `parameterType: "dataMapping"` when importing older schemas, but that is no
+  longer part of the current schema contract.
 
 ### Path Semantics
 
@@ -90,12 +91,34 @@ intentional.
 |-----------------|---------|------------------------|
 | 1 | Directed path (regression, factor loading, or mean from constant) | 1 |
 | 2 | Covariance or variance (self-loop or cross) | 2 |
-| 0 | Not used in this schema (see note below) | — |
 
 **Note on `numberOfArrows: 0`:** OpenMx uses 0-arrow paths as a convention for
 the Pearson selection operator. This schema does not currently use that
-convention and likely will not. Any 0-arrow paths in a schema are flagged as
-unsupported and stored in `@metadata$unsupported`.
+convention, and JSON schema validation rejects it. The R layer may still accept
+0-arrow paths when importing OpenMx-derived structures so they can be preserved
+as unsupported features in `@metadata$unsupported` instead of failing
+immediately.
+
+### Schema Boundary vs. Runtime State
+
+- The schema does **not** store node or path `id` fields.
+- Runtime/editor code may maintain internal ids for React rendering, selection,
+  and drag interactions.
+- Serialization boundaries must translate runtime ids back to schema references
+  (`from`, `to`, and node `label` values) so saved schemas remain portable and
+  backend-agnostic.
+
+### Path Parameter Semantics
+
+- `freeParameter` is the schema field that controls whether a path parameter is
+  fixed or free.
+- If `freeParameter` is absent, the parameter is fixed.
+- If `freeParameter` is `true`, the parameter is free with no explicit name.
+- If `freeParameter` is a non-empty string, the parameter is free and that
+  string becomes the backend parameter label, which also implies an equality
+  constraint when reused.
+- `freeParameter: false` is not part of the current schema contract; omission is
+  used for fixed parameters.
 
 ### Unsupported Features
 
@@ -111,9 +134,24 @@ constraints, definition variables, etc.
   are set at the `parameterType` level (in `optimization.parameterTypes`) and
   can be overridden per-path in the path's own `optimization` field. Per-path
   values always win.
+- Path starting values are stored directly on the path as `value`.
 - The OpenMx converter **does not apply priors** (OpenMx is frequentist);
   they are stored for future use by blavaan and other Bayesian backends.
 - Bounds are stored but not currently passed to `mxPath` in v0.1.
+
+### Node Metadata in Schema
+
+- Nodes may include a human-readable `description`.
+- Nodes may include `bindingMappings` for non-structural binding metadata.
+- `customTags` is no longer part of the current schema contract.
+
+### Fit Results
+
+- Stored fit results use `fitResults.parameterEstimates`, not
+  `fitResults.parameters`.
+- Persisted `fitResults.isDirty` is not part of the schema.
+- Staleness is derived transiently from `structureHash`; accessors expose this
+  as `isStale` rather than storing mutable dirty-state in the schema.
 
 ### OpenMx Expectation
 
@@ -163,7 +201,7 @@ without explicit direction from the developer.
 **The question:** Should data links be represented as **paths in the graph**, as
 **properties of variable nodes**, or as a **separate data model**?
 
-**Current state:** The schema currently uses `dataMapping` paths from a
+**Current state:** The schema currently uses `type: "data"` paths from a
 `dataset` node to a `variable` node. This may change.
 
 **Options under consideration:**

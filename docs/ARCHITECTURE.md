@@ -93,6 +93,10 @@ The central R object. Slots:
 | `lastBuiltModel` | `ANY` | Cached mxModel from the most recent `as.MxModel()` or `mxRun()` call. `NULL` if not yet built. |
 | `dataConnections` | `list` | Per-dataset connection state: `status` ("eager"/"lazy"/"unconnected"), `filepath`, `columns`. |
 
+The schema deliberately excludes editor-only runtime ids. The web frontend may
+assign internal ids while editing, but those are stripped when exporting schema
+JSON so serialized models stay portable and backend-agnostic.
+
 ### Key R Functions
 
 | Function | Purpose |
@@ -116,16 +120,26 @@ nodes, paths, parameter values, and data from any RAM-type model.
 `schemaToOpenMx()` converts a schema to an `mxModel` in six phases:
 
 1. Validate schema; extract optimization settings (fit function, missingness)
-2. Find dataset nodes; build `mxData` using the `mappings` field on the dataset
-   node (a named list: CSV column → variable label)
-3. Find constant nodes; collect mean/intercept paths (constant label → `"one"`
-   in OpenMx)
-4. Infer manifest variables (from incoming data-mapping paths, or explicit
+2. Find dataset nodes; build `mxData` from incoming `type: "data"` paths
+  (`path$label` is the source column name, `path$to` is the target variable)
+3. Find constant nodes; collect mean/intercept paths (schema constant label
+  `"1"` becomes `"one"` only in OpenMx)
+4. Infer manifest variables (from incoming `type: "data"` paths, or explicit
    `variableCharacteristics$manifestLatent`); all other variable nodes are latent
-5. Build `mxPath` list — skip `dataMapping` paths; flag unsupported features
-   (link functions, 0-headed paths, priors) into `@metadata$unsupported` for
-   future round-tripping
+5. Build `mxPath` list — skip `type: "data"` paths; flag unsupported features
+  (link functions, 0-arrow paths, priors) into `@metadata$unsupported` for
+  future round-tripping
 6. Assemble `mxModel(type="RAM", ...)` and apply non-ML fit function if specified
+
+Path parameter state is carried by `freeParameter` plus `value` in the schema.
+`freeParameter: true` creates an anonymous free parameter; a string value makes
+the parameter free and names it in the backend, which also carries equality
+constraint semantics in OpenMx. If `freeParameter` is absent, the parameter is
+fixed.
+
+Fit results stored on the schema use `fitResults.parameterEstimates`. Mutable
+dirty-state is not persisted; staleness is derived transiently from the stored
+`structureHash` when fit results are accessed.
 
 For full path-type semantics and the complete conversion spec, see
 `docs/DESIGN-DECISIONS.md`.
