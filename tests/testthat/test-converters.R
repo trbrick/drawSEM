@@ -58,6 +58,45 @@ test_that("buildPathList preserves labels when present", {
   expect_equal(result[[1]]$labels, "loading_1")
 })
 
+test_that("buildPathList uses freeParameter string as mxPath label for named free parameters", {
+  paths <- list(
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = "lambda_x1", value = 0.8)
+  )
+
+  result <- buildPathList(paths, constantNodeLabel = NULL)
+
+  expect_equal(result[[1]]$labels, "lambda_x1")
+  expect_true(result[[1]]$free)
+  expect_equal(result[[1]]$values, 0.8)
+})
+
+test_that("buildPathList enforces equality constraints via shared freeParameter name", {
+  paths <- list(
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = "lambda", value = 1.0),
+    list(from = "F1", to = "x2", numberOfArrows = 1, freeParameter = "lambda", value = 1.0)
+  )
+
+  result <- buildPathList(paths, constantNodeLabel = NULL)
+
+  expect_equal(length(result), 2)
+  expect_equal(result[[1]]$labels, "lambda")
+  expect_equal(result[[2]]$labels, "lambda")
+  expect_true(result[[1]]$free)
+  expect_true(result[[2]]$free)
+})
+
+test_that("buildPathList: named freeParameter takes precedence over path$label", {
+  paths <- list(
+    list(from = "F1", to = "x1", numberOfArrows = 1,
+         freeParameter = "param_name", label = "display_label", value = 1.0)
+  )
+
+  result <- buildPathList(paths, constantNodeLabel = NULL)
+
+  # freeParameter string is the mxPath label (equality constraint name)
+  expect_equal(result[[1]]$labels, "param_name")
+})
+
 test_that("getConstantNodeLabel identifies constant node correctly", {
   schema <- list(
     nodes = list(

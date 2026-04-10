@@ -2636,7 +2636,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   <div>
                     <span className="font-medium">Free/Fixed:</span>
                     <select
-                      value={selectedPath.freeParameter ? 'free' : 'fixed'}
+                      value={selectedPath.freeParameter !== undefined ? 'free' : 'fixed'}
                       onChange={(e) => {
                         setPaths((ps) =>
                           ps.map((p) =>
@@ -2652,6 +2652,25 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       <option value="free">free</option>
                       <option value="fixed">fixed</option>
                     </select>
+                    {selectedPath.freeParameter !== undefined && !isDatasetPath(selectedPath, nodes) && (
+                      <input
+                        type="text"
+                        placeholder="name (optional)"
+                        value={typeof selectedPath.freeParameter === 'string' ? selectedPath.freeParameter : ''}
+                        onChange={(e) => {
+                          const name = e.target.value.trim()
+                          setPaths((ps) =>
+                            ps.map((p) =>
+                              p.id === selectedPath.id
+                                ? { ...p, freeParameter: name.length > 0 ? name : true }
+                                : p
+                            )
+                          )
+                        }}
+                        className="ml-2 px-2 py-1 border rounded text-xs bg-white w-28"
+                        title="Parameter name for equality constraints (leave empty for anonymous)"
+                      />
+                    )}
                   </div>
                 </div>
 

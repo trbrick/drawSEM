@@ -873,7 +873,9 @@ setMethod(
     to = to_label,
     numberOfArrows = num_arrows,
               value = val,
-              freeParameter = if (free) TRUE else NULL,
+              freeParameter = if (!free) NULL
+                              else if (!is.na(label) && is.character(label) && nzchar(label)) label
+                              else TRUE,
               label = label,
               parameterType = param_type
             )
@@ -951,7 +953,9 @@ setMethod(
                 to = var_name,
                 numberOfArrows = 1,
                 value = val,
-                freeParameter = if (free) TRUE else NULL,
+                freeParameter = if (!free) NULL
+                                else if (!is.na(label) && is.character(label) && nzchar(label)) label
+                                else TRUE,
                 label = label,
                 parameterType = "mean"
               )

@@ -176,7 +176,8 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   for (path in one_paths) {
     expect_equal(path$numberOfArrows, 1)
     expect_equal(path$parameterType, "mean")
-    expect_true(isTRUE(path$freeParameter))
+    # freeParameter is either TRUE (anonymous) or a non-empty string (named)
+    expect_true(isTRUE(path$freeParameter) || (is.character(path$freeParameter) && nzchar(path$freeParameter)))
     expect_true(path$to %in% c('x', 'y'))
   }
   
@@ -188,4 +189,58 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   expect_equal(length(one_to_y), 1)
   expect_equal(as.numeric(one_to_x[[1]]$value), 5)
   expect_equal(as.numeric(one_to_y[[1]]$value), 10)
+
+  # Verify named parameters: mean_x and mean_y labels should become freeParameter strings
+  to_x_path <- one_to_x[[1]]
+  to_y_path <- one_to_y[[1]]
+  expect_equal(to_x_path$freeParameter, "mean_x")
+  expect_equal(to_y_path$freeParameter, "mean_y")
+})
+
+test_that("as.GraphModel emits named freeParameter strings for labelled MxRAMModel paths", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  # Model with shared parameter label for equality constraint
+  data <- data.frame(x1 = rnorm(100), x2 = rnorm(100), x3 = rnorm(100))
+
+  model <- OpenMx::mxModel(
+    'cfa_model',
+    type = 'RAM',
+    manifestVars = c('x1', 'x2', 'x3'),
+    latentVars = 'F1',
+    OpenMx::mxData(data, type = 'raw'),
+    OpenMx::mxPath(from = c('x1', 'x2', 'x3'), arrows = 2, free = TRUE, values = 1,
+                   labels = c('e1', 'e2', 'e3')),
+    OpenMx::mxPath(from = 'F1', arrows = 2, free = TRUE, values = 1, label = 'varF1'),
+    # First loading fixed at 1 (no label), others free with names
+    OpenMx::mxPath(from = 'F1', to = c('x1', 'x2', 'x3'), arrows = 1,
+                   free = c(FALSE, TRUE, TRUE), values = 1,
+                   labels = c(NA, 'lambda2', 'lambda3'))
+  )
+
+  g <- as.GraphModel(model)
+  paths <- g@schema$models$cfa_model$paths
+
+  # Find factor loading paths
+  loadings <- Filter(function(p) p$from == "F1" && p$to %in% c("x1", "x2", "x3"), paths)
+
+  # x1: fixed loading (freeParameter = NULL)
+  loading_x1 <- Filter(function(p) p$to == "x1", loadings)[[1]]
+  expect_null(loading_x1$freeParameter)
+
+  # x2: named free parameter
+  loading_x2 <- Filter(function(p) p$to == "x2", loadings)[[1]]
+  expect_equal(loading_x2$freeParameter, "lambda2")
+
+  # x3: named free parameter
+  loading_x3 <- Filter(function(p) p$to == "x3", loadings)[[1]]
+  expect_equal(loading_x3$freeParameter, "lambda3")
+
+  # Residual variances for manifest vars should all be named
+  manifest_residuals <- Filter(
+    function(p) p$from == p$to && p$numberOfArrows == 2 && p$from %in% c("x1", "x2", "x3"),
+    paths
+  )
+  res_fp <- sapply(manifest_residuals, function(p) p$freeParameter)
+  expect_setequal(res_fp, c("e1", "e2", "e3"))
 })

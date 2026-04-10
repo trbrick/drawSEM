@@ -248,8 +248,17 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
       from_label <- "one"
     }
     
-    # Extract parameter name (label)
-    param_name <- if (!is.null(path$label) && nzchar(path$label)) path$label else NA
+    # Parameter label for mxPath:
+    # - named free parameter (freeParameter is a non-empty string): use it as the
+    #   equality-constraint label in OpenMx
+    # - anonymous free or fixed: fall back to path$label (display label), else NA
+    param_name <- if (is.character(path$freeParameter) && nzchar(path$freeParameter)) {
+      path$freeParameter
+    } else if (!is.null(path$label) && is.character(path$label) && nzchar(path$label)) {
+      path$label
+    } else {
+      NA
+    }
     
     # Extract starting value
     start_value <- if (!is.null(path$value)) path$value else NA
