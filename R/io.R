@@ -584,7 +584,7 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
 #' }
 #'
 #' @export
-loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
+loadGraphModel <- function(filepath, data = NULL, datapath = getwd(), dataName = NULL) {
   if (!file.exists(filepath)) {
     stop("File not found: ", filepath, call. = FALSE)
   }
@@ -592,6 +592,18 @@ loadGraphModel <- function(filepath, data = NULL, datapath = getwd()) {
   # Load graph model using loadSchema (which handles all data loading)
   gm <- loadSchema(filepath, dataPath = datapath)
   
+  # Accept common convenience forms for user-provided data.
+  if (is.character(data) && length(data) == 1 && nzchar(data)) {
+    if (!file.exists(data)) {
+      stop("Data file not found: ", data, call. = FALSE)
+    }
+    dataset_name <- dataName %||% tools::file_path_sans_ext(basename(data))
+    data <- setNames(list(utils::read.csv(data, stringsAsFactors = FALSE)), dataset_name)
+  } else if (is.data.frame(data)) {
+    dataset_name <- dataName %||% "data"
+    data <- setNames(list(data), dataset_name)
+  }
+
   # If user provided data, merge it into the model's data
   if (!is.null(data) && is.list(data) && length(data) > 0) {
     # Merge user-provided data with schema-loaded data
@@ -937,7 +949,7 @@ setMethod(
         if (!is.null(m_values)) {
           # M is typically 1 x p (1 row, p columns for p manifest variables)
           m_paths <- list()
-          for (j in seq_len(length(m_values))) {
+          for (j in seq_along(m_values)) {
             val <- m_values[j]
             if (!is.na(val) && val != 0) {
               # Map to correct manifest variable

@@ -77,7 +77,10 @@ test_that("resolveDataPath handles relative and absolute paths", {
   # Test absolute path
   abs_path <- "/tmp/data.csv"
   result <- resolveDataPath(abs_path, "/home/user", ".")
-  expect_equal(normalizePath(result), normalizePath(abs_path))
+  expect_equal(
+    normalizePath(result, mustWork = FALSE),
+    normalizePath(abs_path, mustWork = FALSE)
+  )
   
   # Test override dataPath
   result <- resolveDataPath("mydata.csv", "/home/user/models", "/home/user/other")

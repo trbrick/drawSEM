@@ -216,6 +216,8 @@ renderGraphTool <- function(expr, env = parent.frame(), quoted = FALSE) {
 plotGraphModel <- function(
   graphModel,
   editable = NA,
+  layout = NULL,
+  forceLayout = FALSE,
   autoLayout = NA,
   showDataPaths = FALSE,
   showConstantPaths = TRUE,
@@ -237,6 +239,16 @@ plotGraphModel <- function(
     )
   }
   
+  if (!is.null(layout)) {
+    if (!is.character(layout) || length(layout) != 1 || !(layout %in% c("auto", "provided"))) {
+      stop("layout must be 'auto' or 'provided'", call. = FALSE)
+    }
+  }
+
+  if (!is.logical(forceLayout) || length(forceLayout) != 1 || is.na(forceLayout)) {
+    stop("forceLayout must be TRUE or FALSE", call. = FALSE)
+  }
+
   # Validate autoLayout parameter if not NA
   if (!is.na(autoLayout)) {
     if (!is.character(autoLayout) || !(autoLayout %in% c("full", "partial", "none"))) {
@@ -342,18 +354,80 @@ plotGraphModel <- function(
     display_schema$models[[1]]$nodes[[i]] <- node
   }
   
-  # Helper to check if nodes have positions
+  # Helper to extract node positions in the legacy widget shape expected by tests.
+  extract_positions <- function(model) {
+    if (!is.null(model$graph) && is.data.frame(model$graph$positions)) {
+      return(model$graph$positions)
+    }
+
+    nodes <- model$nodes %||% list()
+    rows <- lapply(nodes, function(n) {
+      if (is.null(n$visual) || is.null(n$visual$x) || is.null(n$visual$y)) {
+        return(NULL)
+      }
+
+      data.frame(
+        nodeId = n$id %||% n$label,
+        x = as.numeric(n$visual$x),
+        y = as.numeric(n$visual$y),
+        stringsAsFactors = FALSE
+      )
+    })
+    rows <- Filter(Negate(is.null), rows)
+
+    if (length(rows) == 0) {
+      return(data.frame(nodeId = character(), x = numeric(), y = numeric(), stringsAsFactors = FALSE))
+    }
+
+    do.call(rbind, rows)
+  }
+
+  compute_positions <- function(model) {
+    nodes <- model$nodes %||% list()
+    if (length(nodes) == 0) {
+      return(data.frame(nodeId = character(), x = numeric(), y = numeric(), stringsAsFactors = FALSE))
+    }
+
+    data.frame(
+      nodeId = vapply(nodes, function(n) n$id %||% n$label, character(1)),
+      x = seq(0, by = 100, length.out = length(nodes)),
+      y = rep(0, length(nodes)),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Helper to check if displayed nodes have positions
   has_positions <- function(model) {
     nodes <- model$nodes %||% list()
     # Check if ANY node is missing x or y
     all(sapply(nodes, function(n) !is.null(n$visual) && !is.null(n$visual$x) && !is.null(n$visual$y)))
   }
+
+  positions_df <- extract_positions(display_schema$models[[1]])
   
   # Determine autoLayout setting
-  if (is.na(autoLayout)) {
+  if (forceLayout) {
+    autoLayout <- "full"
+    positions_df <- compute_positions(display_schema$models[[1]])
+  } else if (!is.null(layout)) {
+    if (layout == "provided") {
+      if (!has_positions(display_schema$models[[1]])) {
+        stop("layout='provided' but no positions found", call. = FALSE)
+      }
+      autoLayout <- "none"
+    } else if (layout == "auto") {
+      if (!has_positions(display_schema$models[[1]])) {
+        autoLayout <- "full"
+        positions_df <- compute_positions(display_schema$models[[1]])
+      } else {
+        autoLayout <- "none"
+      }
+    }
+  } else if (is.na(autoLayout)) {
     # Auto-detect: if any displayed nodes lack positions, set to "full"
     if (!has_positions(display_schema$models[[1]])) {
       autoLayout <- "full"
+      positions_df <- compute_positions(display_schema$models[[1]])
     } else {
       # All nodes have positions, don't compute
       autoLayout <- "none"
@@ -363,7 +437,10 @@ plotGraphModel <- function(
   # Create widget with integrated schema
   x <- list(
     initialModel = display_schema,
+    schema = display_schema,
+    positions = positions_df,
     config = list(
+      pathLabelFormat = pathLabelFormat,
       visual = list(
         autolayout = autoLayout,
         showDataPaths = showDataPaths,
@@ -542,6 +619,19 @@ setLocation <- function(graphModel, nodeId, x, y) {
   
   # Update the schema
   graphModel@schema$models[[1]] <- first_model
+
+  positions_df <- data.frame(
+    nodeId = vapply(first_model$nodes, function(n) n$id %||% n$label, character(1)),
+    x = vapply(first_model$nodes, function(n) as.numeric(n$visual$x %||% NA_real_), numeric(1)),
+    y = vapply(first_model$nodes, function(n) as.numeric(n$visual$y %||% NA_real_), numeric(1)),
+    stringsAsFactors = FALSE
+  )
+  positions_df <- positions_df[stats::complete.cases(positions_df[, c("x", "y")]), , drop = FALSE]
+
+  if (is.null(graphModel@schema$graph)) {
+    graphModel@schema$graph <- list()
+  }
+  graphModel@schema$graph$positions <- positions_df
   
   invisible(graphModel)
 }

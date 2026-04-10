@@ -4,6 +4,7 @@ import Ajv from 'ajv'
 import schema from '../schema/graph.schema.json'
 
 const ajv = new Ajv({ allErrors: true, strict: false })
+ajv.addFormat('date-time', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/)
 const validate = ajv.compile(schema as object)
 
 export function validateGraph(doc: unknown) {

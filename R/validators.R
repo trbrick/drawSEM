@@ -6,6 +6,33 @@
 #' @keywords internal
 NULL
 
+#' Normalize Schema Version
+#'
+#' Coerces whole-number numeric schema versions (for example `1.0`) to integer
+#' storage while leaving non-numeric or non-integral values untouched for later
+#' validation to reject if needed.
+#'
+#' @param schema A schema list
+#'
+#' @return The schema list with normalized schemaVersion when applicable
+#'
+#' @keywords internal
+#' @noRd
+normalizeSchemaVersion <- function(schema) {
+  if (!is.list(schema) || is.null(schema$schemaVersion)) {
+    return(schema)
+  }
+
+  schema_version <- schema$schemaVersion
+  if (is.numeric(schema_version) && length(schema_version) == 1 && !is.na(schema_version)) {
+    if (isTRUE(all.equal(schema_version, round(schema_version)))) {
+      schema$schemaVersion <- as.integer(round(schema_version))
+    }
+  }
+
+  schema
+}
+
 #' Validate Schema Structure
 #'
 #' @param schema A list or JSON string representing a schema
@@ -17,7 +44,7 @@ NULL
 #' Does not validate against the formal JSON schema (that's done in TypeScript).
 #'
 #' @keywords internal
-validateSchemaStructure <- function(schema) {
+validateSchemaStructure <- function(schema, verbose = TRUE) {
   # Handle JSON string input
   if (is.character(schema)) {
     schema <- tryCatch(
@@ -43,12 +70,18 @@ validateSchemaStructure <- function(schema) {
       call. = FALSE
     )
   }
+
+  schema <- normalizeSchemaVersion(schema)
   
   # Check models is non-empty list
   if (!is.list(schema$models) || length(schema$models) == 0) {
     stop("schema$models must be a non-empty list", call. = FALSE)
   }
   
+  if (isTRUE(verbose)) {
+    message("Schema structure is valid")
+  }
+
   invisible(schema)
 }
 
@@ -64,7 +97,7 @@ validateSchemaStructure <- function(schema) {
 #' @return Invisibly returns TRUE. Throws error if invalid.
 #'
 #' @keywords internal
-validateNodeIntegrity <- function(schema) {
+validateNodeIntegrity <- function(schema, verbose = TRUE) {
   for (model_id in names(schema$models)) {
     model <- schema$models[[model_id]]
     
@@ -97,7 +130,7 @@ validateNodeIntegrity <- function(schema) {
       if (!is.null(node$type) && !(node$type %in% valid_types)) {
         stop(
           sprintf(
-            "Model '%s': invalid node type '%s'. Must be one of: %s",
+            "Model '%s': Invalid node type '%s'. Must be one of: %s",
             model_id,
             node$type,
             paste(valid_types, collapse = ", ")
@@ -108,6 +141,10 @@ validateNodeIntegrity <- function(schema) {
     }
   }
   
+  if (isTRUE(verbose)) {
+    message("Node integrity is valid")
+  }
+
   invisible(TRUE)
 }
 
@@ -125,7 +162,7 @@ validateNodeIntegrity <- function(schema) {
 #' @return Invisibly returns TRUE. Throws error if invalid.
 #'
 #' @keywords internal
-validatePathReferences <- function(schema) {
+validatePathReferences <- function(schema, verbose = TRUE) {
   for (model_id in names(schema$models)) {
     model <- schema$models[[model_id]]
     
@@ -168,7 +205,7 @@ validatePathReferences <- function(schema) {
       if (!(from %in% node_labels)) {
         stop(
           sprintf(
-            "Model '%s': path %d references non-existent node '%s'",
+            "Model '%s': path %d references undefined node '%s'",
             model_id, i, from
           ),
           call. = FALSE
@@ -178,7 +215,7 @@ validatePathReferences <- function(schema) {
       if (!(to %in% node_labels)) {
         stop(
           sprintf(
-            "Model '%s': path %d references non-existent node '%s'",
+            "Model '%s': path %d references undefined node '%s'",
             model_id, i, to
           ),
           call. = FALSE
@@ -222,6 +259,10 @@ validatePathReferences <- function(schema) {
     }
   }
   
+  if (isTRUE(verbose)) {
+    message("Path references are valid")
+  }
+
   invisible(TRUE)
 }
 
@@ -237,7 +278,7 @@ validatePathReferences <- function(schema) {
 #' @return Invisibly returns TRUE. Throws error if invalid.
 #'
 #' @keywords internal
-validateOptimizationParams <- function(schema) {
+validateOptimizationParams <- function(schema, verbose = TRUE) {
   for (model_id in names(schema$models)) {
     model <- schema$models[[model_id]]
     
@@ -277,7 +318,7 @@ validateOptimizationParams <- function(schema) {
       if (is_path_fixed && is.null(path$value)) {
         stop(
           sprintf(
-            "Model '%s': path %d: fixed parameters must have a value (got NULL)",
+            "Model '%s': path %d: Fixed parameters must have a value (got NULL)",
             model_id, i
           ),
           call. = FALSE
@@ -286,6 +327,10 @@ validateOptimizationParams <- function(schema) {
     }
   }
   
+  if (isTRUE(verbose)) {
+    message("Optimization parameters are valid")
+  }
+
   invisible(TRUE)
 }
 
@@ -307,20 +352,19 @@ validateOptimizationParams <- function(schema) {
 #' @export
 validateSchema <- function(schema, verbose = TRUE) {
   # Parse and validate structure
-  schema <- validateSchemaStructure(schema)
+  schema <- validateSchemaStructure(schema, verbose = FALSE)
   
   # Validate node integrity
-  validateNodeIntegrity(schema)
+  validateNodeIntegrity(schema, verbose = FALSE)
   
   # Validate path references
-  validatePathReferences(schema)
+  validatePathReferences(schema, verbose = FALSE)
   
   # Validate optimization parameters
-  validateOptimizationParams(schema)
+  validateOptimizationParams(schema, verbose = FALSE)
   
   if (verbose) {
-    n_models <- length(schema$models)
-    message(sprintf("%d model%s loaded.", n_models, if (n_models == 1) "" else "s"))
+    message("Schema validation passed")
   }
   
   invisible(schema)

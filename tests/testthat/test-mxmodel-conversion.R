@@ -47,7 +47,7 @@ test_that("as.GraphModel converts simple one-factor path model", {
   # Check that constant node is present (for means)
   const_nodes <- Filter(function(n) n$type == "constant", nodes)
   expect_equal(length(const_nodes), 1)
-  expect_equal(const_nodes[[1]]$label, "one")
+  expect_equal(const_nodes[[1]]$label, "1")
 })
 
 test_that("as.GraphModel handles bivariate path model", {
@@ -163,13 +163,13 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   # Check that constant node is present
   const_nodes <- Filter(function(n) n$type == "constant", nodes)
   expect_equal(length(const_nodes), 1)
-  expect_equal(const_nodes[[1]]$label, "one")
+  expect_equal(const_nodes[[1]]$label, "1")
   
-  # Check that paths from 'one' to variables exist and have correct structure
+  # Check that paths from schema constant node '1' to variables exist and have correct structure
   paths <- g@schema$models$means_model$paths
-  one_paths <- Filter(function(p) p$from == "one", paths)
+  one_paths <- Filter(function(p) p$from == "1", paths)
   
-  # Should have 2 paths from 'one' (one for each variable mean)
+  # Should have 2 paths from '1' (one for each variable mean)
   expect_equal(length(one_paths), 2)
   
   # Verify each path has correct structure

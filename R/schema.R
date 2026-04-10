@@ -53,6 +53,7 @@ loadSchema <- function(filepath, ..., loadData = NA, dataPath = ".") {
   
   # Normalize schema to handle jsonlite's list-wrapping of scalar values
   schema <- normalizeSchemaFromJSON(schema)
+  schema <- normalizeSchemaVersion(schema)
   
   # Get schema directory for relative path resolution
   schemaDir <- dirname(normalizePath(filepath))
@@ -175,16 +176,21 @@ loadSchema <- function(filepath, ..., loadData = NA, dataPath = ".") {
 #' @export
 saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
                        writeData = NA, strictData = NA, pretty = TRUE) {
-  if (!is(g, "GraphModel")) {
-    stop("g must be a GraphModel object", call. = FALSE)
+  if (is(g, "GraphModel")) {
+    schema <- g$schema
+    data_list <- g$data
+  } else if (is.list(g)) {
+    schema <- g
+    data_list <- list()
+  } else {
+    stop("g must be a GraphModel object or schema list", call. = FALSE)
   }
-  
+
+  schema <- normalizeSchemaVersion(schema)
+
   # Get schema and data using $ operator
-  schema <- g$schema
-  data_list <- g$data
   
   # Get directory info
-  schema_dir <- dirname(normalizePath(filepath))
   schema_basename <- tools::file_path_sans_ext(basename(filepath))
   
   # Infer dataFile if not provided and data export is requested

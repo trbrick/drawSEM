@@ -1,5 +1,5 @@
 # Establish testthat testing framework
 library(testthat)
-library(visualWebTool)
+library(OpenMxWebUI)
 
-test_check("visualWebTool")
+test_check("OpenMxWebUI")

@@ -10,6 +10,18 @@ test_that("validateSchemaStructure passes with valid schema", {
   )
 })
 
+test_that("validateSchemaStructure coerces whole-number doubles to integer", {
+  schema <- list(
+    schemaVersion = 1.0,
+    models = list(model1 = list(nodes = list(), paths = list()))
+  )
+
+  validated <- validateSchemaStructure(schema, verbose = FALSE)
+
+  expect_type(validated$schemaVersion, "integer")
+  expect_identical(validated$schemaVersion, 1L)
+})
+
 test_that("validateSchemaStructure fails without schemaVersion", {
   schema <- list(
     models = list(model1 = list(nodes = list(), paths = list()))
