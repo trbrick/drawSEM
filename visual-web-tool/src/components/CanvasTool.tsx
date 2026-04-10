@@ -1086,9 +1086,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               visual: { x: n.x, y: n.y },
             })),
             paths: currentModel.paths.map((p) => ({
-                            from: idToLabel[p.from] ?? p.from,
-              to:   idToLabel[p.to]   ?? p.to,
+              from:           idToLabel[p.from] ?? p.from,
+              to:             idToLabel[p.to]   ?? p.to,
               numberOfArrows: p.twoSided ? 2 : 1,
+              freeParameter:  p.freeParameter,
+              value:          p.value,
             })),
           },
         },
@@ -1429,6 +1431,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         newPath.type = 'data'
         newPath.displayName = convertToUnicode(defaultLabel)
       } else {
+        // Default all non-dataset paths to value 1.0
+        newPath.value = 1.0
+        // Self-loops default to free error variance
+        if (src === dst && twoSided) {
+          newPath.freeParameter = true
+          newPath.parameterType = 'errorVariance'
+        }
         // Auto-generate a readable unicode display name from node labels
         const arrow = twoSided ? ' ↔ ' : ' → '
         newPath.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
@@ -1471,11 +1480,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setNodes((s) => [...s, n])
       selectElement(n.id, 'node')
 
-      // add variance path automatically for variable nodes
+      // add variance path automatically for variable nodes (free error variance by default)
       if (type !== 'constant') {
         const vid = uid('p_')
         const uniLabel = convertToUnicode(n.label)
-        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid, displayName: uniLabel + ' ↔ ' + uniLabel }
+        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid, displayName: uniLabel + ' ↔ ' + uniLabel, freeParameter: true, parameterType: 'errorVariance', value: 1.0 }
         setPaths((ps) => [...ps, variance])
       }
 
@@ -1548,7 +1557,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       }
       setPaths((ps) => [...ps, newPath])
 
-      // Add variance path automatically
+      // Add variance path automatically (free error variance by default)
       const varianceId = uid('p_')
       const variance: Path = {
         id: varianceId,
@@ -1557,6 +1566,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         twoSided: true,
         label: varianceId,
         displayName: displayName + ' ↔ ' + displayName,
+        freeParameter: true,
+        parameterType: 'errorVariance',
+        value: 1.0,
       }
       setPaths((ps) => [...ps, variance])
     }

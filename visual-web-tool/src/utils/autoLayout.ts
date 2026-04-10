@@ -270,8 +270,8 @@ function detectErrorNodes(
     const targetLabel = outgoing[0].to
     const props = oneHeadedProps.get(`${nodeId}\u2192${targetLabel}`)
 
-    // 4a: path must be fixed at value 1.0
-    if (!props || props.freeParameter || props.value !== 1.0) return
+    // 4a: path must be fixed at value 1.0 (null/undefined treated as unset default = 1.0)
+    if (!props || props.freeParameter || (props.value ?? 1.0) !== 1.0) return
 
     // 4b: target must have no two-headed self-loop
     if (hasAnyOwnLoop.has(targetLabel)) return
@@ -687,9 +687,9 @@ function determineLoopSides(ranks: string[][], rankIndex: Map<string, number>, p
 function positionConstantsAndDatabases(model: any, positions: PositionMap, options: Required<LayoutOptions>): void {
   const { nodeWidth, gap, rankHeight } = options
 
-  // Get all variable ranks and compute middle rank
+  // Get main variable ranks only (exclude error nodes at negative ranks) for middle-rank calc
   const variableRanks = Object.values(positions)
-    .filter((p: any) => p.rank !== undefined && typeof p.rank === 'number')
+    .filter((p: any) => p.rank !== undefined && typeof p.rank === 'number' && p.rank >= 0)
     .map((p: any) => p.rank) as number[]
   
   const uniqueRanks = [...new Set(variableRanks)].sort((a, b) => a - b)
@@ -787,11 +787,14 @@ function positionConstantsAndDatabases(model: any, positions: PositionMap, optio
     const totalWidth = nodeCount * nodeWidth + (nodeCount - 1) * gap
     const startX = -totalWidth / 2
     const belowRank = maxVariableRank + 1
-    
+    // Use max occupied y (includes error nodes) so below-nodes never clash with them
+    const maxOccupiedY = Object.values(positions).reduce((m: number, p: any) => Math.max(m, p.y ?? 0), 0)
+    const belowY = maxOccupiedY + rankHeight
+
     belowWithBarycenters.forEach((item, idx) => {
       positions[item.node.label] = {
         x: startX + idx * (nodeWidth + gap),
-        y: belowRank * rankHeight,
+        y: belowY,
         rank: belowRank
       }
     })
