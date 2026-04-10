@@ -1,5 +1,5 @@
 # Establish testthat testing framework
 library(testthat)
-library(OpenMxWebUI)
+library(drawSEM)
 
-test_check("OpenMxWebUI")
+test_check("drawSEM")

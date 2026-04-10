@@ -1,0 +1,43 @@
+{
+  "name": "drawsem-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build:standalone": "vite build",
+    "build:widget": "vite build --config vite.widget.config.ts",
+    "build": "npm run build:standalone && npm run build:widget",
+    "preview": "vite preview --port 5173",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" || true",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:report": "node scripts/generate-layout-reports.js",
+    "import:graph": "node scripts/import-graph.js",
+    "csv:metadata": "node scripts/csv-metadata.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "csv-parse": "^6.1.0",
+    "papaparse": "^5.5.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "@vitest/ui": "^4.0.17",
+    "autoprefixer": "^10.4.0",
+    "baseline-browser-mapping": "^2.9.17",
+    "eslint": "^8.0.0",
+    "eslint-plugin-react": "^7.0.0",
+    "jsdom": "^27.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.2.2",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.17"
+  }
+}

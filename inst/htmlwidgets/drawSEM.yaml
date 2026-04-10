@@ -1,0 +1,15 @@
+# HTMLWidgets binding for drawSEM visual editor
+# https://www.htmlwidgets.org/develop_package.html
+
+dependencies:
+  - name: drawSEM-binding
+    version: 1.0.0
+    src: htmlwidgets
+    script:
+      - drawSEM.js
+    
+  - name: drawSEM-app
+    version: 1.0.0
+    src: htmlwidgets/lib/app
+    script:
+      - widget.js

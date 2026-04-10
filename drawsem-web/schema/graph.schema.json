@@ -1,0 +1,344 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/drawSEM/graph.schema.json",
+  "title": "drawSEM Graph Schema (Multi-Model)",
+  "description": "Schema describing multiple graphs (models) of nodes and paths with optional visual layout hints and optimization parameters for drawSEM. Models are organized as a named dictionary indexed by model ID.",
+  "type": "object",
+  "required": ["schemaVersion", "models"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "meta": { "type": "object", "description": "Global metadata (project-wide)", "additionalProperties": true },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Dictionary of statistical models indexed by model ID; each model contains its own nodes, paths, and optimization configuration",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["nodes", "paths"],
+        "properties": {
+          "label": { "type": "string", "description": "Human-readable name for the model" },
+          "meta": { "type": "object", "description": "Model-specific metadata", "additionalProperties": true },
+          "optimization": {
+            "type": "object",
+            "description": "Optional model-specific optimization configuration including parameter type definitions, fit function, and missing data handling",
+            "properties": {
+              "fitFunction": {
+                "type": "string",
+                "enum": ["ML", "WLS", "DWLS", "ULS", "GLS"],
+                "description": "Fit function for parameter estimation. Defaults to ML if not specified."
+              },
+              "missingness": {
+                "type": "string",
+                "enum": ["FIML", "listwise", "pairwise"],
+                "description": "Strategy for handling missing data. This is a hint; the backend may use different strategies for different data types (e.g., covariance matrices have no missing data). Defaults to FIML for raw data if not specified."
+              },
+              "parameterTypes": {
+                "type": "object",
+                "description": "Semantic categories for path parameters with default priors, bounds, and starting values",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "prior": {
+                      "type": ["object", "null"],
+                      "description": "Prior distribution specification (e.g., {\"distribution\": \"normal\", \"mean\": 0, \"sd\": 1})",
+                      "additionalProperties": true
+                    },
+                    "bounds": {
+                      "type": ["array", "null"],
+                      "items": { "type": ["number", "null"] },
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "Lower and upper bounds [min, max]; null means unbounded"
+                    },
+                    "start": {
+                      "type": ["number", "string", "null"],
+                      "description": "Starting value for optimization; 'auto' for automatic initialization"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "type"],
+              "properties": {
+                "label": { "type": "string", "minLength": 1 },
+                "type": { "type": "string", "enum": ["variable", "constant", "dataset"] },
+                "description": { "type": "string", "description": "Optional human-readable description of the node" },
+                "variableCharacteristics": {
+                  "type": "object",
+                  "description": "For variable nodes: semantic characteristics defining how the variable behaves structurally",
+                  "properties": {
+                    "manifestLatent": {
+                      "type": "string",
+                      "enum": ["manifest", "latent"],
+                      "description": "Whether the variable is observed (manifest) or unobserved (latent). When specified, locks the display type, overriding auto-inference from database paths. Omit to auto-infer: manifest if dataset path exists, latent otherwise."
+                    },
+                    "exogeneity": {
+                      "type": "string",
+                      "enum": ["exogenous", "endogenous"],
+                      "description": "Whether the variable is externally determined (exogenous) or internally determined by the model (endogenous)"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
+                "tags": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                },
+                "visual": {
+                  "type": "object",
+                  "description": "Optional visual layout hints; coordinates are relative to model origin (user units).",
+                  "properties": {
+                    "x": { "type": "number" },
+                    "y": { "type": "number" },
+                    "width": { "type": "number", "exclusiveMinimum": 0 },
+                    "height": { "type": "number", "exclusiveMinimum": 0 },
+                    "angle": { "type": "number", "description": "rotation angle in degrees" }
+                  },
+                  "additionalProperties": false
+                },
+                "bindingMappings": {
+                  "type": "object",
+                  "description": "For dataset nodes: mapping of source column names (or 'row_number') to logical binding names",
+                  "additionalProperties": { "type": "string" }
+                },
+                "datasetSource": {
+                  "type": "object",
+                  "description": "For dataset nodes: metadata and source of the associated data (file-based or embedded)",
+                  "required": ["type", "columnTypes"],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["file", "embedded"],
+                      "description": "Whether data is stored in an external file or embedded in the schema"
+                    },
+                    "location": {
+                      "type": "string",
+                      "description": "For type='file': path to the data file (relative to schema directory unless absolute). For type='embedded': unused."
+                    },
+                    "format": {
+                      "type": "string",
+                      "enum": ["csv", "tsv", "xlsx", "json"],
+                      "description": "Format of the external data file. For embedded data, always 'json'."
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "description": "Character encoding of the file (e.g., 'UTF-8'). Defaults to 'UTF-8' if not specified."
+                    },
+                    "columnTypes": {
+                      "type": "object",
+                      "description": "Mapping of column names to JSON-appropriate data types for type coercion on load",
+                      "additionalProperties": {
+                        "type": "string",
+                        "enum": ["number", "string", "boolean", "ordinal"],
+                        "description": "JSON-appropriate type: 'number' (numeric/integer), 'string' (character), 'boolean' (logical), 'ordinal' (factor/ordered)"
+                      }
+                    },
+                    "object": {
+                      "type": "array",
+                      "description": "For type='embedded': array of row objects with column names as keys. For type='file': unused.",
+                      "items": { "type": "object" }
+                    },
+                    "md5": {
+                      "type": "string",
+                      "description": "MD5 hash of the file (for file type) for integrity verification"
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Number of data rows (excluding header)"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "description": "Model history and fit results tracking",
+            "properties": {
+              "created": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO 8601 timestamp of model creation"
+              },
+              "lastModified": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO 8601 timestamp of last schema modification"
+              },
+              "structureHash": {
+                "type": "string",
+                "description": "Hash of fitting-relevant structure (nodes, paths, optimization params). Used to detect staleness of fit results."
+              },
+              "fitResults": {
+                "type": "array",
+                "description": "Array of fit results from running this model with different backends or configurations. Most recent fit is last.",
+                "items": {
+                  "type": "object",
+                  "required": ["timestamp", "backend", "converged"],
+                  "properties": {
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "ISO 8601 timestamp when this fit was run"
+                    },
+                    "backend": {
+                      "type": "string",
+                      "enum": ["OpenMx", "lavaan", "blavaan", "other"],
+                      "description": "Which backend was used for fitting"
+                    },
+                    "converged": {
+                      "type": "boolean",
+                      "description": "Whether the optimizer converged"
+                    },
+                    "structureHash": {
+                      "type": "string",
+                      "description": "Hash of model structure at time of fitting. Compare to provenance.structureHash to detect staleness."
+                    },
+                    "statusRemarks": {
+                      "type": "string",
+                      "description": "Human-readable convergence status message (e.g., 'Convergence detected. Code 0' for OpenMx)"
+                    },
+                    "fitValue": {
+                      "type": "number",
+                      "description": "Fit value (negative log-likelihood, chi-square, or equivalent depending on fitFunction)"
+                    },
+                    "degreesOfFreedom": {
+                      "type": "integer",
+                      "description": "Degrees of freedom for the model"
+                    },
+                    "sampleSize": {
+                      "type": "integer",
+                      "description": "Number of observations used in fitting"
+                    },
+                    "parameterEstimates": {
+                      "type": "object",
+                      "description": "Fitted parameter values, indexed by free parameter name",
+                      "additionalProperties": { "type": "number" }
+                    },
+                    "standardErrors": {
+                      "type": "object",
+                      "description": "Standard errors for fitted parameters, indexed by free parameter name",
+                      "additionalProperties": { "type": "number" }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "visualization": {
+            "type": "object",
+            "description": "Model-level visualization configuration: rendering hints for interactive and static layouts. Properties are optional; defaults apply when omitted. Different rendering contexts (RStudio, web, PDF) may interpret these hints differently.",
+            "properties": {
+              "anchor": {
+                "type": ["object", "null"],
+                "description": "Display offset to apply to all node positions before rendering. When null, automatically computed from node bounds and margins. When specified as {x, y}, adds this offset to all canonical node coordinates for display only (canonical coordinates in nodes[].visual remain unchanged). Used to center or position the model in different contexts (interactive canvas, PDF page, etc.)",
+                "properties": {
+                  "x": { "type": "number", "description": "Horizontal offset in display units" },
+                  "y": { "type": "number", "description": "Vertical offset in display units" }
+                },
+                "additionalProperties": false
+              },
+              "displayContext": {
+                "type": "object",
+                "description": "Rendering hints for different display contexts (interactive, print, web). Defaults: marginLeft=50, marginTop=50, modelWidthFactor=0.5. TODO: Move to configuration for cascade/submodel positioning.",
+                "properties": {
+                  "marginLeft": { "type": "number", "description": "Left margin in display units; used when computing default anchor" },
+                  "marginTop": { "type": "number", "description": "Top margin in display units; used when computing default anchor" },
+                  "modelWidthFactor": { "type": "number", "description": "Scaling factor relative to available width (0-1); used when computing default anchor for horizontal centering" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["from", "to"],
+              "if": { "properties": { "type": { "const": "data" } }, "required": ["type"] },
+              "then": { "not": { "required": ["numberOfArrows"] } },
+              "else": { "required": ["from", "to", "numberOfArrows"] },
+              "properties": {
+                "label": { "type": ["string", "null"], "description": "Optional human-readable label for the path; if null, label will not be displayed. For dataset-to-node paths, this should be the CSV column name." },
+                "description": { "type": "string", "description": "Optional human-readable description of the path" },
+                "value": { "type": ["number", "null"], "default": 1.0, "description": "Numeric value for the path parameter; defaults to 1.0. For dataset-to-node paths, must be null." },
+                "freeParameter": {
+                  "type": ["boolean", "string"],
+                  "description": "Whether the path parameter is estimated. true = free, anonymous (backend names it); a non-empty string = free, with that string as the parameter label (paths sharing a label are constrained equal); absent or null = fixed. false must never be written."
+                },
+                "parameterType": { "type": "string", "description": "Optional semantic category from optimization.parameterTypes; used to apply default priors, bounds, and starting values" },
+                "optimization": {
+                  "type": "object",
+                  "description": "Optional path-specific optimization overrides; merged with defaults from parameterType",
+                  "properties": {
+                    "prior": {
+                      "type": ["object", "null"],
+                      "description": "Prior distribution specification (overrides parameterType default)",
+                      "additionalProperties": true
+                    },
+                    "bounds": {
+                      "type": ["array", "null"],
+                      "items": { "type": ["number", "null"] },
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "Lower and upper bounds [min, max]; null means unbounded (overrides parameterType default)"
+                    },
+                    "start": {
+                      "type": ["number", "string", "null"],
+                      "description": "Starting value for optimization; 'auto' for automatic initialization (overrides parameterType default)"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "from": { "type": "string", "description": "Label of the source node (must match a node label exactly)" },
+                "to": { "type": "string", "description": "Label of the target node (must match a node label exactly)" },
+                "type": {
+                  "type": "string",
+                  "enum": ["data", "constant"],
+                  "description": "Optional path type: 'data' = dataset-to-variable mapping (numberOfArrows must be absent); 'constant' = mean/intercept from a constant node; absent = ordinary structural path."
+                },
+                "numberOfArrows": { "type": "integer", "minimum": 1, "maximum": 2, "description": "1 = directed path; 2 = bidirectional covariance. Must be absent on type='data' paths." },
+                "tags": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                },
+                "visual": {
+                  "type": "object",
+                  "properties": {
+                    "loopSide": { "type": "string", "enum": ["top","right","bottom","left"] },
+                    "midpointOffset": {
+                      "type": "object",
+                      "description": "Optional offset for two-headed covariance arrows; vector (x,y) in user units applied to the straight-line midpoint",
+                      "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

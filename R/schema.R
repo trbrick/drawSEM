@@ -298,5 +298,5 @@ saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
 #' @keywords internal
 #' @export
 getSchemaPath <- function() {
-  system.file("extdata", "graph.schema.json", package = "OpenMxWebUI")
+  system.file("extdata", "graph.schema.json", package = "drawSEM")
 }

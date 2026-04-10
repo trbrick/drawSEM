@@ -4,7 +4,7 @@
 \alias{validatePathReferences}
 \title{Validate Path References}
 \usage{
-validatePathReferences(schema)
+validatePathReferences(schema, verbose = TRUE)
 }
 \arguments{
 \item{schema}{A validated schema list}

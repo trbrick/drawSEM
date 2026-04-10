@@ -26,7 +26,7 @@ test_that("validateSchema rejects missing required fields", {
 test_that("loadSchema reads JSON from file", {
   fixture_path <- system.file(
     "extdata/graph.example.json",
-    package = "OpenMxWebUI"
+    package = "drawSEM"
   )
   
   skip_if_not(file.exists(fixture_path), 
@@ -61,8 +61,6 @@ test_that("saveSchema writes valid JSON", {
   
   # Verify can be read back
   loaded <- loadSchema(temp_file)
-  expected_schema <- schema
-  expected_schema$schemaVersion <- 1L
   expect_s4_class(loaded, "GraphModel")
-  expect_identical(loaded@schema, expected_schema)
+  expect_identical(loaded@schema, schema)
 })

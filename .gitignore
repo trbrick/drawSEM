@@ -1,8 +1,8 @@
-## Node.js (visual-web-tool only)
-visual-web-tool/node_modules/
-visual-web-tool/dist/
-visual-web-tool/.vite
-visual-web-tool/*.map
+## Node.js (drawsem-web only)
+drawsem-web/node_modules/
+drawsem-web/dist/
+drawsem-web/.vite
+drawsem-web/*.map
 
 ## R package artifacts
 .Rhistory

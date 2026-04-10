@@ -4,7 +4,7 @@
 \alias{validateNodeIntegrity}
 \title{Validate Node Integrity}
 \usage{
-validateNodeIntegrity(schema)
+validateNodeIntegrity(schema, verbose = TRUE)
 }
 \arguments{
 \item{schema}{A validated schema list}

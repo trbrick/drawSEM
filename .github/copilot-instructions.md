@@ -21,7 +21,8 @@ Full details: `docs/ARCHITECTURE.md`
 - **R package** (repo root): S4 `GraphModel` class, schema validation,
   schema→OpenMx converter, plotting, I/O. Standard R package installable via
   `devtools::install_github()`.
-- **TypeScript frontend** (`visual-web-tool/`): React + Vite. Two build
+- **TypeScript frontend** (`drawsem-web/`): React + Vite. Two build
+  **TypeScript** (from `drawsem-web/`):
   targets — standalone SPA and an htmlwidgets widget. Built widget assets are
   committed to `inst/htmlwidgets/lib/app/`; R users need no Node.js.
 
@@ -36,7 +37,7 @@ devtools::test()       # run testthat suite
 devtools::check()      # full CRAN-style check
 ```
 
-**TypeScript** (from `visual-web-tool/`):
+**TypeScript** (from `drawsem-web/`):
 ```bash
 npm run dev             # standalone dev server, localhost:5173
 npm run build:widget    # rebuild widget → inst/htmlwidgets/lib/app/
@@ -86,8 +87,8 @@ developer rather than picking an approach:
   the UI represent models that expand over dimensions (time, person, etc.)?
 - **Composition semantics:** how are units of measurement specified when
   cascading over dimensions?
-- **Package/tool name:** currently `OpenMxWebUI` (R) and `visual-web-tool`
-  (TS). A consistent name is TBD. Refer to components by role.
+- **Package/tool name:** the overall tool and R package name is `drawSEM`, and
+  the TypeScript frontend source lives in `drawsem-web/`.
 
 ---
 

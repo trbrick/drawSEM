@@ -267,10 +267,7 @@ for column names (e.g., `x_{time}`).
 
 ### 6. Package and tool naming
 
-**The question:** The R package (`OpenMxWebUI`) and the web frontend
-(`visual-web-tool`) will be renamed to a single consistent name. The name has
-not been decided.
-
-**Impact:** All user-facing strings, the GitHub repo URL, CRAN package name,
-and potentially the schema's identifying strings. Refer to components by role
-until this is resolved.
+- The overall tool and R package name is `drawSEM`.
+- The frontend source directory is `drawsem-web/`.
+- The schema filename remains `graph.schema.json`, but the schema `$id` uses the
+  `drawSEM` identity.

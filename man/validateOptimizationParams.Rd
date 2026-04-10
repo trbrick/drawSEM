@@ -4,7 +4,7 @@
 \alias{validateOptimizationParams}
 \title{Validate Optimization Parameters}
 \usage{
-validateOptimizationParams(schema)
+validateOptimizationParams(schema, verbose = TRUE)
 }
 \arguments{
 \item{schema}{A validated schema list}

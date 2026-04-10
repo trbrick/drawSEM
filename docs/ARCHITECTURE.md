@@ -1,9 +1,8 @@
 # Architecture Overview
 
-> **Naming note:** The R package is currently named `OpenMxWebUI` and the web
-> frontend source lives in `visual-web-tool/`. Both will be renamed to a single
-> consistent name (TBD). This document refers to components by role to remain
-> valid after that rename.
+> **Naming note:** The R package is named `drawSEM` and the web frontend source
+> lives in `drawsem-web/`. This document refers to components by role where
+> that is clearer than repeating implementation-specific paths.
 
 ---
 
@@ -40,7 +39,7 @@ repo root/                        ← R package (DESCRIPTION, NAMESPACE here)
 │   ├── htmlwidgets/              ← htmlwidgets binding (YAML, JS bridge)
 │   │   └── lib/app/              ← Built web frontend (committed to git)
 │   └── extdata/                  ← Schema JSON examples
-├── visual-web-tool/              ← Web frontend source (NOT in R tarball)
+├── drawsem-web/                  ← Web frontend source (NOT in R tarball)
 │   ├── src/                      ← TypeScript / React source
 │   ├── vite.config.ts            ← Standalone build config
 │   └── vite.widget.config.ts     ← Widget build config
@@ -51,7 +50,7 @@ repo root/                        ← R package (DESCRIPTION, NAMESPACE here)
 `inst/htmlwidgets/lib/app/` and is included when the R package is installed via
 `devtools::install_github()`.
 
-**Frontend developers** work in `visual-web-tool/` and run
+**Frontend developers** work in `drawsem-web/` and run
 `npm run build:widget` to update the committed assets before pushing. A
 pre-commit git hook does this automatically (see `.githooks/`).
 
@@ -175,7 +174,7 @@ devtools::test()         # Run testthat suite
 devtools::check()        # Full CRAN-style check
 ```
 
-### TypeScript — run from `visual-web-tool/`
+### TypeScript — run from `drawsem-web/`
 ```bash
 npm install              # First-time setup
 npm run dev              # Dev server at localhost:5173 (standalone mode)

@@ -1,5 +1,5 @@
 # Exclude entire TypeScript directory (only inst/htmlwidgets/lib/app/ needed for R)
-^visual-web-tool/.*$
+^drawsem-web/.*$
 
 # Development files
 ^\.vscode.*                   # Editor configs

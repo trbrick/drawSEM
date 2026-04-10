@@ -728,7 +728,7 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
 #' fit <- mxRun(mxModel('model', type='RAM', ...))
 #' # Convert to GraphModel for visualization
 #' gm <- as.GraphModel(fit)
-#' graphTool(gm)
+#' drawSEM(gm)
 #' }
 #'
 #' @export

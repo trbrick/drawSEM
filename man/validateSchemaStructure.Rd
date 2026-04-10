@@ -4,7 +4,7 @@
 \alias{validateSchemaStructure}
 \title{Validate Schema Structure}
 \usage{
-validateSchemaStructure(schema)
+validateSchemaStructure(schema, verbose = TRUE)
 }
 \arguments{
 \item{schema}{A list or JSON string representing a schema}

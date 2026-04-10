@@ -2,10 +2,10 @@
 set -e
 
 # Check if web-tool source files changed
-if git diff --cached --name-only | grep -qE 'visual-web-tool/src|visual-web-tool/vite'; then
+if git diff --cached --name-only | grep -qE 'drawsem-web/src|drawsem-web/vite'; then
     echo "Detected web tool changes. Rebuilding widget..."
     
-    cd visual-web-tool
+    cd drawsem-web
     npm run build:widget
     cd ..
     

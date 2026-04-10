@@ -4,7 +4,7 @@
 \alias{loadGraphModel}
 \title{Load GraphModel from JSON File}
 \usage{
-loadGraphModel(filepath, data = NULL, datapath = getwd())
+loadGraphModel(filepath, data = NULL, datapath = getwd(), dataName = NULL)
 }
 \arguments{
 \item{filepath}{Path to JSON file}

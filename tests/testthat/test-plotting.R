@@ -2,21 +2,21 @@
 # Comprehensive test suite for plotGraphModel(), setLocation(), and S3 plot methods
 
 # Load the package functions
-library(OpenMxWebUI)
+library(drawSEM)
 
-# Helper to load fixture files from visual-web-tool
+# Helper to load fixture files from drawsem-web
 load_fixture <- function(filename) {
   fixture_path <- system.file(
-    "../../visual-web-tool/tests/fixtures/models/layout",
+    "../../drawsem-web/tests/fixtures/models/layout",
     filename,
-    package = "OpenMxWebUI"
+    package = "drawSEM"
   )
   
   if (!file.exists(fixture_path)) {
     # Fallback: try from root
     fixture_path <- file.path(
       dirname(dirname(dirname(getwd()))),
-      "visual-web-tool/tests/fixtures/models/layout",
+      "drawsem-web/tests/fixtures/models/layout",
       filename
     )
   }
@@ -308,9 +308,9 @@ describe("plotGraphModel()", {
       gm <- create_test_graphmodel()
       w <- plotGraphModel(gm)
       
-      expect_equal(attr(w, "class")[1], "graphTool")
+      expect_equal(attr(w, "class")[1], "drawSEM")
       # Package name is in attributes
-      expect_equal(attr(w, "package"), "OpenMxWebUI")
+      expect_equal(attr(w, "package"), "drawSEM")
     })
   })
 })

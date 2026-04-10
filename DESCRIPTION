@@ -1,4 +1,4 @@
-Package: OpenMxWebUI
+Package: drawSEM
 Title: Interactive Visual Model Editor for Structural Equation Modeling, starting with OpenMx
 Version: 0.1.0
 Author: Timothy R. Brick <tbrick@psu.edu>
@@ -24,9 +24,9 @@ Collate:
     'GraphModel-class.R'
     'GraphModel-methods.R'
     'converters.R'
+    'drawSEM.R'
     'utilities.R'
     'validators.R'
     'io.R'
     'fitting.R'
-    'graphTool.R'
     'schema.R'

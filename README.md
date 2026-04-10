@@ -1,4 +1,4 @@
-# OpenMxWebUI
+# drawSEM
 
 Interactive visual editor for building structural equation models (SEMs). The
 project is schema-first: the JSON schema is the source of truth, and backend
@@ -7,18 +7,16 @@ lavaan and blavaan are planned.
 
 ## Installation
 
-### For R Users (Recommended)
-No TypeScript or Node.js required. Just install the R package:
+### For R Users
+No TypeScript or Node.js is required. Install the package and use the widget:
 
 ```r
 # From GitHub (development)
-devtools::install_github("trb21/OpenMx_WebUI")
+devtools::install_github("trbrick/drawSEM")
 
-# Then use it
-library(OpenMxWebUI)
+library(drawSEM)
 
-# In a Shiny app:
-ui <- fluidPage(graphTool(outputId = "myGraph"))
+ui <- fluidPage(drawSEM(outputId = "myGraph"))
 server <- function(input, output) {
   observeEvent(input$myGraph_ready, { message("Ready!") })
 }
@@ -26,24 +24,18 @@ shinyApp(ui, server)
 ```
 
 ### For Web Developers
-To work on the TypeScript codebase:
+To work on the frontend source:
 
 ```bash
-git clone https://github.com/trb21/OpenMx_WebUI
-cd OpenMx_WebUI
+git clone https://github.com/trb21/drawSEM
+cd drawSEM
 
-# First-time setup (one time only)
 git config core.hooksPath .githooks
 chmod +x .githooks/*
 
-# Install Node dependencies
-cd visual-web-tool
+cd drawsem-web
 npm install
-
-# Dev server (localhost:5173)
 npm run dev
-
-# Build both targets
 npm run build
 ```
 
@@ -54,84 +46,75 @@ users do not need Node.js.
 
 ### In Shiny
 ```r
-ui <- fluidPage(graphTool(outputId = "graph"))
+ui <- fluidPage(drawSEM(outputId = "graph"))
 server <- function(input, output) {
-  # React to model changes
   observeEvent(input$graph_model, {
     schema <- input$graph_model
-    # Later: export to OpenMx, lavaan, blavaan
   })
 }
 ```
 
 ### In Quarto / RMarkdown
 ```r
-library(OpenMxWebUI)
-graphTool()  # Interactive widget in document
+library(drawSEM)
+drawSEM()
 ```
 
-### Load & Validate Schemas
+### Load And Validate Schemas
 ```r
-# Load a model schema
 schema <- loadSchema("mymodel.json")
-
-# Validate structure
 validateSchema(schema)
 
-# Build a GraphModel and fit it in OpenMx
 g <- as.GraphModel(schema)
 g_fit <- runOpenMx(g)
 
-# Save modified schema
 saveSchema(schema, "mymodel_v2.json")
 ```
 
 ## Repository Structure
 
-```
-OpenMx_WebUI/                     # R package root
+```text
+drawSEM/                          # R package root
 ├── R/                            # R source code
-│   ├── graphTool.R              # htmlwidget binding
-│   └── schema.R                 # Schema utilities
+│   ├── drawSEM.R                 # htmlwidget binding
+│   └── schema.R                  # Schema utilities
 ├── inst/
-│   ├── htmlwidgets/             # htmlwidgets binding
-│   │   ├── graphTool.yaml
-│   │   ├── graphTool.js
+│   ├── htmlwidgets/
+│   │   ├── drawSEM.yaml
+│   │   ├── drawSEM.js
 │   │   └── lib/app/
-│   │       └── widget.js        # Built widget (committed)
+│   │       └── widget.js         # Built widget (committed)
 │   └── extdata/
-│       └── graph.schema.json    # Reference schema
-├── tests/testthat/              # R unit tests
-├── visual-web-tool/             # TypeScript source (for developers)
+│       └── graph.schema.json     # Reference schema
+├── tests/testthat/
+├── drawsem-web/                  # TypeScript source (for developers)
 │   ├── src/
 │   ├── vite.config.ts
 │   └── package.json
-├── DESCRIPTION                  # R package metadata
+├── DESCRIPTION
 └── README.md
 ```
 
 ## Development
 
 ### Rebuild Widget After Changes
-Git hooks handle this automatically. Or manually:
-
 ```bash
-cd visual-web-tool
-npm run build:widget    # Update ../inst/htmlwidgets/lib/app/widget.js
+cd drawsem-web
+npm run build:widget
 git add ../inst/htmlwidgets/lib/app/
 ```
 
 ### Run R Tests
 ```r
-devtools::test()        # Run all tests
-devtools::check()       # Full R CMD check
+devtools::test()
+devtools::check()
 ```
 
 ### Run TypeScript Tests
 ```bash
-cd visual-web-tool
-npm run test -- --run   # One-time run
-npm run test            # Watch mode
+cd drawsem-web
+npm run test -- --run
+npm run test
 ```
 
 ## Current Status
@@ -148,24 +131,27 @@ Planned next:
 
 ## Architecture
 
-The system is built on the **Adapter Pattern**:
-- **Single React component** (CanvasTool) works in all contexts
-- **Pluggable exporters** for different backends (OpenMx, lavaan, blavaan)
-- **Context-based injection** (no props drilling)
-- **Schema is source of truth** (JSON, backend-agnostic)
+The system is built on the adapter pattern:
+- Single React component (`CanvasTool`) works in all contexts
+- Pluggable exporters for different backends
+- Context-based injection
+- Schema is the source of truth
 
 Key schema conventions in the current implementation:
 - Dataset bindings are represented by paths with `type: "data"`
 - Schema objects do not store runtime-only node/path ids
 - Path parameter state is carried by `freeParameter`
 
-See `visual-web-tool/README.md` for TypeScript architecture details.
+See `drawsem-web/README.md` for TypeScript architecture details.
 
-## Acknowledgments
+## Acknowledgements:
 
 This project was developed with the assistance of:
+
 - **GitHub Copilot** (Microsoft) - Code generation and development assistance
-- **Claude Haiku 4.5** - Underlying AI model powering code suggestions and architecture design
+- Underlying AI models for design and implementation:
+  - **ChatGPT 5.4**
+  - **Claude Sonnet 4.6**
 
 ## License
 

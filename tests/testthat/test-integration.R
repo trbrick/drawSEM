@@ -2,7 +2,7 @@ test_that("End-to-end: Load graph.example.json and convert to mxModel", {
   # Load the real example schema from the package
   schema_file <- system.file(
     "examples/graph.example.json",
-    package = "OpenMxWebUI",
+    package = "drawSEM",
     mustWork = FALSE
   )
 

@@ -2,31 +2,31 @@
 all: inst/extdata/graph.schema.json
 
 # Node.js dependency - installs npm packages
-visual-web-tool/node_modules:
-	cd visual-web-tool && npm install
+drawsem-web/node_modules:
+	cd drawsem-web && npm install
 
 # Schema preparation (required for R package)
-inst/extdata/graph.schema.json: visual-web-tool/schema/graph.schema.json
+inst/extdata/graph.schema.json: drawsem-web/schema/graph.schema.json
 	mkdir -p inst/extdata
-	cp visual-web-tool/schema/graph.schema.json inst/extdata/
+	cp drawsem-web/schema/graph.schema.json inst/extdata/
 
 # ============================================================================
-# NODE TARGETS - for visual-web-tool development
+# NODE TARGETS - for drawsem-web development
 # ============================================================================
 
-node-build: visual-web-tool/node_modules
-	cd visual-web-tool && npm run build
+node-build: drawsem-web/node_modules
+	cd drawsem-web && npm run build
 
-node-test: visual-web-tool/node_modules
-	cd visual-web-tool && npm test
+node-test: drawsem-web/node_modules
+	cd drawsem-web && npm test
 
-node-lint: visual-web-tool/node_modules
-	cd visual-web-tool && npm run lint
+node-lint: drawsem-web/node_modules
+	cd drawsem-web && npm run lint
 
 node: node-build node-test
 
 # ============================================================================
-# R TARGETS - for OpenMxWebUI R package (independent of Node)
+# R TARGETS - for drawSEM R package (independent of Node)
 # ============================================================================
 
 r-test: all
