@@ -1,5 +1,13 @@
 # drawSEM
 
+> **Early development notice:** This project is in very early development.
+> All interfaces — including the R API, Shiny UI, widget API, and JSON schema
+> format — are subject to change without notice between versions.
+> The drawSEM JSON schema is **not yet stable**: models saved as `.json` files
+> may not load correctly in future versions.
+> For any models you want to preserve, export to a stable format such as an
+> OpenMx object saved with `saveRDS()` or as OpenMx syntax.
+
 Interactive visual editor for building structural equation models (SEMs). The
 project is schema-first: the JSON schema is the source of truth, and backend
 objects are derived from it on demand. OpenMx is the current fitting backend;
@@ -8,7 +16,8 @@ lavaan and blavaan are planned.
 ## Installation
 
 ### For R Users
-No TypeScript or Node.js is required. Install the package and use the widget:
+No TypeScript or Node.js is required. Install the package and use the
+interactive editor:
 
 ```r
 # From GitHub (development)
@@ -16,11 +25,14 @@ devtools::install_github("trbrick/drawSEM")
 
 library(drawSEM)
 
-ui <- fluidPage(drawSEM(outputId = "myGraph"))
-server <- function(input, output) {
-  observeEvent(input$myGraph_ready, { message("Ready!") })
-}
-shinyApp(ui, server)
+# Launch the interactive editor (opens in browser)
+model <- drawSEM()
+
+# Launch with an existing model
+model <- drawSEM(initialModel = myGraphModel)
+
+# Launch with an OpenMx model
+model <- drawSEM(initialModel = myMxModel, data = myData)
 ```
 
 ### For Web Developers
@@ -44,20 +56,47 @@ users do not need Node.js.
 
 ## Usage
 
-### In Shiny
+### Interactive Editor
 ```r
-ui <- fluidPage(drawSEM(outputId = "graph"))
-server <- function(input, output) {
+# Start with an empty model
+model <- drawSEM()
+
+# Start from a JSON schema file
+model <- drawSEM(initialModel = "mymodel.json")
+
+# Start from an OpenMx model (data extracted automatically)
+model <- drawSEM(initialModel = fittedMxModel)
+
+# The editor returns a GraphModel when you click "Done"
+summary(model)
+coef(model)
+```
+
+### Visualize a Model (Non-Interactive)
+```r
+# In Quarto / RMarkdown / RStudio Viewer
+library(drawSEM)
+g <- as.GraphModel(schema)
+plot(g)
+
+# With more control
+plotGraphModel(g, editable = FALSE, pathLabelFormat = "values")
+```
+
+### Custom Shiny Embedding
+```r
+# For embedding the widget in a custom Shiny app:
+ui <- fluidPage(
+  shiny::uiOutput("editor")
+)
+server <- function(input, output, session) {
+  output$editor <- renderGraphModel({
+    plotGraphModel(myModel)
+  })
   observeEvent(input$graph_model, {
     schema <- input$graph_model
   })
 }
-```
-
-### In Quarto / RMarkdown
-```r
-library(drawSEM)
-drawSEM()
 ```
 
 ### Load And Validate Schemas
@@ -76,8 +115,13 @@ saveSchema(schema, "mymodel_v2.json")
 ```text
 drawSEM/                          # R package root
 ├── R/                            # R source code
-│   ├── drawSEM.R                 # htmlwidget binding
-│   └── schema.R                  # Schema utilities
+│   ├── shiny-app.R               # drawSEM() interactive editor launcher
+│   ├── drawSEM.R                 # htmlwidget binding & plotGraphModel()
+│   ├── GraphModel-class.R        # GraphModel S4 class
+│   ├── converters.R              # Schema ↔ OpenMx conversion
+│   ├── fitting.R                 # Model fitting & fit results
+│   ├── io.R                      # I/O, as.GraphModel(), as.MxModel()
+│   └── schema.R                  # Schema validation
 ├── inst/
 │   ├── htmlwidgets/
 │   │   ├── drawSEM.yaml
@@ -120,14 +164,16 @@ npm run test
 ## Current Status
 
 Implemented now:
+- Interactive Shiny-based visual editor via `drawSEM()`
 - Schema validation, import/export, and GraphModel round-tripping
 - OpenMx conversion and fitting via `as.MxModel()` and `runOpenMx()`
 - Interactive htmlwidget and standalone web editor builds
+- Auto-layout (RAMPath algorithm) and SVG rendering
 
 Planned next:
 - lavaan and blavaan backends
-- richer node types such as link functions and operators
-- broader multi-model and composition workflows
+- Richer node types such as link functions and operators
+- Broader multi-model and composition workflows
 
 ## Architecture
 

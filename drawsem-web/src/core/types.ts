@@ -163,6 +163,18 @@ export interface GraphAdapter {
    * @param callback function to call when model is received
    */
   onModelReceived?(callback: (schema: GraphSchema) => void): void
+
+  /**
+   * Optional: Request that the host environment (Shiny) open a data-loading UI.
+   * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
+   */
+  requestLoadData?(): void
+
+  /**
+   * Optional: Request that the host environment (Shiny) open a model-loading UI.
+   * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
+   */
+  requestLoadModel?(): void
 }
 
 /**

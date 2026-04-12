@@ -69,6 +69,39 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
   // Store active response handlers to avoid memory leaks
   const pendingHandlers = new Map<string, (data: unknown) => void>()
 
+  // Register SVG export handler once at creation time.
+  // R sends trigger_svg_export; we serialise the canvas SVG and push it
+  // back as svg_export_data so R's downloadHandler can use it.
+  shiny.addCustomMessageHandler('trigger_svg_export', (_data: unknown) => {
+    try {
+      const svgEl = document.querySelector<SVGSVGElement>('svg')
+      if (!svgEl) {
+        shiny.setInputValue('graph_tool_error', {
+          message: 'SVG export failed: no SVG element found in the canvas.',
+          timestamp: Date.now(),
+        })
+        return
+      }
+
+      // Ensure width/height attributes are present for rsvg compatibility
+      const clone = svgEl.cloneNode(true) as SVGSVGElement
+      if (!clone.getAttribute('width') && svgEl.clientWidth > 0) {
+        clone.setAttribute('width', String(svgEl.clientWidth))
+      }
+      if (!clone.getAttribute('height') && svgEl.clientHeight > 0) {
+        clone.setAttribute('height', String(svgEl.clientHeight))
+      }
+
+      const serialiser = new XMLSerializer()
+      shiny.setInputValue('svg_export_data', serialiser.serializeToString(clone))
+    } catch (error) {
+      shiny.setInputValue('graph_tool_error', {
+        message: `SVG export failed: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: Date.now(),
+      })
+    }
+  })
+
   return {
     /**
      * Load a GraphSchema from the Shiny server
@@ -290,6 +323,20 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
           { originalError: error }
         )
       }
+    },
+
+    /**
+     * Ask R to open the data-loading modal
+     */
+    requestLoadData(): void {
+      shiny.setInputValue('load_data_request', { timestamp: Date.now() }, { priority: 'event' })
+    },
+
+    /**
+     * Ask R to open the model-loading modal
+     */
+    requestLoadModel(): void {
+      shiny.setInputValue('load_model_request', { timestamp: Date.now() }, { priority: 'event' })
     },
 
     /**

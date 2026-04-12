@@ -1,55 +1,21 @@
-#' Interactive Graph-Based Model Editor
+#' SEM Widget (internal htmlwidgets constructor)
 #'
 #' @description
-#' Launches an interactive widget for visually building structural equation
-#' models (SEMs). Works in Shiny apps, Quarto documents, RMarkdown, and 
-#' RStudio Viewer.
+#' Creates an htmlwidget for visually building structural equation
+#' models (SEMs). This is the internal widget constructor used by
+#' [plotGraphModel()] and the Shiny app. End users should call
+#' [drawSEM()] for the interactive editor or [plot()] for visualization.
 #'
-#' @param initialModel Optional. A GraphModel object or JSON schema (as list or 
-#'   JSON string). If provided, the widget initializes with this model.
-#' @param outputId Optional. For Shiny apps, the output ID to capture widget 
-#'   messages.
-#' @param width Numeric or character. Widget width (default: "100%").
-#' @param height Numeric or character. Widget height (default: "600px").
+#' @param initialModel Optional. A schema list or JSON string.
+#' @param outputId Optional. For Shiny apps, the output ID.
+#' @param width Widget width (default: "100%").
+#' @param height Widget height (default: "600px").
 #'
 #' @return An htmlwidget that renders the graph editor.
 #'
-#' @details
-#' The widget detects its context automatically:
-#' - **Shiny:** Enables bidirectional communication; user can observe changes 
-#'   with `input$outputId_model` (when model updated) and 
-#'   `input$outputId_ready` (when widget initialized)
-#' - **Quarto/RMarkdown:** Static visualization; interactive editing in document
-#' - **RStudio Viewer:** Interactive standalone interface
-#'
-#' @examples
-#' \dontrun{
-#' # In a Shiny app:
-#' library(shiny)
-#' library(drawSEM)
-#'
-#' ui <- fluidPage(
-#'   titlePanel("Model Editor"),
-#'   drawSEM(outputId = "myGraph")
-#' )
-#'
-#' server <- function(input, output) {
-#'   observeEvent(input$myGraph_ready, {
-#'     message("Widget initialized")
-#'   })
-#'   
-#'   observeEvent(input$myGraph_model, {
-#'     schema <- input$myGraph_model
-#'     message("User updated model")
-#'     # Later: export to OpenMx, lavaan, etc.
-#'   })
-#' }
-#'
-#' shinyApp(ui, server)
-#' }
-#'
-#' @export
-drawSEM <- function(
+#' @keywords internal
+#' @noRd
+semWidget <- function(
   initialModel = NULL,
   outputId = NULL,
   width = "100%",
@@ -93,14 +59,24 @@ drawSEM <- function(
   )
 }
 
-#' Shiny output binding for drawSEM
+#' Shiny render binding for the SEM widget
+#'
+#' For use in custom Shiny apps that embed the visual editor widget.
+#' Most users should use [drawSEM()] instead.
+#'
+#' @param expr An expression that returns an htmlwidget (typically a
+#'   [semWidget()] or [plotGraphModel()] call).
+#' @param env The environment in which to evaluate `expr`.
+#' @param quoted Logical; is `expr` already quoted?
+#'
+#' @return A Shiny render function.
+#'
 #' @export
-#' @keywords internal
-renderDrawSEM <- function(expr, env = parent.frame(), quoted = FALSE) {
+renderGraphModel <- function(expr, env = parent.frame(), quoted = FALSE) {
   if (!quoted) {
     expr <- substitute(expr)
   }
-  htmlwidgets::shinyRenderWidget(expr, drawSEM, env, quoted = TRUE)
+  htmlwidgets::shinyRenderWidget(expr, semWidget, env, quoted = TRUE)
 }
 
 # ============================================================================

@@ -46,7 +46,7 @@ library(OpenMx)
 fit <- mxRun(mxModel('model', type='RAM', ...))
 # Convert to GraphModel for visualization
 gm <- as.GraphModel(fit)
-drawSEM(gm)
+plot(gm)
 }
 
 }

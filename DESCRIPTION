@@ -16,8 +16,10 @@ Imports:
   jsonlite,
   digest,
   tools,
+  shiny (>= 1.7.0),
   OpenMx (>= 2.21)
 Suggests:
+  rsvg,
   testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Collate: 
@@ -30,3 +32,4 @@ Collate:
     'io.R'
     'fitting.R'
     'schema.R'
+    'shiny-app.R'

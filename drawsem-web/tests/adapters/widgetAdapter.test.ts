@@ -88,7 +88,13 @@ describe('WidgetAdapter', () => {
       const result = await exporter.load('')
 
       expect(result).toEqual(validSchema)
-      expect(mockShiny.addCustomMessageHandler).not.toHaveBeenCalled()
+      // When initialModel is in drawSEMConfig, load() should not register a
+      // graph_model listener — the SVG-export handler is registered at creation
+      // and is unrelated to the load path.
+      expect(mockShiny.addCustomMessageHandler).not.toHaveBeenCalledWith(
+        'graph_model',
+        expect.any(Function)
+      )
     })
 
     it('should throw WidgetAdapterError if initialModel is invalid', async () => {
@@ -491,8 +497,11 @@ describe('WidgetAdapter', () => {
       exporter.onModelReceived?.(callback1)
       exporter.onModelReceived?.(callback2)
 
-      // Both should register handlers
-      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledTimes(2)
+      // Each onModelReceived call registers one 'update_model' handler.
+      // createWidgetAdapter also registers one 'trigger_svg_export' handler at creation.
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledWith('update_model', expect.any(Function))
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledWith('trigger_svg_export', expect.any(Function))
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledTimes(3)
     })
 
     it('should work with real schema conversion', async () => {

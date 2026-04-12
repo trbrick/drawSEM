@@ -276,7 +276,7 @@ setMethod(
     }
     
     # Validate schema
-    schema <- validateSchema(schema, verbose = TRUE)
+    schema <- validateSchema(schema, verbose = FALSE)
     
     # Initialize metadata if not provided
     if (is.null(metadata)) {
@@ -728,7 +728,7 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
 #' fit <- mxRun(mxModel('model', type='RAM', ...))
 #' # Convert to GraphModel for visualization
 #' gm <- as.GraphModel(fit)
-#' drawSEM(gm)
+#' plot(gm)
 #' }
 #'
 #' @export

@@ -181,6 +181,48 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }
 
+  const setCurrentModelLabel = (label: string) => {
+    setModels((ms) => {
+      const modelId = currentModelId
+      if (!modelId) return ms
+      return ms.map((m) => (m.id === modelId ? { ...m, label } : m))
+    })
+  }
+
+  // Compute and store a viewBox that fits the given nodes (with minimum canvas size).
+  // Call this only on model load and auto-layout — NOT on interactive node additions.
+  function fitViewToNodes(nodesToFit: Array<{ x: number; y: number; width?: number; height?: number; type: string; variableCharacteristics?: { manifestLatent?: string } }>) {
+    if (nodesToFit.length === 0) {
+      setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
+      return
+    }
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    nodesToFit.forEach(n => {
+      const x = n.x || 0
+      const y = n.y || 0
+      let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
+      let h = n.height || (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
+      if (n.type === 'variable' && n.variableCharacteristics?.manifestLatent === 'latent') {
+        w = LATENT_RADIUS * 2
+        h = LATENT_RADIUS * 2
+      }
+      minX = Math.min(minX, x - w / 2)
+      maxX = Math.max(maxX, x + w / 2)
+      minY = Math.min(minY, y - h / 2)
+      maxY = Math.max(maxY, y + h / 2)
+    })
+    const MARGIN_H = 50
+    const MARGIN_TOP = 80
+    const MARGIN_BOTTOM = 80
+    const rawW = (maxX - minX) + MARGIN_H * 2
+    const rawH = (maxY - minY) + MARGIN_TOP + MARGIN_BOTTOM
+    const vbW = Math.max(rawW, MIN_VB_SIZE)
+    const vbH = Math.max(rawH, MIN_VB_SIZE)
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
+  }
+
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -488,6 +530,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
+            fitViewToNodes(modelsOut[0].nodes)
           }
         }
       } catch (e) {
@@ -524,6 +567,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
+            fitViewToNodes(modelsOut[0].nodes)
           }
         }
       } catch (e) {
@@ -756,6 +800,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
+  // Stable viewBox — only re-fit on model load and auto-layout, never on interactive edits.
+  // A fixed default is used for the empty canvas so the SVG coordinate space is consistent
+  // from the first click; nodes will not jump after being placed.
+  const MIN_VB_SIZE = 8 * (LATENT_RADIUS * 2) // 576 canvas units
+  const [viewBoxAttr, setViewBoxAttr] = useState<string>(
+    `${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`
+  )
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
@@ -1134,12 +1185,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         },
       } as unknown as GraphSchema
       const positions: PositionMap = autoLayout(schema)
-      setNodes((ns) =>
-        ns.map((n) => {
-          const pos = positions[n.label]
-          return pos ? { ...n, x: pos.x, y: pos.y } : n
-        })
-      )
+      const newNodes = currentModel.nodes.map((n) => {
+        const pos = positions[n.label]
+        return pos ? { ...n, x: pos.x, y: pos.y } : n
+      })
+      setNodes(newNodes)
+      fitViewToNodes(newNodes)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setErrorMessage(`Auto-layout failed: ${msg}`)
@@ -1166,6 +1217,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
+          fitViewToNodes(modelsOut[0].nodes)
         }
         deselectAll()
         setPathSource(null)
@@ -1534,6 +1586,40 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     console.log(`[Mouse] Canvas background clicked, deselecting`)
     deselectAll()
     setPathSource(null)
+    setMode('select')
+  }
+
+  function onCanvasDoubleClick(e: React.MouseEvent) {
+    // Only act on direct background double-clicks (not child elements, not during path drawing)
+    if (e.target !== svgRef.current) return
+    if (pathSource) return
+    const p = clientToSvg(e)
+    const n: Node = {
+      id: uid('n_'),
+      x: p.x,
+      y: p.y,
+      label: `V${nodes.length + 1}`,
+      type: 'variable',
+      width: MANIFEST_DEFAULT_W,
+      height: MANIFEST_DEFAULT_H,
+    }
+    setNodes((s) => [...s, n])
+    selectElement(n.id, 'node')
+    // Add a free error variance self-loop automatically
+    const vid = uid('p_')
+    const uniLabel = convertToUnicode(n.label)
+    const variance: Path = {
+      id: vid,
+      from: n.id,
+      to: n.id,
+      twoSided: true,
+      label: vid,
+      displayName: uniLabel + ' ↔ ' + uniLabel,
+      freeParameter: true,
+      parameterType: 'errorVariance',
+      value: 1.0,
+    }
+    setPaths((ps) => [...ps, variance])
     setMode('select')
   }
 
@@ -2180,13 +2266,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             >
               △
             </button>
-            <button
-              title="Add Dataset (cylinder)"
-              className="py-2 px-3 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
-              onClick={handleCsvImportClick}
-            >
-              ⛁
-            </button>
+            {viewMode === 'shiny' ? (
+              <button
+                title="Load Data into R session"
+                className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                onClick={() => adapter.requestLoadData?.()}
+              >
+                Load Data
+              </button>
+            ) : (
+              <button
+                title="Add Dataset (cylinder)"
+                className="py-2 px-3 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
+                onClick={handleCsvImportClick}
+              >
+                ⛁
+              </button>
+            )}
             <div className="border-l mx-2"></div>
             <button
               title="Add One-headed Path"
@@ -2217,13 +2313,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               {isLayingOut ? '…' : '⟳'} Auto-layout
             </button>
             <div className="border-l mx-2"></div>
-            <button
-              title="Import Graph JSON"
-              className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100`}
-              onClick={() => handleImportClick()}
-            >
-              {'{ }'} Import JSON
-            </button>
+            {viewMode === 'shiny' ? (
+              <button
+                title="Load a model JSON file via R"
+                className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                onClick={() => adapter.requestLoadModel?.()}
+              >
+                Load Model
+              </button>
+            ) : (
+              <button
+                title="Import Graph JSON"
+                className="py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100"
+                onClick={() => handleImportClick()}
+              >
+                {'{ }'} Import JSON
+              </button>
+            )}
             <div className="border-l mx-2"></div>
             <label className="text-sm font-medium flex items-center gap-2">
               Path Labels:
@@ -2247,6 +2353,27 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <option value="invisible">Hidden</option>
               </select>
             </label>
+            <div className="border-l mx-2"></div>
+            <input
+              type="text"
+              value={currentModel?.label ?? ''}
+              placeholder="Untitled Model"
+              title="Model name (click to edit)"
+              className="text-sm border-0 bg-transparent text-slate-600 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400 rounded px-2 py-1 min-w-0 w-36"
+              onChange={(e) => setCurrentModelLabel(e.target.value)}
+              onBlur={(e) => {
+                const trimmed = e.target.value.trim()
+                if (trimmed === '') setCurrentModelLabel(currentModel?.label ?? '')
+                else setCurrentModelLabel(trimmed)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') {
+                  setCurrentModelLabel(currentModel?.label ?? '')
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+            />
           </div>
         </div>
       </header>
@@ -2349,20 +2476,24 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         )}
 
       <div className="flex-1 p-4 relative overflow-hidden">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          style={{ display: 'none' }}
-          onChange={onFileSelected}
-        />
-        <input
-          ref={csvFileInputRef}
-          type="file"
-          accept="text/csv,.csv"
-          style={{ display: 'none' }}
-          onChange={onCsvSelected}
-        />
+        {viewMode !== 'shiny' && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={onFileSelected}
+            />
+            <input
+              ref={csvFileInputRef}
+              type="file"
+              accept="text/csv,.csv"
+              style={{ display: 'none' }}
+              onChange={onCsvSelected}
+            />
+          </>
+        )}
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
         {viewMode !== 'widget' && (selectedNode || selectedPath) && (
           <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
@@ -2871,42 +3002,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           return null
         })()}
         {(() => {
-          // Compute viewBox from node positions and sizes
-          let viewBoxAttr: string | undefined = undefined
-          if (nodes.length > 0) {
-            // Calculate proper bounds accounting for node dimensions
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-            nodes.forEach(n => {
-              const x = n.x || 0
-              const y = n.y || 0
-              // Default node dimensions based on type
-              let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
-              let h = n.height || (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
-              // For latent nodes (circles), use radius
-              if (n.type === 'variable' && n.variableCharacteristics?.manifestLatent === 'latent') {
-                w = LATENT_RADIUS * 2
-                h = LATENT_RADIUS * 2
-              }
-              // Compute node bounds (center-based positioning)
-              const left = x - w / 2
-              const right = x + w / 2
-              const top = y - h / 2
-              const bottom = y + h / 2
-              minX = Math.min(minX, left)
-              maxX = Math.max(maxX, right)
-              minY = Math.min(minY, top)
-              maxY = Math.max(maxY, bottom)
-            })
-            const width = maxX - minX
-            const height = maxY - minY
-            const MARGIN_LEFT = 50
-            const MARGIN_TOP = 80      // Increased for loopback arrows
-            const MARGIN_BOTTOM = 80   // Increased for loopback arrows
-            // Margins on all sides for centered visual
-            viewBoxAttr = `${minX - MARGIN_LEFT} ${minY - MARGIN_TOP} ${width + MARGIN_LEFT * 2} ${height + MARGIN_TOP + MARGIN_BOTTOM}`
-            console.log('[SVG Render] Computed viewBox (mode=' + viewMode + '):', viewBoxAttr)
-          }
-          
           return (
             <svg
               ref={svgRef}
@@ -2917,6 +3012,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
               onClick={onCanvasClick}
+              onDoubleClick={onCanvasDoubleClick}
               onContextMenu={(e) => e.preventDefault()}
           onDragOver={(e) => {
             if (draggedColumnName && selectedNode?.type === 'dataset') {

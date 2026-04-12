@@ -1,26 +1,27 @@
 import React from 'react'
 import CanvasTool from './components/CanvasTool'
+import { useAdapter } from './context/AdapterContext'
+import type { GraphSchema } from './core/types'
 
 interface AppProps {
   viewMode?: 'widget' | 'shiny' | 'full'
 }
 
 export default function App({ viewMode = 'full' }: AppProps): JSX.Element {
-  const showChrome = viewMode !== 'widget'
+  const adapter = useAdapter()
+
+  // In Shiny mode, sync every model edit back to R via adapter.save().
+  // In standalone mode we do NOT call adapter.save() on every change — that
+  // would trigger a file download on every keystroke.
+  const handleModelChange = viewMode === 'shiny'
+    ? (schema: GraphSchema) => { adapter.save(schema) }
+    : undefined
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900">
-      {showChrome && (
-        <header className="bg-white shadow p-4">
-          <h1 className="text-lg font-semibold">drawSEM Canvas</h1>
-        </header>
-      )}
-      <main className="flex-1 p-4 overflow-hidden flex flex-col">
-        {showChrome && (
-          <p className="mb-4 text-sm text-slate-600">A minimal visual canvas tool (rectangle draw & drag).</p>
-        )}
-        <div className="flex-1 border rounded-lg bg-white overflow-hidden flex flex-col">
-          <CanvasTool viewMode={viewMode} />
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 bg-white overflow-hidden flex flex-col">
+          <CanvasTool viewMode={viewMode} onModelChange={handleModelChange} />
         </div>
       </main>
     </div>
