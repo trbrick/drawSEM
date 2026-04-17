@@ -39,10 +39,12 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const id = uniqueId(base)
     labelToId[label] = id
     const visual = n.visual || {}
+    const x = typeof visual.x === 'number' ? visual.x : 0
+    const y = typeof visual.y === 'number' ? visual.y : 0
     const out: any = {
       id,
-      x: typeof visual.x === 'number' ? visual.x : 0,
-      y: typeof visual.y === 'number' ? visual.y : 0,
+      x: isNaN(x) ? 0 : x,
+      y: isNaN(y) ? 0 : y,
       label: label,
       displayName: convertToUnicode(label),
       type: n.type || 'variable'

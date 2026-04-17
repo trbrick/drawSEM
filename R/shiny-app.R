@@ -86,12 +86,6 @@ NULL
     shiny::uiOutput("fit_status_ui", inline = TRUE),
     bar_sep,
 
-    shiny::div(
-      style = "flex:1; overflow:hidden; text-align:center; font-size:11px; opacity:0.38; white-space:nowrap; text-overflow:ellipsis; padding:0 6px;",
-      shiny::textOutput("model_name_display", inline = TRUE)
-    ),
-    bar_sep,
-
     shiny::downloadButton("download_json", "JSON",
       style = paste0(bar_btn, " display:inline-flex; align-items:center; gap:5px; text-decoration:none;")),
     shiny::actionButton("save_to_r_btn", "Save to R\u2026",
@@ -108,26 +102,36 @@ NULL
 
   shiny::tagList(
     shiny::tags$head(
+      shiny::tags$script("tailwind.config={corePlugins:{preflight:false}}"),
+      shiny::tags$script(src = "https://cdn.tailwindcss.com"),
       shiny::tags$style(
         "html,body{margin:0;padding:0;overflow:hidden;height:100%;background:#fff;}
-         #drawsem-widget-container,
-         #drawsem-widget-container>.shiny-html-output,
-         #drawsem-widget-container>.shiny-html-output>div,
+         #drawsem-widget-container{
+           position:fixed; top:0; left:0; right:0; bottom:44px; overflow:hidden;
+         }
+         #drawsem-widget-container .shiny-html-output,
+         #drawsem-widget-container .shiny-html-output>div,
          #drawsem-widget-container .html-widget-output,
          #drawsem-widget-container .html-widget {
            width:100% !important;
            height:100% !important;
          }
+         #drawsem-widget-container .html-fill-item { flex:none !important; }
          #drawsem-bar .btn { box-shadow:none !important; }
          #drawsem-bar .btn:hover { filter:brightness(1.2); }
-         #download_json .glyphicon, #download_json .fa { margin-right:4px; }"
+         #download_json .glyphicon, #download_json .fa { margin-right:4px; }
+         .shiny-notification-panel { bottom:54px !important; }
+         /* Form elements inside Tailwind modals */
+         .dsem-label { display:block; font-size:13px; font-weight:500; color:#475569; margin-bottom:4px; }
+         .dsem-field { margin-bottom:14px; }
+         .dsem-input { display:block; width:100%; padding:7px 10px; font-size:13px;
+           border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box; background:white; }
+         .dsem-input:focus { outline:none; border-color:#3b82f6;
+           box-shadow:0 0 0 3px rgba(59,130,246,0.15); }"
       )
     ),
-    shiny::div(
-      id    = "drawsem-widget-container",
-      style = "position:fixed; top:0; left:0; right:0; bottom:44px; overflow:hidden;",
-      shiny::uiOutput("sem_widget_ui")
-    ),
+    shiny::div(id = "drawsem-modal-host"),
+    shiny::div(id = "drawsem-widget-container", shiny::uiOutput("sem_widget_ui")),
     bottom_bar
   )
 }
@@ -136,13 +140,59 @@ NULL
 #' Build the drawSEM Shiny server
 #' @noRd
 .drawSEM_server <- function(input, output, session, initialGM) {
-  currentModel <- shiny::reactiveVal(initialGM)
-  fitStatus    <- shiny::reactiveVal("unfitted")
-  svgData      <- shiny::reactiveVal(NULL)
-  lastVarname  <- shiny::reactiveVal("myModel")
+  currentModel             <- shiny::reactiveVal(initialGM)
+  fitStatus                <- shiny::reactiveVal("unfitted")
+  svgData                  <- shiny::reactiveVal(NULL)
+  lastVarname              <- shiny::reactiveVal("myModel")
+  suppressNextEcho         <- shiny::reactiveVal(FALSE)
+  lastStructuralFingerprint <- shiny::reactiveVal(NULL)
 
-  # ── Shared modal builders ──────────────────────────────────────────────
-  .dataModal <- function(gm) {
+  # ── Tailwind modal helpers ─────────────────────────────────────────────
+  .modal <- function(id, title, body, footer = NULL, size = "m") {
+    max_w <- switch(size, s = "320px", l = "720px", "520px")
+    close_js <- sprintf("Shiny.setInputValue('modal_close','%s',{priority:'event'})", id)
+    btn_style <- function(primary) {
+      base <- "cursor:pointer; border-radius:6px; padding:6px 14px; font-size:13px; font-family:system-ui,sans-serif;"
+      if (primary) paste0(base, "background:#2563eb; color:#fff; border:none;")
+      else         paste0(base, "background:#fff; color:#374151; border:1px solid #d1d5db;")
+    }
+    # Wrap each footer element so Shiny's actionButton/downloadButton get correct display
+    footer_wrapped <- if (!is.null(footer)) {
+      shiny::div(
+        style = "padding:12px 20px 16px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:8px; flex-shrink:0;",
+        footer
+      )
+    }
+    environment(btn_style) <- environment()
+    shiny::div(
+      id = id,
+      style = "position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; padding:16px;",
+      onclick = close_js,
+      shiny::div(
+        style = sprintf("background:white; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.3); width:100%%; max-width:%s; max-height:85vh; display:flex; flex-direction:column; font-family:system-ui,sans-serif;", max_w),
+        onclick = "event.stopPropagation()",
+        shiny::div(
+          style = "display:flex; align-items:center; justify-content:space-between; padding:16px 20px 12px; border-bottom:1px solid #e2e8f0; flex-shrink:0;",
+          shiny::tags$h2(style = "margin:0; font-size:15px; font-weight:600; color:#1e293b;", title),
+          shiny::tags$button(
+            style = "background:none; border:none; color:#94a3b8; font-size:22px; line-height:1; cursor:pointer; padding:0;",
+            onclick = close_js, shiny::HTML("&times;")
+          )
+        ),
+        shiny::div(style = "padding:16px 20px; overflow-y:auto; flex:1;", body),
+        footer_wrapped
+      )
+    )
+  }
+  .closeModal <- function(id) shiny::removeUI(paste0("#", id), immediate = TRUE)
+
+  # Close modal when backdrop or × is clicked
+  shiny::observeEvent(input$modal_close, {
+    .closeModal(input$modal_close)
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+  # ── Data / Load helpers ───────────────────────────────────────────────
+  .showDataModal <- function(gm) {
     dataset_list <- if (!is.null(gm) && length(gm@data) > 0) {
       rows <- lapply(names(gm@data), function(nm) {
         val  <- gm@data[[nm]]
@@ -153,40 +203,55 @@ NULL
         )
       })
       shiny::tagList(
-        shiny::tags$hr(),
-        shiny::tags$strong("Loaded datasets"),
-        shiny::tags$table(style = "font-size:13px; margin-top:6px; width:100%;",
-                          shiny::tags$tbody(rows))
+        shiny::tags$hr(style = "border:none; border-top:1px solid #e2e8f0; margin:12px 0;"),
+        shiny::tags$p(style = "font-size:12px; font-weight:600; color:#64748b; margin:0 0 6px;", "Loaded datasets"),
+        shiny::tags$table(style = "font-size:12px; width:100%;", shiny::tags$tbody(rows))
       )
     } else {
       shiny::p("No datasets loaded yet.", style = "color:#888; font-size:13px;")
     }
-    shiny::modalDialog(
-      title = "Manage Datasets",
-      shiny::fileInput("load_csv_file", "CSV file",
-                       accept = ".csv", placeholder = "Browse\u2026", buttonLabel = "Browse"),
-      shiny::textInput("csv_dataset_name", "Dataset label", placeholder = "e.g. mydata"),
+    body_ui <- shiny::tagList(
+      shiny::div(class = "dsem-field",
+        shiny::tags$label(class = "dsem-label", `for` = "load_csv_file", "CSV file"),
+        shiny::fileInput("load_csv_file", NULL, accept = ".csv", width = "100%")
+      ),
+      shiny::div(class = "dsem-field",
+        shiny::tags$label(class = "dsem-label", `for` = "csv_dataset_name", "Dataset label"),
+        shiny::textInput("csv_dataset_name", NULL, placeholder = "e.g. mydata",
+                         width = "100%")
+      ),
       shiny::actionButton("attach_csv_btn", "Attach",
-                          icon = shiny::icon("plus"), class = "btn-primary btn-sm"),
-      dataset_list,
-      footer = shiny::modalButton("Close"),
-      easyClose = TRUE, size = "m"
+        style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;"),
+      dataset_list
     )
+    footer_ui <- shiny::tags$button(
+      style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+      onclick = "Shiny.setInputValue('modal_close','dsem-modal-data',{priority:'event'})",
+      "Close"
+    )
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal("dsem-modal-data", "Manage Datasets", body_ui, footer_ui),
+      immediate = TRUE)
   }
 
-  .loadModelModal <- function() {
-    shiny::modalDialog(
-      title = "Load Model from JSON",
-      shiny::fileInput("load_model_json", "Schema JSON file",
-                       accept = c(".json", "application/json"),
-                       placeholder = "Browse\u2026", buttonLabel = "Browse"),
-      footer = shiny::tagList(
-        shiny::modalButton("Cancel"),
-        shiny::actionButton("confirm_load_model_btn", "Load",
-                            class = "btn-primary")
-      ),
-      size = "s", easyClose = TRUE
+  .showLoadModal <- function() {
+    body_ui <- shiny::div(class = "dsem-field",
+      shiny::tags$label(class = "dsem-label", `for` = "load_model_json", "Schema JSON file"),
+      shiny::fileInput("load_model_json", NULL,
+        accept = c(".json", "application/json"), width = "100%")
     )
+    footer_ui <- shiny::tagList(
+      shiny::tags$button(
+        style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+        onclick = "Shiny.setInputValue('modal_close','dsem-modal-load',{priority:'event'})",
+        "Cancel"
+      ),
+      shiny::actionButton("confirm_load_model_btn", "Load",
+        style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;")
+    )
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal("dsem-modal-load", "Load Model from JSON", body_ui, footer_ui, size = "s"),
+      immediate = TRUE)
   }
 
   # ── Widget (rendered once with initial model) ──────────────────────────
@@ -197,6 +262,12 @@ NULL
 
   # ── Model updates from JS ──────────────────────────────────────────────
   shiny::observeEvent(input$graph_model, {
+    # When R pushes an update_model after fitting, JS echoes the model back.
+    # Suppress that single echo so it does not flip converged→stale.
+    if (isTRUE(suppressNextEcho())) {
+      suppressNextEcho(FALSE)
+      return()
+    }
     tryCatch({
       gm  <- as.GraphModel(input$graph_model)
       old <- currentModel()
@@ -206,7 +277,16 @@ NULL
         }
       }
       currentModel(gm)
-      if (fitStatus() == "converged") fitStatus("stale")
+      # Only dirty the fit on structural changes — visual-only moves/resizes
+      # do not reset a converged fit. Uses the same hashStructure() logic as
+      # the schema's provenance.structureHash / fitResults[n].structureHash.
+      if (fitStatus() == "converged") {
+        new_fp <- hashStructure(gm)
+        if (!identical(new_fp, lastStructuralFingerprint())) {
+          fitStatus("stale")
+        }
+        lastStructuralFingerprint(new_fp)
+      }
     }, error = function(e) {
       shiny::showNotification(paste("Error parsing model:", conditionMessage(e)),
                               type = "error", duration = 8)
@@ -268,19 +348,19 @@ NULL
     shiny::showNotification("New empty model created.", type = "message", duration = 2)
   })
 
-  # ── Data modal ("Data..." bottom-bar button) ──────────────────────────
+  # ── Data modal ────────────────────────────────────────────────────────
   shiny::observeEvent(input$data_btn, {
-    shiny::showModal(.dataModal(currentModel()))
+    .showDataModal(currentModel())
   })
 
   # ── Data modal ("Load Data" toolbar button in Shiny mode) ─────────────
   shiny::observeEvent(input$load_data_request, {
-    shiny::showModal(.dataModal(currentModel()))
+    .showDataModal(currentModel())
   }, ignoreNULL = TRUE)
 
   # ── Load Model modal ("Load Model" toolbar button in Shiny mode) ───────
   shiny::observeEvent(input$load_model_request, {
-    shiny::showModal(.loadModelModal())
+    .showLoadModal()
   }, ignoreNULL = TRUE)
 
   shiny::observeEvent(input$confirm_load_model_btn, {
@@ -291,7 +371,7 @@ NULL
       fitStatus("unfitted")
       svgData(NULL)
       session$sendCustomMessage("update_model", list(schema = gm@schema))
-      shiny::removeModal()
+      .closeModal("dsem-modal-load")
       shiny::showNotification("Model loaded.", type = "message", duration = 2)
     }, error = function(e) {
       shiny::showNotification(paste("Could not load model:", conditionMessage(e)),
@@ -315,7 +395,7 @@ NULL
       }
       gm@data[[label]] <- df
       currentModel(gm)
-      shiny::removeModal()
+      .closeModal("dsem-modal-data")
       shiny::showNotification(sprintf("Dataset '%s' attached (%d \u00d7 %d).", label, nrow(df), ncol(df)),
                               type = "message", duration = 4)
     }, error = function(e) {
@@ -337,17 +417,27 @@ NULL
 
     if (inherits(result, "error")) {
       fitStatus("failed")
-      shiny::showModal(shiny::modalDialog(
-        title = "Fit Failed",
-        shiny::p(conditionMessage(result),
-                 style = "color:#dc2626; font-family:monospace; white-space:pre-wrap;"),
-        footer = shiny::modalButton("Close"), easyClose = TRUE
-      ))
+      shiny::insertUI("#drawsem-modal-host", "afterBegin",
+        .modal("dsem-modal-fit-fail", "Fit Failed",
+          shiny::tags$pre(
+            style = "color:#dc2626; font-family:monospace; white-space:pre-wrap; font-size:12px; margin:0;",
+            conditionMessage(result)
+          ),
+          shiny::tags$button(
+            style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+            onclick = "Shiny.setInputValue('modal_close','dsem-modal-fit-fail',{priority:'event'})",
+            "Close"
+          )
+        ),
+        immediate = TRUE
+      )
       return()
     }
 
     currentModel(result)
     fitStatus("converged")
+    lastStructuralFingerprint(hashStructure(result))
+    suppressNextEcho(TRUE)
     session$sendCustomMessage("update_model", list(schema = result@schema))
 
     fit_res    <- getFitResults(result)
@@ -387,12 +477,11 @@ NULL
           )
         })
         shiny::tags$table(
-          class = "table table-sm table-striped",
-          style = "font-size:12px; width:100%;",
+          style = "font-size:12px; width:100%; border-collapse:collapse;",
           shiny::tags$thead(shiny::tags$tr(
-            shiny::tags$th("Parameter"),
-            shiny::tags$th("Estimate"),
-            shiny::tags$th("SE")
+            shiny::tags$th(style = "text-align:left; padding:2px 8px; border-bottom:1px solid #e2e8f0; font-weight:600;", "Parameter"),
+            shiny::tags$th(style = "text-align:left; padding:2px 8px; border-bottom:1px solid #e2e8f0; font-weight:600;", "Estimate"),
+            shiny::tags$th(style = "text-align:left; padding:2px 8px; border-bottom:1px solid #e2e8f0; font-weight:600; color:#64748b;", "SE")
           )),
           shiny::tags$tbody(p_rows)
         )
@@ -412,14 +501,22 @@ NULL
       shiny::p("Fitting converged, but no fit results were extracted.", style = "color:#555;")
     }
 
-    shiny::showModal(shiny::modalDialog(
-      title = sprintf("Fit Results \u2014 %s",
-                      if (!is.null(fit_res) && !identical(fit_res, NA) &&
-                          isTRUE(fit_res$converged)) "Converged" else "Complete"),
-      modal_body,
-      footer = shiny::modalButton("Close"),
-      easyClose = TRUE, size = "l"
-    ))
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal(
+        "dsem-modal-fit-results",
+        sprintf("Fit Results \u2014 %s",
+                if (!is.null(fit_res) && !identical(fit_res, NA) &&
+                    isTRUE(fit_res$converged)) "Converged" else "Complete"),
+        modal_body,
+        shiny::tags$button(
+          style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+          onclick = "Shiny.setInputValue('modal_close','dsem-modal-fit-results',{priority:'event'})",
+          "Close"
+        ),
+        size = "l"
+      ),
+      immediate = TRUE
+    )
   })
 
   # ── Download JSON ─────────────────────────────────────────────────────
@@ -441,16 +538,26 @@ NULL
       shiny::showNotification("No model to save.", type = "warning", duration = 4)
       return()
     }
-    shiny::showModal(shiny::modalDialog(
-      title = "Save to R Environment",
-      shiny::textInput("save_r_varname", "Variable name",
-                       value = shiny::isolate(lastVarname())),
-      footer = shiny::tagList(
-        shiny::modalButton("Cancel"),
-        shiny::actionButton("confirm_save_r_btn", "Save", class = "btn-primary btn-sm")
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal("dsem-modal-save", "Save to R Environment",
+        shiny::div(class = "dsem-field",
+          shiny::tags$label(class = "dsem-label", `for` = "save_r_varname", "Variable name"),
+          shiny::textInput("save_r_varname", NULL,
+            value = shiny::isolate(lastVarname()), width = "100%")
+        ),
+        shiny::tagList(
+          shiny::tags$button(
+            style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+            onclick = "Shiny.setInputValue('modal_close','dsem-modal-save',{priority:'event'})",
+            "Cancel"
+          ),
+          shiny::actionButton("confirm_save_r_btn", "Save",
+            style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;")
+        ),
+        size = "s"
       ),
-      easyClose = TRUE, size = "s"
-    ))
+      immediate = TRUE
+    )
   })
 
   shiny::observeEvent(input$confirm_save_r_btn, {
@@ -463,7 +570,7 @@ NULL
     }
     lastVarname(varname)
     assign(varname, currentModel(), envir = .GlobalEnv)
-    shiny::removeModal()
+    .closeModal("dsem-modal-save")
     shiny::showNotification(sprintf("Saved as '%s' in .GlobalEnv.", varname),
                             type = "message", duration = 4)
   })
@@ -472,12 +579,18 @@ NULL
   shiny::observeEvent(input$image_btn, {
     svgData(NULL)
     session$sendCustomMessage("trigger_svg_export", list())
-    shiny::showModal(shiny::modalDialog(
-      title = "Export Image",
-      shiny::uiOutput("image_modal_body"),
-      footer = shiny::modalButton("Close"),
-      easyClose = TRUE, size = "s"
-    ))
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal("dsem-modal-image", "Export Image",
+        shiny::uiOutput("image_modal_body"),
+        shiny::tags$button(
+          style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+          onclick = "Shiny.setInputValue('modal_close','dsem-modal-image',{priority:'event'})",
+          "Close"
+        ),
+        size = "s"
+      ),
+      immediate = TRUE
+    )
   })
 
   shiny::observeEvent(input$svg_export_data, {
@@ -488,19 +601,20 @@ NULL
   output$image_modal_body <- shiny::renderUI({
     if (is.null(svgData())) {
       return(shiny::p(
-        shiny::tags$span(class = "spinner-border spinner-border-sm",
-                         role = "status", "aria-hidden" = "true"),
+        shiny::tags$span(
+          style = "display:inline-block; width:12px; height:12px; border:2px solid #94a3b8; border-top-color:#3b82f6; border-radius:50%; animation:spin 0.8s linear infinite;"
+        ),
         " Preparing canvas\u2026",
-        style = "color:#555;"
+        style = "color:#555; font-size:13px;"
       ))
     }
     shiny::tagList(
       shiny::downloadButton("download_svg", "SVG",
-                            class = "btn-outline-secondary btn-sm me-2"),
+        style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; display:inline-flex; align-items:center; gap:5px; text-decoration:none; margin-right:6px;"),
       shiny::downloadButton("download_png", "PNG",
-                            class = "btn-outline-secondary btn-sm me-2"),
+        style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; display:inline-flex; align-items:center; gap:5px; text-decoration:none; margin-right:6px;"),
       shiny::downloadButton("download_pdf", "PDF",
-                            class = "btn-outline-secondary btn-sm"),
+        style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; display:inline-flex; align-items:center; gap:5px; text-decoration:none;"),
       if (!requireNamespace("rsvg", quietly = TRUE))
         shiny::p("PNG/PDF require rsvg: install.packages('rsvg')",
                  style = "color:#888; font-size:11px; margin-top:8px;")

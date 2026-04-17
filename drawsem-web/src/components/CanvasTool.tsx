@@ -122,7 +122,6 @@ interface CanvasToolProps {
 }
 
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
-  console.log('[CanvasTool] Component mounted. viewMode:', viewMode, 'initialSchema provided:', !!initialSchema)
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
   // Multi-model state
@@ -231,8 +230,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Debug: Log nodes whenever they change
   React.useEffect(() => {
     if (nodes.length > 0) {
-      console.log('[Canvas Render] Nodes updated:', nodes.length, 'nodes:', nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
-      console.log('[Canvas Debug] First node details:', nodes[0])
       
       // Calculate viewBox bounds
       const xs = nodes.map(n => n.x || 0)
@@ -243,31 +240,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const maxY = Math.max(...ys)
       const width = maxX - minX
       const height = maxY - minY
-      console.log('[Canvas Debug] ViewBox bounds - minX:', minX, 'maxX:', maxX, 'minY:', minY, 'maxY:', maxY, 'width:', width, 'height:', height)
     }
   }, [nodes])
 
-  // Debug: Monitor SVG ref and its attributes
+  // SVG ref is monitored internally; no developer-facing debug output needed
   React.useEffect(() => {
-    const checkSvgElement = () => {
-      if (svgRef.current) {
-        console.log('[SVG Debug] SVG element mounted')
-        console.log('[SVG Debug] SVG width:', svgRef.current.getAttribute('width'))
-        console.log('[SVG Debug] SVG height:', svgRef.current.getAttribute('height'))
-        console.log('[SVG Debug] SVG viewBox:', svgRef.current.getAttribute('viewBox'))
-        console.log('[SVG Debug] SVG class:', svgRef.current.getAttribute('class'))
-        console.log('[SVG Debug] Computed style:', {
-          width: window.getComputedStyle(svgRef.current).width,
-          height: window.getComputedStyle(svgRef.current).height,
-          display: window.getComputedStyle(svgRef.current).display,
-        })
-      }
-    }
-    
-    checkSvgElement()
-    // Also check after a brief delay to ensure DOM is fully painted
-    const timeout = setTimeout(checkSvgElement, 100)
-    return () => clearTimeout(timeout)
+    // Empty effect - SVG ref handling is done elsewhere
+    return () => {}
   }, []) // Only on mount
 
   // Get all unique level of measurement values from nodes (explicitly specified only)
@@ -448,7 +427,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         // If still no schema, fetch the example JSON from the public examples directory
         if (!g) {
           const url = '/examples/graph.example.json'
-          console.log('[JSON Import] Attempting to fetch from:', url)
           const res = await fetch(url)
           if (!res.ok) {
             console.warn('[JSON Import] HTTP error:', res.status, res.statusText)
@@ -457,7 +435,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           g = await res.json()
         }
         
-        console.log('[JSON Import] Successfully loaded JSON:', g)
         if (!g) {
           console.warn('[JSON Import] JSON is empty')
           return
@@ -483,50 +460,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           return
         }
 
-        // Apply auto-layout if configured
-        if (window.drawSEMConfig?.config?.visual?.autolayout === 'full') {
-          console.log('[JSON Import] Applying auto-layout...')
-          try {
-            const positions: PositionMap = autoLayout(g as GraphSchema)
-            console.log('[JSON Import] Auto-layout computed positions:', Object.keys(positions).length)
-            
-            // Integrate positions into schema nodes
-            if (g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
-              Object.values((g as any).models).forEach((model: any) => {
-                model.nodes?.forEach((node: any) => {
-                  const posKey = node.label || node.id
-                  if (positions[posKey]) {
-                    if (!node.visual) {
-                      node.visual = {}
-                    }
-                    node.visual.x = positions[posKey].x
-                    node.visual.y = positions[posKey].y
-                    if (positions[posKey].rank !== undefined) {
-                      node.visual.rank = positions[posKey].rank
-                    }
-                  }
+        if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
+          const modelsOut = convertDocToRuntime(g as any)
+
+          // Auto-layout: run whenever variable nodes all lack valid positions
+          // (same logic as the onModelReceived Shiny update path)
+          if (modelsOut.length > 0) {
+            const firstModel = modelsOut[0]
+            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
+            const needsLayout = variableNodes.length > 0 && variableNodes.every(
+              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
+            )
+            if (needsLayout) {
+              try {
+                const positions: PositionMap = autoLayout(g as GraphSchema)
+                const anyValid = variableNodes.some((n: any) => {
+                  const pos = positions[n.label || n.id]
+                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
                 })
-              })
-              // Debug: Log first node's visual properties
-              const firstModel = Object.values((g as any).models)[0] as any
-              if (firstModel?.nodes?.[0]) {
-                console.log('[JSON Import] First node after position integration:', firstModel.nodes[0].label, 'visual:', firstModel.nodes[0].visual)
+                if (anyValid) {
+                  firstModel.nodes.forEach((n: any) => {
+                    const pos = positions[n.label || n.id]
+                    if (pos) { n.x = pos.x; n.y = pos.y }
+                  })
+                }
+              } catch (layoutError) {
+                console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
               }
             }
-            console.log('[JSON Import] Positions integrated into schema')
-          } catch (layoutError) {
-            console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
-        }
 
-        if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
-          console.log('[JSON Import] Converting to runtime format. Models:', Object.keys((g as any).models).length)
-          const modelsOut = convertDocToRuntime(g as any)
-          console.log('[JSON Import] Conversion complete. Models:', modelsOut.length)
-          // Debug: Log first model's nodes
-          if (modelsOut.length > 0) {
-            console.log('[JSON Import] First model nodes after conversion:', modelsOut[0].nodes.length, 'nodes:', modelsOut[0].nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y })))
-          }
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -550,20 +513,58 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     
     // Register callback to handle model updates from R
     adapterOptional.onModelReceived((schema: GraphSchema) => {
-      console.log('[Shiny] Received model update from R:', schema)
       try {
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
-          console.log('[Shiny] Models object found. Keys:', Object.keys((schema as any).models))
           const modelsOut = convertDocToRuntime(schema as any)
-          console.log('[Shiny] Conversion complete. Models:', modelsOut.length)
+          
+          // Attempt auto-layout if variable nodes lack valid positions.
+          // Only variable nodes are considered — constant and dataset nodes
+          // may legitimately have no visual hints.
           if (modelsOut.length > 0) {
-            console.log('[Shiny] First model after conversion:', {
-              id: modelsOut[0].id,
-              label: modelsOut[0].label,
-              nodeCount: modelsOut[0].nodes.length,
-              nodes: modelsOut[0].nodes.map(n => ({ id: n.id, label: n.label, x: n.x, y: n.y }))
+            const firstModel = modelsOut[0]
+            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
+            const needsLayout = variableNodes.length > 0 && variableNodes.every(
+              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
+            )
+            
+            if (needsLayout) {
+              try {
+                const positions: PositionMap = autoLayout(schema as GraphSchema)
+                
+                // Validate: at least one variable node got a non-origin position
+                const anyValid = variableNodes.some((n: any) => {
+                  const pos = positions[n.label || n.id]
+                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
+                })
+                
+                if (anyValid) {
+                  firstModel.nodes.forEach((n: any) => {
+                    const pos = positions[n.label || n.id]
+                    if (pos) {
+                      n.x = pos.x
+                      n.y = pos.y
+                    }
+                  })
+                } else {
+                  setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
+                }
+              } catch (layoutError) {
+                setErrorMessage('Auto-layout failed: ' + (layoutError instanceof Error ? layoutError.message : String(layoutError)) + '. Click "Auto Layout" to try again.')
+              }
+            }
+          }
+          
+          // If the schema has fit results, auto-switch label mode to show values
+          const firstModelSchema = Object.values((schema as any).models || {})[0] as any
+          const hasFitResults = firstModelSchema?.provenance?.fitResults?.length > 0
+          if (hasFitResults) {
+            setPathLabelMode((prev) => {
+              if (prev === 'neither') return 'values'
+              if (prev === 'labels' || prev === 'default') return 'both'
+              return prev
             })
           }
+
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -582,7 +583,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
     
-    console.log('[Shiny] Signaling readiness to R with', models.length, 'model(s)')
     adapterOptional.signalReady()
   }, [models, adapterOptional])
 
@@ -1028,27 +1028,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Unified selection helper: select a node or path
   function selectElement(id: string, type: 'node' | 'path') {
     // Simply select the element (no toggle on every click)
-    console.log(`[Selection] Selecting ${type}:`, id)
     setSelectedId(id)
     setSelectedType(type)
   }
 
   // Unified deselection helper
   function deselectAll() {
-    console.log(`[Selection] Deselecting all`)
     setSelectedId(null)
     setSelectedType(null)
   }
 
   function deleteSelected() {
     if (selectedType === 'node' && selectedId) {
-      console.log(`[Delete] Removing node ${selectedId}`)
       setNodes((s) => s.filter((n) => n.id !== selectedId))
       // Also remove any paths connected to this node
       setPaths((s) => s.filter((p) => p.from !== selectedId && p.to !== selectedId))
       deselectAll()
     } else if (selectedType === 'path' && selectedId) {
-      console.log(`[Delete] Removing path ${selectedId}`)
       setPaths((s) => s.filter((p) => p.id !== selectedId))
       deselectAll()
     }
@@ -1083,9 +1079,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       case 'labels':
         return label ?? null
       case 'values':
-        return value.toString()
+        return typeof value === 'number' ? value.toFixed(2) : value.toString()
       case 'both':
-        return label ? `${label}=${value}` : value.toString()
+        return label ? `${label}=${typeof value === 'number' ? value.toFixed(2) : value}` : (typeof value === 'number' ? value.toFixed(2) : value.toString())
       case 'neither':
         return null
       case 'default':
@@ -1095,10 +1091,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         }
         if (isFree) {
           // free paths: show label if available, else show "=[value]"
-          return label ?? `=${value}`
+          return label ?? `=${typeof value === 'number' ? value.toFixed(2) : value}`
         } else {
           // fixed paths: show value only if not 1.0
-          return value !== 1.0 ? value.toString() : null
+          return value !== 1.0 ? (typeof value === 'number' ? value.toFixed(2) : value.toString()) : null
         }
       default:
         return null
@@ -1107,11 +1103,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Debug effect: log selection state changes
   React.useEffect(() => {
-    if (selectedId && selectedType) {
-      console.log(`[Selection State] Now selected: ${selectedType}:${selectedId}`)
-    } else {
-      console.log(`[Selection State] Nothing selected`)
-    }
+    // Selection state tracking (no debug output needed)
+    return
   }, [selectedId, selectedType])
 
   // Handle Delete / Backspace key to remove selected node or path
@@ -1495,9 +1488,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
       // Validate the path
       const validationError = getPathValidationError(src, dst, twoSided)
-      console.log('[Path Validation] Checking path from', src, 'to', dst, 'twoSided:', twoSided, 'error:', validationError)
       if (validationError) {
-        console.log('[Path Validation] Validation failed, showing error')
         showPathError(validationError)
         setTempLine(null)
         setPathSource(null)
@@ -1550,11 +1541,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onCanvasClick(e: React.MouseEvent) {
-    console.log(`[Mouse] Canvas click, target:`, e.target === svgRef.current ? 'SVG' : 'Child element')
-    
     // If click was on a child element (node, path label, etc.), it should have handled its own events
     if (e.target !== svgRef.current) {
-      console.log(`[Mouse] Click on child element, ignoring`)
       return
     }
     
@@ -1583,7 +1571,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
 
     // Background click in select mode: clear selection and deselect path source
-    console.log(`[Mouse] Canvas background clicked, deselecting`)
     deselectAll()
     setPathSource(null)
     setMode('select')
@@ -1699,7 +1686,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onNodeMouseDown(e: React.MouseEvent, n: Node) {
-    console.log(`[Mouse] Node mousedown: ${n.id} (${n.label}), mode: ${mode}`)
     e.stopPropagation()
     hoverNodeRef.current = n.id
 
@@ -1926,6 +1912,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const halfH = (n.height ?? MANIFEST_DEFAULT_H) / 2
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
+      // When nodes are at the same position, there is no direction: return center to avoid 0*Infinity=NaN
+      if (absDx === 0 && absDy === 0) return { x: cx, y: cy }
       let sX = absDx > 0 ? halfW / absDx : Infinity
       let sY = absDy > 0 ? halfH / absDy : Infinity
       const s = Math.min(sX, sY)
@@ -1938,6 +1926,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const halfH = (n.height ?? 48) / 2
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
+      // When nodes are at the same position, there is no direction: return center to avoid 0*Infinity=NaN
+      if (absDx === 0 && absDy === 0) return { x: cx, y: cy }
       let sX = absDx > 0 ? halfW / absDx : Infinity
       let sY = absDy > 0 ? halfH / absDy : Infinity
       const s = Math.min(sX, sY)
@@ -2079,15 +2069,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const to = nodes.find((n) => n.id === toId)
     
     if (!from || !to) {
-      console.log('[CanvasTool] Path missing node endpoints:', {
-        pathId: p.id,
-        pathLabel: p.label,
-        fromId: p.from,
-        toId: p.to,
-        fromFound: !!from,
-        toFound: !!to,
-        availableNodeIds: nodes.map(n => n.id),
-      })
       return ''
     }
     
@@ -2248,8 +2229,32 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     <div className="flex flex-col h-full canvas-container">
       {/* Top toolbar with icon buttons */}
       {viewMode !== 'widget' && (
-      <header className="border-b p-3 bg-white">
-        <div className="flex items-center gap-3">
+      <header className="border-b bg-white">
+        {/* Model title */}
+        <div className="px-3 pt-2 pb-1">
+          <input
+            type="text"
+            value={currentModel?.label ?? ''}
+            placeholder="Untitled Model"
+            title="Model name — click to edit"
+            className="text-lg font-semibold text-slate-800 placeholder-slate-400 bg-transparent border border-transparent rounded px-1 w-full max-w-lg hover:border-slate-200 focus:outline-none focus:ring-0 focus:border-sky-400"
+            onChange={(e) => setCurrentModelLabel(e.target.value)}
+            onBlur={(e) => {
+              const trimmed = e.target.value.trim()
+              if (trimmed === '') setCurrentModelLabel(currentModel?.label ?? '')
+              else setCurrentModelLabel(trimmed)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              if (e.key === 'Escape') {
+                setCurrentModelLabel(currentModel?.label ?? '')
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+          />
+        </div>
+        {/* Tools row */}
+        <div className="flex items-center gap-3 px-3 pb-2">
           <div className="text-sm font-medium">Tools:</div>
           <div className="flex gap-2">
             <button
@@ -2353,27 +2358,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <option value="invisible">Hidden</option>
               </select>
             </label>
-            <div className="border-l mx-2"></div>
-            <input
-              type="text"
-              value={currentModel?.label ?? ''}
-              placeholder="Untitled Model"
-              title="Model name (click to edit)"
-              className="text-sm border-0 bg-transparent text-slate-600 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400 rounded px-2 py-1 min-w-0 w-36"
-              onChange={(e) => setCurrentModelLabel(e.target.value)}
-              onBlur={(e) => {
-                const trimmed = e.target.value.trim()
-                if (trimmed === '') setCurrentModelLabel(currentModel?.label ?? '')
-                else setCurrentModelLabel(trimmed)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                if (e.key === 'Escape') {
-                  setCurrentModelLabel(currentModel?.label ?? '')
-                  ;(e.target as HTMLInputElement).blur()
-                }
-              }}
-            />
           </div>
         </div>
       </header>
@@ -2796,12 +2780,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
                     />
                   </div>
+                  {!isDatasetPath(selectedPath, nodes) && (
                   <div>
                     <span className="font-medium">Value:</span>
                     <input
                       type="number"
-                      step="0.01"
-                      value={selectedPath.value ?? 1.0}
+                      step="any"
+                      value={selectedPath.value !== null && selectedPath.value !== undefined ? (selectedPath.value as number).toFixed(6).replace(/\.?0+$/, '') : ''}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value)
                         setPaths((ps) =>
@@ -2812,10 +2797,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           )
                         )
                       }}
-                      disabled={isDatasetPath(selectedPath, nodes)}
-                      className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-20 ${isDatasetPath(selectedPath, nodes) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className="ml-2 px-2 py-1 border rounded text-xs bg-white w-36 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
+                  )}
+                  {!isDatasetPath(selectedPath, nodes) && (
                   <div>
                     <span className="font-medium">Free/Fixed:</span>
                     <select
@@ -2855,6 +2841,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       />
                     )}
                   </div>
+                  )}
                 </div>
 
                 {/* Dataset mapping info panel - shown for dataset paths */}
@@ -2987,20 +2974,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             )}
           </div>
         )}
-        {/* Debug render state right before SVG */}
-        {(() => {
-          console.log('[SVG Render] Rendering SVG element. viewMode:', viewMode, 'nodes:', nodes.length, 'paths:', paths.length)
-          if (nodes.length > 0) {
-            const xs = nodes.map(n => n.x || 0)
-            const ys = nodes.map(n => n.y || 0)
-            const minX = Math.min(...xs)
-            const maxX = Math.max(...xs)
-            const minY = Math.min(...ys)
-            const maxY = Math.max(...ys)
-            console.log('[SVG Render] Computed bounds - minX:', minX, 'maxX:', maxX, 'minY:', minY, 'maxY:', maxY)
-          }
-          return null
-        })()}
+
         {(() => {
           return (
             <svg

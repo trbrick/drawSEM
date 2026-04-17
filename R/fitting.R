@@ -391,7 +391,28 @@ runOpenMx <- function(
   
   result_model@schema$models[[model_id]] <- model
   
-  # Step 6: Cache the fitted model
+  # Step 6: Update path.value fields with fitted parameter estimates
+  # This allows the schema to display fitted values for inspection and export
+  if (converged && length(estimates) > 0) {
+    model$paths <- lapply(model$paths, function(path) {
+      # If this path has a freeParameter label, look up its fitted estimate
+      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
+        param_name <- path$freeParameter
+        if (param_name %in% names(estimates)) {
+          path$value <- as.numeric(estimates[[param_name]])
+        }
+      } else if (isTRUE(path$freeParameter)) {
+        # For anonymous free parameters (freeParameter = true),
+        # the Backend names them; we'd need the OpenMx parameter table to match.
+        # For now, skip these (they're not commonly used).
+      }
+      path
+    })
+  }
+  
+  result_model@schema$models[[model_id]] <- model
+  
+  # Step 7: Cache the fitted model
   result_model@lastBuiltModel <- fit_result
   
   message("Fitting complete.")

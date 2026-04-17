@@ -814,8 +814,7 @@ setMethod(
       nodes[[length(nodes) + 1]] <- list(
         label = var,
         type = "variable",
-        variableCharacteristics = list(manifestLatent = "manifest"),
-        levelOfMeasurement = "individual"
+        variableCharacteristics = list(manifestLatent = "manifest")
       )
     }
     
@@ -885,16 +884,18 @@ setMethod(
     to = to_label,
     numberOfArrows = num_arrows,
               value = val,
-              freeParameter = if (!free) NULL
-                              else if (!is.na(label) && is.character(label) && nzchar(label)) label
-                              else TRUE,
               label = label,
               parameterType = param_type
             )
             
-            # Only include optimization if not NULL
-            if (!is.null(opt_info)) {
-              path$optimization <- opt_info
+            # Only add freeParameter if the parameter is free (not fixed)
+            # Schema: freeParameter absent/null = fixed, true = free anonymous, string = free with label
+            if (free) {
+              path$freeParameter <- if (!is.na(label) && is.character(label) && nzchar(label)) {
+                label
+              } else {
+                TRUE
+              }
             }
             
             path_list <- c(path_list, list(path))
@@ -964,12 +965,18 @@ setMethod(
                 to = var_name,
                 numberOfArrows = 1,
                 value = val,
-                freeParameter = if (!free) NULL
-                                else if (!is.na(label) && is.character(label) && nzchar(label)) label
-                                else TRUE,
                 label = label,
                 parameterType = "mean"
               )
+              
+              # Only add freeParameter if the parameter is free (not fixed)
+              if (free) {
+                mean_path$freeParameter <- if (!is.na(label) && is.character(label) && nzchar(label)) {
+                  label
+                } else {
+                  TRUE
+                }
+              }
               
               # Only include optimization if not NULL
               if (!is.null(opt_info)) {
