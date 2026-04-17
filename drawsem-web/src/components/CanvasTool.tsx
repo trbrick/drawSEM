@@ -851,6 +851,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     `${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`
   )
 
+  // Ref-copy of parsed viewBox — lets the non-passive wheel handler read current
+  // values without a stale closure (the handler is registered once with empty deps).
+  const viewBoxRef = useRef({ x: -MIN_VB_SIZE / 2, y: -MIN_VB_SIZE / 2, w: MIN_VB_SIZE, h: MIN_VB_SIZE })
+  useEffect(() => {
+    const [x, y, w, h] = viewBoxAttr.split(' ').map(Number)
+    viewBoxRef.current = { x, y, w, h }
+  }, [viewBoxAttr])
+
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
   // pending drag holds initial press until movement threshold is reached
@@ -1369,6 +1377,65 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [currentModel, isLayingOut, viewMode])
+
+  // ---- Pan and zoom via trackpad / mouse wheel ----
+  // Registered as non-passive so preventDefault() can suppress browser scroll/zoom.
+  // Reads viewBox from viewBoxRef (kept in sync above) to avoid stale closures.
+  //
+  // Trackpad behaviour (standard across macOS/Windows trackpads):
+  //   Two-finger swipe          → deltaX / deltaY, ctrlKey = false  → pan
+  //   Pinch to zoom             → deltaY,           ctrlKey = true   → zoom
+  // Mouse wheel behaviour:
+  //   Scroll                    → deltaY,           ctrlKey = false  → pan (vertical)
+  //   Ctrl + scroll             → deltaY,           ctrlKey = true   → zoom
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    const ZOOM_SENSITIVITY = 0.003  // fraction of zoom per deltaY unit
+    const MIN_VB_W = 80             // most zoomed-in: 80 canvas units wide
+    const MAX_VB_W = MIN_VB_SIZE * 30  // most zoomed-out: 30× initial size
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault()
+
+      const { x, y, w, h } = viewBoxRef.current
+      const rect = svg.getBoundingClientRect()
+
+      if (e.ctrlKey) {
+        // ---- Zoom: pinch or Ctrl + scroll ----
+        // Clamp deltaY to guard against large mouse-wheel jumps.
+        const delta = Math.max(-30, Math.min(30, e.deltaY))
+        const factor = Math.pow(1 + ZOOM_SENSITIVITY, delta)
+        const newW = Math.max(MIN_VB_W, Math.min(MAX_VB_W, w * factor))
+        const newH = h * (newW / w)   // preserve aspect ratio
+
+        // Keep the SVG point under the cursor stationary during zoom.
+        const fracX = (e.clientX - rect.left) / rect.width
+        const fracY = (e.clientY - rect.top) / rect.height
+        const newX = (x + fracX * w) - fracX * newW
+        const newY = (y + fracY * h) - fracY * newH
+
+        const newVB = `${newX} ${newY} ${newW} ${newH}`
+        viewBoxRef.current = { x: newX, y: newY, w: newW, h: newH }
+        setViewBoxAttr(newVB)
+      } else {
+        // ---- Pan: two-finger swipe or plain scroll ----
+        // Convert CSS-pixel deltas to SVG-unit deltas.
+        const scaleX = w / rect.width
+        const scaleY = h / rect.height
+        const newX = x + e.deltaX * scaleX
+        const newY = y + e.deltaY * scaleY
+
+        const newVB = `${newX} ${newY} ${w} ${h}`
+        viewBoxRef.current = { x: newX, y: newY, w, h }
+        setViewBoxAttr(newVB)
+      }
+    }
+
+    svg.addEventListener('wheel', onWheel, { passive: false })
+    return () => svg.removeEventListener('wheel', onWheel)
+  }, [])  // empty deps — reads live values from viewBoxRef, not from React state
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
