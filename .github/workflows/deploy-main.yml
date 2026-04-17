@@ -1,0 +1,36 @@
+name: Deploy main to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: drawsem-web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: drawsem-web
+        run: npm ci
+
+      - name: Build standalone app
+        working-directory: drawsem-web
+        run: npx vite build --base /drawSEM/
+
+      - name: Deploy to GitHub Pages (root)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: drawsem-web/dist/standalone
+          keep_files: true
