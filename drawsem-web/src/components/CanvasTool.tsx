@@ -790,7 +790,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Ref-copy of parsed viewBox — lets the non-passive wheel handler read current
   // values without a stale closure (the handler is registered once with empty deps).
   const viewBoxRef = useRef({ x: -MIN_VB_SIZE / 2, y: -MIN_VB_SIZE / 2, w: MIN_VB_SIZE, h: MIN_VB_SIZE })
-  useEffect(() => {
+  React.useEffect(() => {
     const [x, y, w, h] = viewBoxAttr.split(' ').map(Number)
     viewBoxRef.current = { x, y, w, h }
   }, [viewBoxAttr])
@@ -1319,7 +1319,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Mouse wheel behaviour:
   //   Scroll                    → deltaY,           ctrlKey = false  → pan (vertical)
   //   Ctrl + scroll             → deltaY,           ctrlKey = true   → zoom
-  useEffect(() => {
+  React.useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
 
@@ -1366,6 +1366,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     svg.addEventListener('wheel', onWheel, { passive: false })
     return () => svg.removeEventListener('wheel', onWheel)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])  // empty deps — reads live values from viewBoxRef, not from React state
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
@@ -2702,11 +2703,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 setPathSource(null)
               }}
             >
-              ⊞ Repeat
+              ⊞ Module
             </button>
             <button
               title={`Auto-layout (${navigator.platform.startsWith('Mac') ? 'Cmd' : 'Ctrl'}+L)`}
-              className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100 ${isLayingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100 ${isLayingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleAutoLayout}
               disabled={isLayingOut}
             >
@@ -2720,7 +2721,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
                   onClick={() => handleImportClick()}
                 >
-                  Load Model
+                  Load
                 </button>
                 <button
                   title="Save model to a JSON file"
@@ -2764,6 +2765,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     setModels((ms) => ms.map((m) =>
                       m.id === currentModelId ? { ...m, nodes: [], paths: [], label: '' } : m
                     ))
+                    setRepeatGroups([])
                     deselectAll()
                   }}
                 >
