@@ -5,11 +5,22 @@ import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
-import { uid, isDatasetPath } from '../utils/helpers'
+import { uid, isDatasetPath, RuntimeRepeatGroup } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
+import RepeatGroup from './RepeatGroup'
+import GroupInspector from './GroupInspector'
+import {
+  computeGroupBBox,
+  buildInstanceNodeIdMap,
+  expandGroupNodes,
+  expandPath,
+  computeInstanceCountFromDrag,
+  subscript,
+  type ExpandedPath,
+} from '../utils/coordinateExpansion'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -92,6 +103,7 @@ type Mode =
   | 'add-constant'
   | 'add-one-path'
   | 'add-two-path'
+  | 'make-repeat-group'
 
 // Display styling constants
 const DISPLAY_COLORS = {
@@ -124,9 +136,40 @@ interface CanvasToolProps {
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
-  // Multi-model state
-  const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
+    // Multi-model state
+  const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])  
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+
+  // Repeat group state — keyed by model id
+  const [repeatGroupsByModel, setRepeatGroupsByModel] = useState<Record<string, RuntimeRepeatGroup[]>>({})
+  const repeatGroups: RuntimeRepeatGroup[] = currentModelId ? (repeatGroupsByModel[currentModelId] ?? []) : []
+
+  const setRepeatGroups = (updater: React.SetStateAction<RuntimeRepeatGroup[]>) => {
+    setRepeatGroupsByModel((prev) => {
+      const modelId = currentModelId
+      if (!modelId) return prev
+      const current = prev[modelId] ?? []
+      const next = typeof updater === 'function' ? updater(current) : updater
+      return { ...prev, [modelId]: next }
+    })
+  }
+
+  // Rubber-band selection state (for making repeat groups)
+  const [rubberBand, setRubberBand] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const rubberBandStartRef = useRef<{ x: number; y: number } | null>(null)
+  // Ids of nodes inside the current rubber-band selection
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
+
+  // Repeat group drag-handle state
+  const groupHandleDragRef = useRef<{
+    groupId: string
+    startX: number        // client X where drag started
+    startCount: number    // instanceCount at drag start
+  } | null>(null)
+
+  // Which element is selected: node, path, or repeat group
+  // (extends existing selectedId / selectedType)
+  // selectedType === 'group' uses selectedId as the group id
   
   // Convenience accessors for current model
   const currentModel = models.find((m) => m.id === currentModelId)
@@ -792,7 +835,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
+  const [selectedType, setSelectedType] = useState<'node' | 'path' | 'group' | null>(null)
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
@@ -1025,9 +1068,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return paths.find((p) => p.id === selectedId) || null
   }, [selectedType, selectedId, paths])
 
-  // Unified selection helper: select a node or path
-  function selectElement(id: string, type: 'node' | 'path') {
-    // Simply select the element (no toggle on every click)
+  // Unified selection helper: select a node, path, or repeat group
+  function selectElement(id: string, type: 'node' | 'path' | 'group') {
     setSelectedId(id)
     setSelectedType(type)
   }
@@ -1036,6 +1078,198 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function deselectAll() {
     setSelectedId(null)
     setSelectedType(null)
+    setSelectedNodeIds(new Set())
+  }
+
+  // ---- Repeat group helpers ----
+
+  /**
+   * Create a repeat group from the current rubber-band selection.
+   * Nodes that are already in a group are excluded.
+   */
+  function makeRepeatGroupFromSelection() {
+    if (selectedNodeIds.size === 0) return
+    const alreadyGrouped = new Set(repeatGroups.flatMap((g) => g.nodeIds))
+    const eligibleIds = Array.from(selectedNodeIds).filter((id) => !alreadyGrouped.has(id))
+    if (eligibleIds.length === 0) return
+
+    const eligibleNodes = nodes.filter((n) => eligibleIds.includes(n.id))
+    const bbox = computeGroupBBox(eligibleNodes)
+
+    const newGroup: RuntimeRepeatGroup = {
+      id: uid('rg_'),
+      coordinateDimension: `dim_${repeatGroups.length + 1}`,
+      instanceCount: 1,
+      dataSource: null,
+      viewState: 'expanded',
+      nodeIds: eligibleIds,
+      visual: {
+        templateX: bbox.minX,
+        templateY: bbox.minY,
+        instanceWidth: bbox.width,
+        instanceHeight: bbox.height,
+        instanceSpacing: 32,
+        axis: 'horizontal',
+      },
+    }
+    setRepeatGroups((gs) => [...gs, newGroup])
+    selectElement(newGroup.id, 'group')
+    setSelectedNodeIds(new Set())
+    setMode('select')
+  }
+
+  /** Update a repeat group's properties and recompute bbox if nodeIds changed. */
+  function updateRepeatGroup(groupId: string, updates: Partial<RuntimeRepeatGroup>) {
+    setRepeatGroups((gs) =>
+      gs.map((g) => {
+        if (g.id !== groupId) return g
+        const merged = { ...g, ...updates }
+        // Recompute visual bbox if nodeIds changed
+        if (updates.nodeIds) {
+          const groupNodes = nodes.filter((n) => merged.nodeIds.includes(n.id))
+          const bbox = computeGroupBBox(groupNodes)
+          merged.visual = {
+            ...merged.visual,
+            templateX: bbox.minX,
+            templateY: bbox.minY,
+            instanceWidth: bbox.width,
+            instanceHeight: bbox.height,
+          }
+        }
+        return merged
+      })
+    )
+  }
+
+  /** Delete a repeat group (ungroups nodes, does not delete them). */
+  function deleteRepeatGroup(groupId: string) {
+    setRepeatGroups((gs) => gs.filter((g) => g.id !== groupId))
+    if (selectedId === groupId) deselectAll()
+  }
+
+  /** Toggle a group between expanded and collapsed. */
+  function toggleGroupView(groupId: string) {
+    setRepeatGroups((gs) =>
+      gs.map((g) =>
+        g.id === groupId
+          ? { ...g, viewState: g.viewState === 'expanded' ? 'collapsed' : 'expanded' }
+          : g
+      )
+    )
+  }
+
+  /**
+   * Begin a group handle drag.
+   * Stores the group id, start client X, and current instance count.
+   */
+  function startGroupHandleDrag(groupId: string, e: React.MouseEvent) {
+    groupHandleDragRef.current = {
+      groupId,
+      startX: e.clientX,
+      startCount: repeatGroups.find((g) => g.id === groupId)?.instanceCount ?? 1,
+    }
+  }
+
+  /**
+   * Build the full set of expanded nodes and paths for rendering.
+   * Template nodes appear at their original positions (instance 0).
+   * Instances 1..N-1 are synthetic copies with offset positions.
+   * Paths are expanded per coordinateRule and lag.
+   * Collapsed groups show only template nodes.
+   */
+  function buildExpandedScene(): { renderNodes: Node[]; renderPaths: ExpandedPath[] } {
+    // Nodes and paths not in any group pass through unchanged
+    const groupedNodeIds = new Set(repeatGroups.flatMap((g) => g.nodeIds))
+
+    const ungroupedNodes = nodes.filter((n) => !groupedNodeIds.has(n.id))
+    const allRenderNodes: Node[] = [...ungroupedNodes]
+
+    // For each group, generate instance nodes (expanded) or template only (collapsed)
+    const instanceMaps = new Map<string, Map<string, string[]>>() // groupId -> instanceNodeIdMap
+    for (const group of repeatGroups) {
+      const idMap = buildInstanceNodeIdMap(group)
+      instanceMaps.set(group.id, idMap)
+      const templateNodes = nodes.filter((n) => group.nodeIds.includes(n.id))
+
+      if (group.viewState === 'expanded') {
+        const expanded = expandGroupNodes(templateNodes, group, idMap)
+        // Apply instance subscript badges to instance 0 as well
+        const withBadges = expanded.map((n, i) => {
+          const templateIdx = group.nodeIds.indexOf(n.id)
+          const isTemplate = templateIdx >= 0 // original template node
+          if (isTemplate && group.instanceCount > 1) {
+            return {
+              ...n,
+              displayName: `${n.displayName ?? n.label}${subscript(0)}`,
+            }
+          }
+          return n
+        })
+        allRenderNodes.push(...withBadges)
+      } else {
+        // Collapsed: show template nodes only, without badges
+        allRenderNodes.push(...templateNodes)
+      }
+    }
+
+    // Expand paths
+    const allRenderPaths: ExpandedPath[] = []
+    for (const path of paths) {
+      // Find which group (if any) each endpoint belongs to
+      const fromGroup = repeatGroups.find((g) => g.nodeIds.includes(path.from))
+      const toGroup = repeatGroups.find((g) => g.nodeIds.includes(path.to))
+
+      if (!fromGroup && !toGroup) {
+        // Neither endpoint is in a group — pass through
+        allRenderPaths.push({
+          id: path.id,
+          fromNodeId: path.from,
+          toNodeId: path.to,
+          templatePath: path,
+          fromInstance: -1,
+          toInstance: -1,
+        })
+        continue
+      }
+
+      // Use the group that owns the from endpoint; if both are in the same group, use that
+      // Cross-group lag is out of scope — fall through as single copy
+      const owningGroup = fromGroup ?? toGroup!
+      if (fromGroup && toGroup && fromGroup.id !== toGroup.id) {
+        // Cross-group: not supported in this prototype
+        allRenderPaths.push({
+          id: path.id,
+          fromNodeId: path.from,
+          toNodeId: path.to,
+          templatePath: path,
+          fromInstance: -1,
+          toInstance: -1,
+        })
+        continue
+      }
+
+      const idMap = instanceMaps.get(owningGroup.id)!
+
+      if (owningGroup.viewState === 'collapsed') {
+        // Collapsed: render only the template path (instance 0)
+        const fromId = idMap.get(path.from)?.[0] ?? path.from
+        const toId = idMap.get(path.to)?.[0] ?? path.to
+        allRenderPaths.push({
+          id: path.id,
+          fromNodeId: fromId,
+          toNodeId: toId,
+          templatePath: path,
+          fromInstance: 0,
+          toInstance: 0,
+        })
+        continue
+      }
+
+      const expanded = expandPath(path, owningGroup, idMap)
+      allRenderPaths.push(...expanded)
+    }
+
+    return { renderNodes: allRenderNodes, renderPaths: allRenderPaths }
   }
 
   function deleteSelected() {
@@ -1442,6 +1676,45 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     pt.y = e.clientY
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
 
+    // Group handle drag
+    if (groupHandleDragRef.current) {
+      const { groupId, startX, startCount } = groupHandleDragRef.current
+      const group = repeatGroups.find((g) => g.id === groupId)
+      if (group) {
+        const clientDeltaX = e.clientX - startX
+        // Convert client delta to canvas units using the CTM scale
+        const ctm = svg.getScreenCTM()
+        const scale = ctm ? ctm.a : 1
+        const canvasDelta = clientDeltaX / scale
+        const newCount = computeInstanceCountFromDrag(
+          { ...group, instanceCount: startCount },
+          canvasDelta
+        )
+        if (newCount !== group.instanceCount) {
+          updateRepeatGroup(groupId, { instanceCount: newCount })
+        }
+      }
+      return
+    }
+
+    // Rubber-band selection update
+    if (mode === 'make-repeat-group' && rubberBandStartRef.current) {
+      const rb = { x1: rubberBandStartRef.current.x, y1: rubberBandStartRef.current.y, x2: cursor.x, y2: cursor.y }
+      setRubberBand(rb)
+      // Compute which nodes fall inside the rubber band
+      const minX = Math.min(rb.x1, rb.x2)
+      const maxX = Math.max(rb.x1, rb.x2)
+      const minY = Math.min(rb.y1, rb.y2)
+      const maxY = Math.max(rb.y1, rb.y2)
+      const inside = new Set(
+        nodes
+          .filter((n) => n.x >= minX && n.x <= maxX && n.y >= minY && n.y <= maxY)
+          .map((n) => n.id)
+      )
+      setSelectedNodeIds(inside)
+      return
+    }
+
     // activate pending drag if threshold exceeded
     if (pendingDragRef.current) {
       const pd = pendingDragRef.current
@@ -1454,10 +1727,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       }
     }
 
-    // if dragging a node, move it
+    // if dragging a node, move it and update its group bbox
     if (dragRef.current) {
       const { id, offsetX, offsetY } = dragRef.current
       setNodes((list) => list.map((n) => (n.id === id ? { ...n, x: cursor.x - offsetX, y: cursor.y - offsetY } : n)))
+      // Recompute bbox for any group containing this node
+      const owningGroup = repeatGroups.find((g) => g.nodeIds.includes(id))
+      if (owningGroup) {
+        // Use current nodes array (stale by one render, close enough for live drag)
+        const groupNodes = nodes.map((n) =>
+          n.id === id ? { ...n, x: cursor.x - offsetX, y: cursor.y - offsetY } : n
+        ).filter((n) => owningGroup.nodeIds.includes(n.id))
+        const bbox = computeGroupBBox(groupNodes)
+        setRepeatGroups((gs) =>
+          gs.map((g) =>
+            g.id === owningGroup.id
+              ? { ...g, visual: { ...g.visual, templateX: bbox.minX, templateY: bbox.minY, instanceWidth: bbox.width, instanceHeight: bbox.height } }
+              : g
+          )
+        )
+      }
       return
     }
 
@@ -1468,6 +1757,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onMouseUp() {
+    // Finish group handle drag
+    if (groupHandleDragRef.current) {
+      groupHandleDragRef.current = null
+      return
+    }
+
+    // Finish rubber-band selection
+    if (mode === 'make-repeat-group' && rubberBandStartRef.current) {
+      rubberBandStartRef.current = null
+      setRubberBand(null)
+      makeRepeatGroupFromSelection()
+      return
+    }
+
     // clear pending drag if mouse released before moving
     if (pendingDragRef.current) {
       pendingDragRef.current = null
@@ -1537,6 +1840,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setPathSource(null)
       setTempLine(null)
       setMode('select')
+    }
+  }
+
+  function onCanvasMouseDown(e: React.MouseEvent) {
+    // Start rubber-band when in make-repeat-group mode and clicking on background
+    if (mode === 'make-repeat-group' && e.target === svgRef.current) {
+      const p = clientToSvg(e)
+      rubberBandStartRef.current = { x: p.x, y: p.y }
+      setRubberBand({ x1: p.x, y1: p.y, x2: p.x, y2: p.y })
     }
   }
 
@@ -2061,12 +2373,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return finalPts
   }
 
-  function pathD(p: Path) {
+  function pathD(p: Path, nodeOverrides?: Map<string, Node>) {
     // When reversed, swap the visual source/destination so the arrow points to→from
     const fromId = p.reversed && !p.twoSided ? p.to : p.from
     const toId   = p.reversed && !p.twoSided ? p.from : p.to
-    const from = nodes.find((n) => n.id === fromId)
-    const to = nodes.find((n) => n.id === toId)
+    const lookup = (id: string) => nodeOverrides?.get(id) ?? nodes.find((n) => n.id === id)
+    const from = lookup(fromId)
+    const to = lookup(toId)
     
     if (!from || !to) {
       return ''
@@ -2134,11 +2447,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return `M ${startOut.x} ${startOut.y} L ${endOut.x} ${endOut.y}`
   }
 
-  function pathLabelPos(p: Path): { x: number; y: number } | null {
+  function pathLabelPos(p: Path, nodeOverrides?: Map<string, Node>): { x: number; y: number } | null {
     const fromId = p.reversed && !p.twoSided ? p.to : p.from
     const toId   = p.reversed && !p.twoSided ? p.from : p.to
-    const from = nodes.find((n) => n.id === fromId)
-    const to = nodes.find((n) => n.id === toId)
+    const lookup = (id: string) => nodeOverrides?.get(id) ?? nodes.find((n) => n.id === id)
+    const from = lookup(fromId)
+    const to = lookup(toId)
     if (!from || !to) return null
     const a = centerOf(from)
     const b = centerOf(to)
@@ -2310,6 +2624,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               ↔
             </button>
             <button
+              title="Make Repeat Group — draw a box around nodes to group them"
+              className={`py-2 px-3 rounded text-sm flex items-center justify-center gap-1 ${
+                mode === 'make-repeat-group'
+                  ? 'bg-sky-600 text-white'
+                  : 'bg-white border hover:bg-sky-100'
+              }`}
+              onClick={() => {
+                setMode(mode === 'make-repeat-group' ? 'select' : 'make-repeat-group')
+                setPathSource(null)
+              }}
+            >
+              ⊞ Repeat
+            </button>
+            <button
               title={`Auto-layout (${navigator.platform.startsWith('Mac') ? 'Cmd' : 'Ctrl'}+L)`}
               className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100 ${isLayingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
               onClick={handleAutoLayout}
@@ -2478,6 +2806,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             />
           </>
         )}
+        {/* Repeat group inspector popup */}
+        {viewMode !== 'widget' && selectedType === 'group' && selectedId && (() => {
+          const group = repeatGroups.find((g) => g.id === selectedId)
+          if (!group) return null
+          const datasetLabels = nodes
+            .filter((n) => n.type === 'dataset')
+            .map((n) => n.label)
+          return (
+            <div className={`absolute z-50 w-[380px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
+              <GroupInspector
+                group={group}
+                datasetNodeLabels={datasetLabels}
+                onChange={(groupId, updates) => updateRepeatGroup(groupId, updates as any)}
+                onDelete={deleteRepeatGroup}
+                onClose={deselectAll}
+              />
+            </div>
+          )
+        })()}
+
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
         {viewMode !== 'widget' && (selectedNode || selectedPath) && (
           <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
@@ -2844,6 +3192,98 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   )}
                 </div>
 
+                {/* Coordinate expansion inspector — shown when path belongs to a repeat group */}
+                {(() => {
+                  const fromGroup = repeatGroups.find((g) => g.nodeIds.includes(selectedPath.from))
+                  const toGroup   = repeatGroups.find((g) => g.nodeIds.includes(selectedPath.to))
+                  const owningGroup = fromGroup ?? toGroup
+                  if (!owningGroup) return null
+                  const N = owningGroup.instanceCount
+                  const lag = selectedPath.lag ?? 0
+                  const rule = selectedPath.coordinateRule ?? 'all'
+                  // Compute effective copy count for display
+                  let effectiveCopies: number
+                  if (lag !== 0) {
+                    effectiveCopies = Math.max(0, N - Math.abs(lag))
+                  } else {
+                    if (rule === 'all') effectiveCopies = N
+                    else if (rule === 'first' || rule === 'last') effectiveCopies = Math.min(1, N)
+                    else effectiveCopies = 1
+                  }
+                  const ruleValue = typeof rule === 'object' ? 'specific' : rule
+                  const specificIndex = typeof rule === 'object' ? rule.index : 0
+                  return (
+                    <div className="border-t pt-2 space-y-2">
+                      <div className="font-medium text-slate-700 text-xs">Coordinate Rule</div>
+                      <div className="text-[11px] text-slate-500">
+                        Group: <span className="font-mono">{owningGroup.coordinateDimension}</span>
+                        {' '}&bull; {N} instance{N !== 1 ? 's' : ''}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs">Connect to:</span>
+                        <select
+                          value={ruleValue}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            const newRule = v === 'specific'
+                              ? { index: 0 }
+                              : (v as 'all' | 'first' | 'last')
+                            setPaths((ps) => ps.map((p) =>
+                              p.id === selectedPath.id ? { ...p, coordinateRule: newRule } : p
+                            ))
+                          }}
+                          className="px-2 py-1 border rounded text-xs bg-white"
+                        >
+                          <option value="all">All instances</option>
+                          <option value="first">First only</option>
+                          <option value="last">Last only</option>
+                          <option value="specific">Specific index</option>
+                        </select>
+                        {ruleValue === 'specific' && (
+                          <input
+                            type="number"
+                            min={0}
+                            max={N - 1}
+                            value={specificIndex}
+                            onChange={(e) => {
+                              const idx = parseInt(e.target.value, 10)
+                              if (!isNaN(idx)) {
+                                setPaths((ps) => ps.map((p) =>
+                                  p.id === selectedPath.id ? { ...p, coordinateRule: { index: idx } } : p
+                                ))
+                              }
+                            }}
+                            className="w-16 px-2 py-1 border rounded text-xs bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs">Lag:</span>
+                        <input
+                          type="number"
+                          value={lag}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10)
+                            setPaths((ps) => ps.map((p) =>
+                              p.id === selectedPath.id ? { ...p, lag: isNaN(v) ? 0 : v } : p
+                            ))
+                          }}
+                          className="w-16 px-2 py-1 border rounded text-xs bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[11px] text-slate-500">
+                          {lag > 0 ? `forward (+${lag})` : lag < 0 ? `backward (${lag})` : 'same instance'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Effective copies: <span className="font-medium text-slate-700">{effectiveCopies}</span>
+                        {lag !== 0 && (
+                          <span className="ml-1">(drops {N - effectiveCopies} out-of-bounds)</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {/* Dataset mapping info panel - shown for dataset paths */}
                 {isDatasetPath(selectedPath, nodes) && (
                   <div className="bg-blue-50 border border-blue-200 rounded p-2 text-blue-800 text-[11px] space-y-1">
@@ -2979,9 +3419,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           return (
             <svg
               ref={svgRef}
-              className="w-full h-full bg-white border rounded"
+              className={`w-full h-full bg-white border rounded${mode === 'make-repeat-group' ? ' cursor-crosshair' : ''}`}
               viewBox={viewBoxAttr}
               preserveAspectRatio="xMidYMid meet"
+              onMouseDown={onCanvasMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
@@ -3027,8 +3468,64 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 </marker>
               </defs>
 
-              {/* draw paths with layer-based opacity */}
-              {paths.map((p) => {
+              {/* ---- Repeat group chrome (boxes, handles, badges) ---- */}
+              {(() => {
+                const { renderNodes } = buildExpandedScene()
+                return repeatGroups.map((group) => {
+                  const groupTemplateNodes = nodes.filter((n) => group.nodeIds.includes(n.id))
+                  const bbox = computeGroupBBox(groupTemplateNodes)
+                  return (
+                    <RepeatGroup
+                      key={group.id}
+                      group={group}
+                      templateBBox={bbox}
+                      isSelected={selectedType === 'group' && selectedId === group.id}
+                      onToggleView={toggleGroupView}
+                      onHandleDragStart={startGroupHandleDrag}
+                      onSelect={(id) => selectElement(id, 'group')}
+                    />
+                  )
+                })
+              })()}
+
+              {/* draw paths with layer-based opacity (coordinate-expanded) */}
+              {(() => {
+                const { renderNodes: rNodes, renderPaths: rPaths } = buildExpandedScene()
+                const nodeById = new Map<string, Node>(rNodes.map((n) => [n.id, n]))
+                return rPaths.map((ep) => {
+                  const p = ep.templatePath
+                  const renderPath = { ...p, id: ep.id, from: ep.fromNodeId, to: ep.toNodeId }
+                  const isSelected = selectedType === 'path' && selectedId === p.id
+                  const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
+                  const inLayer = isPathInLayer(p)
+                  const opacity = getElementOpacity(inLayer)
+                  const zIndex = getElementZIndex(inLayer)
+                  return (
+                    <path
+                      key={ep.id}
+                      d={pathD(renderPath as any, nodeById)}
+                      fill="none"
+                      stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
+                      strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
+                      markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
+                      markerStart={renderPath.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        selectElement(p.id, 'path')
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        cyclePath(p.id)
+                      }}
+                      opacity={opacity}
+                      style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
+                    />
+                  )
+                })
+              })()}
+
+              {/* ---- ORIGINAL path rendering hidden below — replaced by expanded scene above ---- */}
+              {false && paths.map((p) => {
                   const isSelected = selectedType === 'path' && selectedId === p.id
                   const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
@@ -3057,7 +3554,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   )
                 })}
 
-              {/* path labels */}
+              {/* path labels (using template paths so labels appear once per template, not per instance) */}
           {paths.map((p) => {
             const displayText = getPathDisplayText(p)
             if (!displayText) return null
@@ -3105,6 +3602,45 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   {displayText}
                 </text>
               </g>
+            )
+          })}
+
+          {/* rubber-band selection rect (make-repeat-group mode) */}
+          {rubberBand && mode === 'make-repeat-group' && (
+            <rect
+              x={Math.min(rubberBand.x1, rubberBand.x2)}
+              y={Math.min(rubberBand.y1, rubberBand.y2)}
+              width={Math.abs(rubberBand.x2 - rubberBand.x1)}
+              height={Math.abs(rubberBand.y2 - rubberBand.y1)}
+              fill="rgba(99,179,237,0.10)"
+              stroke="#63b3ed"
+              strokeWidth={1.5}
+              strokeDasharray="5 3"
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+
+          {/* highlight nodes inside rubber-band */}
+          {mode === 'make-repeat-group' && Array.from(selectedNodeIds).map((nodeId) => {
+            const n = nodes.find((nd) => nd.id === nodeId)
+            if (!n) return null
+            const pad = 6
+            const w = (n.width ?? LATENT_RADIUS * 2) + pad * 2
+            const h = (n.height ?? LATENT_RADIUS * 2) + pad * 2
+            return (
+              <rect
+                key={`rb-hi-${nodeId}`}
+                x={n.x - w / 2}
+                y={n.y - h / 2}
+                width={w}
+                height={h}
+                rx={4}
+                fill="none"
+                stroke="#63b3ed"
+                strokeWidth={2}
+                strokeDasharray="4 2"
+                style={{ pointerEvents: 'none' }}
+              />
             )
           })}
 
@@ -3161,8 +3697,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             />
           )}
 
-          {/* draw nodes */}
-          {nodes.map((n) => {
+          {/* draw nodes (coordinate-expanded) */}
+          {buildExpandedScene().renderNodes.map((n) => {
             const isSelected = selectedType === 'node' && n.id === selectedId
             // Check if this node is connected to a hovered column (via a path from the selected dataset)
             const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
