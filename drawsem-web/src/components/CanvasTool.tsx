@@ -469,7 +469,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         
         // If still no schema, fetch the example JSON from the public examples directory
         if (!g) {
-          const url = '/examples/graph.example.json'
+          const url = `${import.meta.env.BASE_URL}examples/graph.example.json`
           const res = await fetch(url)
           if (!res.ok) {
             console.warn('[JSON Import] HTTP error:', res.status, res.statusText)
@@ -639,7 +639,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       if (!fileName) return  // location is required for file type
       try {
         // Try to fetch the file from the public examples directory
-        const csvUrl = `/examples/${fileName}`
+        const csvUrl = `${import.meta.env.BASE_URL}examples/${fileName}`
         const res = await fetch(csvUrl)
         if (!res.ok) {
           const error = `File not found: ${fileName} (HTTP ${res.status})`

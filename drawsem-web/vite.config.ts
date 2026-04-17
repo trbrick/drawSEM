@@ -15,14 +15,12 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5173 },
   build: {
+    outDir: 'dist/standalone',
     rollupOptions: {
-      input: resolve(__dirname, 'src/main-standalone.tsx'),
+      input: resolve(__dirname, 'index.html'),
       output: {
-        dir: 'dist/standalone',
-        entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',
-        format: 'es'
       }
     }
   }

@@ -52,8 +52,9 @@ export function createLocalAdapter(): GraphAdapter {
           }
           jsonData = await response.json()
         } else if (source.startsWith('/examples/')) {
-          // Local examples directory
-          const response = await fetch(source)
+          // Local examples directory — prefix with base URL for gh-pages compatibility
+          const url = `${import.meta.env.BASE_URL}${source.replace(/^\//, '')}`
+          const response = await fetch(url)
           if (!response.ok) {
             throw new AdapterError(
               `Example file not found: ${source}`,
