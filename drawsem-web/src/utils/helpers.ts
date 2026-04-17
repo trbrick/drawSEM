@@ -58,6 +58,42 @@ export interface Path {
   visual?: {
     midpointOffset?: { x: number; y: number }
   }
+  /** Coordinate expansion: which instance(s) an external path connects to. Default 'all'. */
+  coordinateRule?: import('../core/types').CoordinateRule
+  /**
+   * Coordinate expansion: cross-instance lag. 0 = same instance.
+   * Positive = forward (source k → target k+L). Negative = backward.
+   * Out-of-bounds copies are silently dropped.
+   */
+  lag?: number
+}
+
+// ---------------------------------------------------------------------------
+// Coordinate expansion runtime types
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime representation of a repeat group.
+ * Mirrors schema RepeatGroup but uses runtime node ids instead of labels,
+ * and carries derived state (computed bounds, instance positions).
+ */
+export interface RuntimeRepeatGroup {
+  /** Matches schema RepeatGroup.id */
+  id: string
+  coordinateDimension: string
+  instanceCount: number
+  dataSource?: { datasetNodeLabel: string; column: string } | null
+  viewState: 'expanded' | 'collapsed'
+  /** Runtime node ids (not labels) belonging to this group */
+  nodeIds: string[]
+  visual: {
+    templateX: number
+    templateY: number
+    instanceWidth: number
+    instanceHeight: number
+    instanceSpacing: number
+    axis: 'horizontal' | 'vertical'
+  }
 }
 
 // Helper: Check if a path is a dataset-to-variable mapping path

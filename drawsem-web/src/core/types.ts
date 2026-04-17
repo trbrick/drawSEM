@@ -24,6 +24,8 @@ export interface Model {
   nodes: Node[]
   paths: Path[]
   optimization?: ModelOptimization
+  /** Coordinate expansion prototype — see COORDINATE-EXPANSION-UI-SPEC.md */
+  repeatGroups?: RepeatGroup[]
 }
 
 /**
@@ -60,6 +62,15 @@ export interface Path {
   optimization?: ParameterType        // Path-level overrides (same shape as ParameterType)
   tags?: string[]
   visual?: PathVisualProperties
+  /** Coordinate expansion: which instance(s) this path connects to. Default 'all'. */
+  coordinateRule?: CoordinateRule
+  /**
+   * Coordinate expansion: cross-instance lag. 0 (default) = same instance.
+   * Positive = forward (source k → target k+L). Negative = backward.
+   * Out-of-bounds copies are silently dropped.
+   * Cross-group lags are out of scope for this prototype.
+   */
+  lag?: number
 }
 
 /**
@@ -89,6 +100,65 @@ export interface Prior {
   distribution?: string               // 'normal', 'uniform', etc.
   [key: string]: unknown              // Backend-specific properties
 }
+
+// ---------------------------------------------------------------------------
+// Coordinate expansion schema extensions (prototype)
+// See Noise files/COORDINATE-EXPANSION-UI-SPEC.md for full spec.
+// These fields are additive — existing schema consumers ignore unknown fields.
+// ---------------------------------------------------------------------------
+
+/**
+ * A repeat group defines a set of nodes that are indexed by a coordinate
+ * dimension and can be expanded into N instances on the canvas.
+ */
+export interface RepeatGroup {
+  /** Stable identifier for this group within the model */
+  id: string
+  /** Name of the coordinate dimension (e.g. "student_id", "time") */
+  coordinateDimension: string
+  /** Number of instances when not data-driven. Ignored when dataSource is set. */
+  instanceCount: number
+  /** Data-driven instance count source. When set, instanceCount is a hint only. */
+  dataSource?: RepeatGroupDataSource | null
+  /** Whether the canvas currently shows all instances or the collapsed stack */
+  viewState: 'expanded' | 'collapsed'
+  /** Labels of nodes belonging to this group (match nodes[].label) */
+  nodeLabels: string[]
+  /** Visual layout configuration for the group */
+  visual: RepeatGroupVisual
+}
+
+export interface RepeatGroupDataSource {
+  /** Label of the dataset node that drives instance count */
+  datasetNodeLabel: string
+  /** Column name within that dataset whose distinct values become instances */
+  column: string
+}
+
+export interface RepeatGroupVisual {
+  /** X position of the template (instance 0) group box origin */
+  templateX: number
+  /** Y position of the template (instance 0) group box origin */
+  templateY: number
+  /** Width of one instance's bounding box (auto-computed from nodes) */
+  instanceWidth: number
+  /** Height of one instance's bounding box (auto-computed from nodes) */
+  instanceHeight: number
+  /** Gap between successive instances in px (canvas units) */
+  instanceSpacing: number
+  /** Layout axis — only 'horizontal' is active in this prototype */
+  axis: 'horizontal' | 'vertical'
+}
+
+/**
+ * Per-path coordinate rule: which instances an external path connects to.
+ * Added to existing Path objects — ignored by non-coordinate-aware consumers.
+ */
+export type CoordinateRule =
+  | 'all'
+  | 'first'
+  | 'last'
+  | { index: number }
 
 /**
  * Visual layout hints (for UI rendering and preservation)
