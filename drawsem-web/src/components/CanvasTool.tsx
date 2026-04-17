@@ -165,6 +165,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     groupId: string
     startX: number        // client X where drag started
     startCount: number    // instanceCount at drag start
+    hasMoved: boolean     // true once the drag has moved past threshold
+  } | null>(null)
+
+  // Repeat group body drag state (for moving the whole group box + its nodes)
+  const groupBodyDragRef = useRef<{
+    groupId: string
+    startClientX: number
+    startClientY: number
+    startTemplateX: number
+    startTemplateY: number
+    startNodePositions: Array<{ id: string; x: number; y: number }>
   } | null>(null)
 
   // Which element is selected: node, path, or repeat group
@@ -1175,7 +1186,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       groupId,
       startX: e.clientX,
       startCount: repeatGroups.find((g) => g.id === groupId)?.instanceCount ?? 1,
+      hasMoved: false,
     }
+  }
+
+  /**
+   * Begin a group body drag (moves the whole box and its template nodes).
+   */
+  function startGroupBodyDrag(groupId: string, e: React.MouseEvent) {
+    const group = repeatGroups.find((g) => g.id === groupId)
+    if (!group) return
+    const templateNodes = nodes.filter((n) => group.nodeIds.includes(n.id))
+    groupBodyDragRef.current = {
+      groupId,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startTemplateX: group.visual.templateX,
+      startTemplateY: group.visual.templateY,
+      startNodePositions: templateNodes.map((n) => ({ id: n.id, x: n.x, y: n.y })),
+    }
+    selectElement(groupId, 'group')
   }
 
   /**
@@ -1759,9 +1789,35 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           canvasDelta
         )
         if (newCount !== group.instanceCount) {
+          groupHandleDragRef.current.hasMoved = true
           updateRepeatGroup(groupId, { instanceCount: newCount })
         }
       }
+      return
+    }
+
+    // Group body drag (move whole group + its template nodes)
+    if (groupBodyDragRef.current) {
+      const { groupId, startClientX, startClientY, startTemplateX, startTemplateY, startNodePositions } = groupBodyDragRef.current
+      const ctm = svg.getScreenCTM()
+      const scale = ctm ? ctm.a : 1
+      const dx = (e.clientX - startClientX) / scale
+      const dy = (e.clientY - startClientY) / scale
+      // Move all template nodes
+      setNodes((list) =>
+        list.map((n) => {
+          const orig = startNodePositions.find((p) => p.id === n.id)
+          return orig ? { ...n, x: orig.x + dx, y: orig.y + dy } : n
+        })
+      )
+      // Update group visual origin
+      setRepeatGroups((gs) =>
+        gs.map((g) =>
+          g.id === groupId
+            ? { ...g, visual: { ...g.visual, templateX: startTemplateX + dx, templateY: startTemplateY + dy } }
+            : g
+        )
+      )
       return
     }
 
@@ -1824,10 +1880,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
+  /**
+   * Resolve a runtime node id (which may be a synthetic instance id like
+   * `templateId__instK`) back to its template node id and instance index.
+   * Regular node ids (instance 0) resolve to { templateId: id, instanceIndex: 0 }.
+   */
+  function resolveToTemplate(nodeId: string): { templateId: string; instanceIndex: number; groupId: string | null } {
+    const INST_SEP = '__inst'
+    const sepIdx = nodeId.lastIndexOf(INST_SEP)
+    if (sepIdx === -1) {
+      const group = repeatGroups.find((g) => g.nodeIds.includes(nodeId))
+      return { templateId: nodeId, instanceIndex: 0, groupId: group?.id ?? null }
+    }
+    const templateId = nodeId.substring(0, sepIdx)
+    const instanceIndex = parseInt(nodeId.substring(sepIdx + INST_SEP.length), 10)
+    const group = repeatGroups.find((g) => g.nodeIds.includes(templateId))
+    return { templateId, instanceIndex, groupId: group?.id ?? null }
+  }
+
   function onMouseUp() {
-    // Finish group handle drag
+    // Finish group handle drag — if no movement, treat as expand/collapse click
     if (groupHandleDragRef.current) {
+      const { groupId, hasMoved } = groupHandleDragRef.current
       groupHandleDragRef.current = null
+      if (!hasMoved) toggleGroupView(groupId)
+      return
+    }
+
+    // Finish group body drag
+    if (groupBodyDragRef.current) {
+      groupBodyDragRef.current = null
       return
     }
 
@@ -1857,8 +1939,30 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
       rightClickDragRef.current = false
 
-      // Validate the path
-      const validationError = getPathValidationError(src, dst, twoSided)
+      // Resolve synthetic instance node ids back to template ids + instance indices
+      const srcResolved = resolveToTemplate(src)
+      const dstResolved = resolveToTemplate(dst)
+      const templateSrc = srcResolved.templateId
+      const templateDst = dstResolved.templateId
+
+      // Determine coordinateRule and lag from instance indices
+      let coordinateRule: import('../core/types').CoordinateRule | undefined = undefined
+      let lag = 0
+      if (srcResolved.groupId !== null && dstResolved.groupId !== null && srcResolved.groupId === dstResolved.groupId) {
+        const delta = dstResolved.instanceIndex - srcResolved.instanceIndex
+        if (delta === 0) {
+          coordinateRule = 'all'
+        } else {
+          lag = delta
+        }
+      } else if (srcResolved.groupId !== null && dstResolved.groupId === null) {
+        coordinateRule = srcResolved.instanceIndex === 0 ? 'all' : { index: srcResolved.instanceIndex }
+      } else if (srcResolved.groupId === null && dstResolved.groupId !== null) {
+        coordinateRule = dstResolved.instanceIndex === 0 ? 'all' : { index: dstResolved.instanceIndex }
+      }
+
+      // Validate using template ids (synthetic ids are not in nodes array)
+      const validationError = getPathValidationError(templateSrc, templateDst, twoSided)
       if (validationError) {
         showPathError(validationError)
         setTempLine(null)
@@ -1867,10 +1971,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         return
       }
 
-      const srcNode = nodes.find((n) => n.id === src)
-      const dstNode = nodes.find((n) => n.id === dst)
+      const srcNode = nodes.find((n) => n.id === templateSrc)
+      const dstNode = nodes.find((n) => n.id === templateDst)
 
-      const np: Path = { id: uid('p_'), from: src as string, to: dst as string, twoSided }
+      const np: Path = {
+        id: uid('p_'),
+        from: templateSrc,
+        to: templateDst,
+        twoSided,
+        ...(coordinateRule !== undefined ? { coordinateRule } : {}),
+        ...(lag !== 0 ? { lag } : {}),
+      }
       // For paths from dataset nodes, use the target node's label as the default (column name)
       // For other paths, use the id
       const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || np.id) : np.id
@@ -1886,13 +1997,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         // Default all non-dataset paths to value 1.0
         newPath.value = 1.0
         // Self-loops default to free error variance
-        if (src === dst && twoSided) {
+        if (templateSrc === templateDst && twoSided) {
           newPath.freeParameter = true
           newPath.parameterType = 'errorVariance'
         }
         // Auto-generate a readable unicode display name from node labels
         const arrow = twoSided ? ' ↔ ' : ' → '
-        newPath.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
+        newPath.displayName = convertToUnicode(srcNode?.label ?? templateSrc) + arrow + convertToUnicode(dstNode?.label ?? templateDst)
       }
       
       setPaths((ps) => [...ps, newPath])
@@ -3565,6 +3676,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       isSelected={selectedType === 'group' && selectedId === group.id}
                       onToggleView={toggleGroupView}
                       onHandleDragStart={startGroupHandleDrag}
+                      onBodyDragStart={startGroupBodyDrag}
                       onSelect={(id) => selectElement(id, 'group')}
                     />
                   )

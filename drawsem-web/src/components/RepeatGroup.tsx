@@ -43,6 +43,8 @@ interface RepeatGroupProps {
   onToggleView: (groupId: string) => void
   /** Called when the user starts dragging the expand handle */
   onHandleDragStart: (groupId: string, e: React.MouseEvent) => void
+  /** Called when the user starts dragging the group body (to move it) */
+  onBodyDragStart: (groupId: string, e: React.MouseEvent) => void
   /** Called when the user clicks the group box background (to select it) */
   onSelect: (groupId: string) => void
 }
@@ -53,6 +55,7 @@ export default function RepeatGroup({
   isSelected,
   onToggleView,
   onHandleDragStart,
+  onBodyDragStart,
   onSelect,
 }: RepeatGroupProps): JSX.Element {
   const { viewState, instanceCount } = group
@@ -128,7 +131,11 @@ export default function RepeatGroup({
         stroke={stroke}
         strokeWidth={strokeWidth}
         strokeDasharray={viewState === 'expanded' ? '6 3' : undefined}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'move' }}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          onBodyDragStart(group.id, e)
+        }}
         onClick={(e) => {
           e.stopPropagation()
           onSelect(group.id)
