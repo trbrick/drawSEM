@@ -31,6 +31,9 @@ jobs:
         working-directory: drawsem-web
         run: npx vite build --base /drawSEM/experimental/
 
+      - name: Copy example files
+        run: cp -r drawsem-web/examples drawsem-web/dist/standalone/examples
+
       - name: Deploy to GitHub Pages (/experimental)
         uses: peaceiris/actions-gh-pages@v4
         with:
