@@ -8,12 +8,9 @@ on:
 permissions:
   contents: write
 
-<<<<<<< HEAD
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-=======
->>>>>>> 2033a5e (add gh-pages deploy workflows)
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -34,12 +31,9 @@ jobs:
         working-directory: drawsem-web
         run: npx vite build --base /drawSEM/
 
-<<<<<<< HEAD
       - name: Copy example files
         run: cp -r drawsem-web/examples drawsem-web/dist/standalone/examples
 
-=======
->>>>>>> 2033a5e (add gh-pages deploy workflows)
       - name: Deploy to GitHub Pages (root)
         uses: peaceiris/actions-gh-pages@v4
         with:
