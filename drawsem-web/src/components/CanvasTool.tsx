@@ -783,6 +783,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [dataTableActiveTab, setDataTableActiveTab] = useState<string | null>(null)
 
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
+  // Which dataset node the current column drag originated from.
+  // Set explicitly when dragging from DataTablePanel (no dataset node is selected);
+  // falls back to selectedNode when dragging from the in-inspector column table.
+  const [dragSourceDatasetId, setDragSourceDatasetId] = useState<string | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
@@ -2199,8 +2203,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setMode('select')
   }
 
-  function handleColumnDrop(columnName: string, dropX: number, dropY: number) {
-    if (!selectedNode || selectedNode.type !== 'dataset') return
+  function handleColumnDrop(columnName: string, dropX: number, dropY: number, explicitDatasetId?: string) {
+    // Resolve the dataset node: prefer the explicit id (from DataTablePanel drag),
+    // fall back to the currently selected dataset node (from inspector drag).
+    const datasetNodeId = explicitDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+    const datasetNode = datasetNodeId ? nodes.find((n) => n.id === datasetNodeId) : null
+    if (!datasetNode || datasetNode.type !== 'dataset') return
 
     // Keep columnName as the simple label for matching/export purposes
     // Store the unicode-converted version as displayName for UI only
@@ -2216,15 +2224,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
 
     if (targetNode && targetNode.type === 'variable') {
-      // Remove any existing database paths to this node
-      setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
+      // Remove any existing data paths to this node from this dataset
+      setPaths((ps) => ps.filter((p) => !(p.from === datasetNode.id && p.to === targetNode.id)))
 
-      // Create new database path from dataset to variable with column name as label
+      // Create new data path from dataset to variable with column name as label
       const newPath: Path = {
         id: uid('p_'),
-        from: selectedNode.id,
+        from: datasetNode.id,
         to: targetNode.id,
         twoSided: false,
+        type: 'data',
         label: columnName,
         displayName: displayName,
       }
@@ -2247,9 +2256,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       // Create path from dataset to new variable with column name as label
       const newPath: Path = {
         id: uid('p_'),
-        from: selectedNode.id,
+        from: datasetNode.id,
         to: newNode.id,
         twoSided: false,
+        type: 'data',
         label: columnName,
         displayName: displayName,
       }
@@ -3238,8 +3248,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               onTabChange={setDataTableActiveTab}
               draggedColumnName={draggedColumnName}
               hoveredColumnName={hoveredColumnName}
-              onDragStart={(col) => setDraggedColumnName(col)}
-              onDragEnd={() => setDraggedColumnName(null)}
+              onDragStart={(col, dsId) => { setDraggedColumnName(col); setDragSourceDatasetId(dsId) }}
+              onDragEnd={() => { setDraggedColumnName(null); setDragSourceDatasetId(null) }}
               onHover={(col) => setHoveredColumnName(col)}
               onAddUnconnected={handleAddUnconnected}
               onClose={() => {
@@ -3828,26 +3838,29 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               onDoubleClick={onCanvasDoubleClick}
               onContextMenu={(e) => e.preventDefault()}
           onDragOver={(e) => {
-            if (draggedColumnName && selectedNode?.type === 'dataset') {
+            // Accept drop from both the inspector column table (selectedNode is the dataset)
+            // and the DataTablePanel (dragSourceDatasetId is set explicitly).
+            const hasSource = dragSourceDatasetId != null || selectedNode?.type === 'dataset'
+            if (draggedColumnName && hasSource) {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
-              // Update preview position as user drags
               const p = clientToSvg(e as any as React.MouseEvent)
               setDragPreviewPos({ x: p.x, y: p.y })
             }
           }}
           onDragLeave={(e) => {
-            // Clear preview when leaving the SVG area
             if (e.target === svgRef.current) {
               setDragPreviewPos(null)
             }
           }}
           onDrop={(e) => {
-            if (!draggedColumnName || selectedNode?.type !== 'dataset') return
+            const resolvedDatasetId = dragSourceDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+            if (!draggedColumnName || !resolvedDatasetId) return
             e.preventDefault()
             const p = clientToSvg(e as any as React.MouseEvent)
-            handleColumnDrop(draggedColumnName, p.x, p.y)
+            handleColumnDrop(draggedColumnName, p.x, p.y, resolvedDatasetId)
             setDraggedColumnName(null)
+            setDragSourceDatasetId(null)
             setDragPreviewPos(null)
           }}
             >
@@ -3895,7 +3908,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   const p = ep.templatePath
                   const renderPath = { ...p, id: ep.id, from: ep.fromNodeId, to: ep.toNodeId }
                   const isSelected = selectedType === 'path' && selectedId === p.id
-                  const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
+                  const _hovDs = dragSourceDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+                  const isMatchingHoveredColumn = hoveredColumnName && _hovDs && p.from === _hovDs && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
@@ -3926,7 +3940,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               {/* ---- ORIGINAL path rendering hidden below — replaced by expanded scene above ---- */}
               {false && paths.map((p) => {
                   const isSelected = selectedType === 'path' && selectedId === p.id
-                  const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
+                  const _hovDs = dragSourceDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+                  const isMatchingHoveredColumn = hoveredColumnName && _hovDs && p.from === _hovDs && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
@@ -4081,10 +4096,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           )}
 
           {/* drag preview path - shows connection while dragging column */}
-          {dragPreviewPos && draggedColumnName && selectedNode?.type === 'dataset' && (
+          {dragPreviewPos && draggedColumnName && dataVizMode === 'paths' && (() => {
+            const dsId = dragSourceDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+            const dsNode = dsId ? nodes.find((n) => n.id === dsId) : null
+            if (!dsNode) return null
+            return (
             <line
-              x1={selectedNode.x}
-              y1={selectedNode.y}
+              x1={dsNode.x}
+              y1={dsNode.y}
               x2={dragPreviewPos.x}
               y2={dragPreviewPos.y}
               stroke="#888"
@@ -4094,13 +4113,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               markerEnd="url(#arrow-end)"
               style={{ pointerEvents: 'none' }}
             />
-          )}
+            )
+          })()}
 
           {/* draw nodes (coordinate-expanded) */}
           {buildExpandedScene().renderNodes.map((n) => {
             const isSelected = selectedType === 'node' && n.id === selectedId
             // Check if this node is connected to a hovered column (via a path from the selected dataset)
-            const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
+            const _hovDs3 = dragSourceDatasetId ?? (selectedNode?.type === 'dataset' ? selectedNode.id : null)
+            const isMatchingHoveredColumn = hoveredColumnName && _hovDs3 && paths.some((p) => p.from === _hovDs3 && p.label === hoveredColumnName && p.to === n.id)
             const inLayer = isNodeInLayer(n)
             const opacity = getElementOpacity(inLayer)
             const zIndex = getElementZIndex(inLayer)

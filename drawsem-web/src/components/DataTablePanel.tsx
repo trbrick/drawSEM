@@ -27,7 +27,7 @@ interface DataTablePanelProps {
   onTabChange: (datasetNodeId: string) => void
   draggedColumnName: string | null
   hoveredColumnName: string | null
-  onDragStart: (col: string) => void
+  onDragStart: (col: string, datasetNodeId: string) => void
   onDragEnd: () => void
   onHover: (col: string | null) => void
   /** Called when user clicks "Add all unconnected as nodes" */
@@ -177,7 +177,7 @@ export default function DataTablePanel({
                   <tr
                     key={col}
                     draggable
-                    onDragStart={() => onDragStart(col)}
+                    onDragStart={() => onDragStart(col, activeDataset.id)}
                     onDragEnd={onDragEnd}
                     onMouseEnter={() => onHover(col)}
                     onMouseLeave={() => onHover(null)}
