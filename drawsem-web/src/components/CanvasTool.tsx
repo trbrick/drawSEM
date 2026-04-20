@@ -12,6 +12,7 @@ import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import RepeatGroup from './RepeatGroup'
 import GroupInspector from './GroupInspector'
+import DataTablePanel from './DataTablePanel'
 import {
   computeGroupBBox,
   buildInstanceNodeIdMap,
@@ -850,6 +851,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
+  // Exploratory features state
+  const [dataVizMode, setDataVizMode] = useState<'paths' | 'table'>('paths')
+  const [dataTableActiveTab, setDataTableActiveTab] = useState<string | null>(null)
+
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
@@ -1472,6 +1477,93 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
   function handleImportClick() {
     fileInputRef.current?.click()
+  }
+
+  /**
+   * Add a variable node (and connecting data path + variance self-loop) for
+   * every column in the given dataset that has no existing data path.
+   * Nodes are placed in a grid below the lowest existing node.
+   */
+  function handleAddUnconnected(datasetNodeId: string) {
+    const datasetNode = nodes.find((n) => n.id === datasetNodeId)
+    if (!datasetNode) return
+
+    // Resolve column list
+    const allColumns: string[] =
+      datasetNode.dataset?.headers ??
+      (datasetNode.datasetSource?.columnTypes ? Object.keys(datasetNode.datasetSource.columnTypes) : [])
+    if (allColumns.length === 0) return
+
+    // Columns that already have a data path from this dataset
+    const connected = new Set(
+      paths
+        .filter((p) => p.from === datasetNodeId && p.type === 'data' && typeof p.label === 'string')
+        .map((p) => p.label as string)
+    )
+    const unconnected = allColumns.filter((col) => !connected.has(col))
+    if (unconnected.length === 0) return
+
+    // Grid layout: start below the lowest existing node
+    const COLS_PER_ROW = 6
+    const COL_STEP = MANIFEST_DEFAULT_W + 24
+    const ROW_STEP = MANIFEST_DEFAULT_H + 24
+    let maxY = nodes.reduce((m, n) => Math.max(m, n.y + (n.height ?? MANIFEST_DEFAULT_H) / 2), -Infinity)
+    if (!isFinite(maxY)) maxY = 0
+    const startY = maxY + 60
+    const totalCols = Math.min(unconnected.length, COLS_PER_ROW)
+    const startX = datasetNode.x - ((totalCols - 1) / 2) * COL_STEP
+
+    const newNodes: typeof nodes = []
+    const newPaths: typeof paths = []
+
+    unconnected.forEach((col, i) => {
+      const col_i = i % COLS_PER_ROW
+      const row_i = Math.floor(i / COLS_PER_ROW)
+      const x = startX + col_i * COL_STEP
+      const y = startY + row_i * ROW_STEP
+
+      const nodeId = uid('n_')
+      newNodes.push({
+        id: nodeId,
+        x, y,
+        label: col,
+        displayName: convertToUnicode(col),
+        type: 'variable',
+        width: MANIFEST_DEFAULT_W,
+        height: MANIFEST_DEFAULT_H,
+        levelOfMeasurement: datasetNode.levelOfMeasurement,
+      })
+
+      // Data path: dataset → new variable
+      newPaths.push({
+        id: uid('p_'),
+        from: datasetNodeId,
+        to: nodeId,
+        twoSided: false,
+        label: col,
+        displayName: convertToUnicode(col),
+        type: 'data',
+        value: null as any,
+      })
+
+      // Free error-variance self-loop
+      const varId = uid('p_')
+      const uniLabel = convertToUnicode(col)
+      newPaths.push({
+        id: varId,
+        from: nodeId,
+        to: nodeId,
+        twoSided: true,
+        label: varId,
+        displayName: `${uniLabel} ↔ ${uniLabel}`,
+        freeParameter: true,
+        parameterType: 'errorVariance',
+        value: 1.0,
+      })
+    })
+
+    setNodes((ns) => [...ns, ...newNodes])
+    setPaths((ps) => [...ps, ...newPaths])
   }
 
   function handleCsvImportClick() {
@@ -2956,7 +3048,44 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             </div>
           </div>
 
-          {/* Empty space - reserved for future sidebar content */}
+          {/* ---- Exploratory Features ---- */}
+          <div className="border rounded overflow-hidden">
+            <div className="bg-amber-50 border-b px-2 py-1.5">
+              <div className="text-xs font-semibold text-amber-800 tracking-wide uppercase">Exploratory</div>
+            </div>
+            <div className="p-2 space-y-2">
+              <div>
+                <div className="text-xs font-medium text-slate-600 mb-1">Data view</div>
+                <div className="flex flex-col gap-1">
+                  {(['paths', 'table'] as const).map((opt) => (
+                    <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="dataVizMode"
+                        value={opt}
+                        checked={dataVizMode === opt}
+                        onChange={() => {
+                          setDataVizMode(opt)
+                          // Mirror layer: table hides data paths via the SEM layer
+                          setActiveLayer(opt === 'table' ? 'sem' : 'all')
+                          setOffLayerVisibility(opt === 'table' ? 'invisible' : 'transparent')
+                          // When switching to table, default to first dataset tab
+                          if (opt === 'table' && dataTableActiveTab === null) {
+                            const firstDs = nodes.find((n) => n.type === 'dataset')
+                            if (firstDs) setDataTableActiveTab(firstDs.id)
+                          }
+                        }}
+                        className="accent-sky-600"
+                      />
+                      <span className="text-xs capitalize">{opt === 'paths' ? 'Paths' : 'Table'}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Spacer */}
           <div className="flex-1"></div>
 
           {/* Status display at bottom */}
@@ -3000,6 +3129,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             />
           </>
         )}
+        {/* Data Table Panel (Exploratory: Table mode) */}
+        {dataVizMode === 'table' && (() => {
+          const datasetNodes = nodes.filter((n) => n.type === 'dataset')
+          if (datasetNodes.length === 0) return (
+            <div className="absolute top-4 right-4 z-40 w-64 bg-white border rounded shadow-lg p-3 text-xs text-slate-500 italic">
+              No dataset nodes in this model.
+            </div>
+          )
+          return (
+            <DataTablePanel
+              datasetNodes={datasetNodes}
+              paths={paths}
+              allNodes={nodes}
+              activeTabId={dataTableActiveTab ?? datasetNodes[0]?.id ?? null}
+              onTabChange={setDataTableActiveTab}
+              draggedColumnName={draggedColumnName}
+              hoveredColumnName={hoveredColumnName}
+              onDragStart={(col) => setDraggedColumnName(col)}
+              onDragEnd={() => setDraggedColumnName(null)}
+              onHover={(col) => setHoveredColumnName(col)}
+              onAddUnconnected={handleAddUnconnected}
+              onClose={() => {
+                setDataVizMode('paths')
+                setActiveLayer('all')
+                setOffLayerVisibility('transparent')
+              }}
+            />
+          )
+        })()}
+
         {/* Repeat group inspector popup */}
         {viewMode !== 'widget' && selectedType === 'group' && selectedId && (() => {
           const group = repeatGroups.find((g) => g.id === selectedId)
