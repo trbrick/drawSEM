@@ -781,6 +781,9 @@ setMethod(
       data_obj <- x$data
       if (!is.null(data_obj$observed)) {
         df <- data_obj$observed
+        if (is.matrix(df)) {
+          df <- as.data.frame(df, stringsAsFactors = FALSE, check.names = FALSE)
+        }
         # Store with key name since MxModel only has one data object
         data_list$data <- df
         data_connections$data <- list(
@@ -798,7 +801,8 @@ setMethod(
             type = "embedded",
             format = "json",
             encoding = "UTF-8",
-            columnTypes = data_as_json$columnTypes,
+            # Use a named list so JSON serialization produces an object map.
+            columnTypes = as.list(data_as_json$columnTypes),
             object = data_as_json$object,
             rowCount = nrow(df)
           )
