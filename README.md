@@ -13,6 +13,10 @@ project is schema-first: the JSON schema is the source of truth, and backend
 objects are derived from it on demand. OpenMx is the current fitting backend;
 lavaan and blavaan are planned.
 
+**Live demos:**
+- [Stable editor](https://trbrick.github.io/drawSEM/) — built from `main`
+- [Experimental editor](https://trbrick.github.io/drawSEM/experimental/) — built from `coordinate-expansion`
+
 ## Installation
 
 ### For R Users
