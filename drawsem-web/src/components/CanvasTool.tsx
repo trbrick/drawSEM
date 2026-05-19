@@ -1146,6 +1146,66 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     csvFileInputRef.current?.click()
   }
 
+  async function handleSaveClick() {
+    if (!currentModel) return
+    try {
+      const idToLabel: Record<string, string> = {}
+      currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
+      const parameterTypes = currentModel.parameterTypes
+      const schema: GraphSchema = {
+        schemaVersion: 1,
+        models: {
+          [currentModel.id]: {
+            label: currentModel.label,
+            nodes: currentModel.nodes.map((n) => ({
+              label: n.label,
+              type: n.type,
+              ...(n.description ? { description: n.description } : {}),
+              ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
+              ...(n.tags ? { tags: n.tags } : {}),
+              ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
+              ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
+              ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
+              visual: {
+                x: n.x,
+                y: n.y,
+                ...(n.width ? { width: n.width } : {}),
+                ...(n.height ? { height: n.height } : {}),
+              },
+            })),
+            paths: currentModel.paths.map((p) => ({
+              from: idToLabel[p.from] ?? p.from,
+              to: idToLabel[p.to] ?? p.to,
+              ...(p.type ? { type: p.type } : {}),
+              ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
+              ...(p.label !== undefined ? { label: p.label } : {}),
+              ...(p.value !== undefined ? { value: p.value } : {}),
+              ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
+              ...(p.parameterType ? { parameterType: p.parameterType } : {}),
+              ...(p.optimization ? { optimization: p.optimization } : {}),
+              ...(p.side || p.visual?.midpointOffset
+                ? {
+                    visual: {
+                      ...(p.side ? { loopSide: p.side } : {}),
+                      ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
+                    },
+                  }
+                : {}),
+            })),
+            ...(parameterTypes && Object.keys(parameterTypes).length > 0
+              ? { optimization: { parameterTypes } }
+              : {}),
+          }
+        }
+      }
+      await adapter.save(schema)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMessage(`Save failed: ${msg}`)
+      setTimeout(() => setErrorMessage(null), 4000)
+    }
+  }
+
   // Apply auto-layout to current model: recompute all node positions via RAMPath algorithm
   function handleAutoLayout() {
     if (!currentModel || isLayingOut) return
@@ -1500,17 +1560,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const dstNode = nodes.find((n) => n.id === dst)
 
       const np: Path = { id: uid('p_'), from: src as string, to: dst as string, twoSided }
-      // For paths from dataset nodes, use the target node's label as the default (column name)
-      // For other paths, use the id
-      const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || np.id) : np.id
-      const newPath: Path = { ...np, label: defaultLabel }
+      // Dataset paths carry the target node label as the column name; structural paths have no label.
+      const newPath: Path = srcNode?.type === 'dataset'
+        ? { ...np, label: dstNode?.label || np.id }
+        : { ...np }
       
       // For paths from dataset nodes, set type='data'; no parameterType, no freeParameter
       if (srcNode?.type === 'dataset') {
         // freeParameter absent = fixed; dataset paths are always fixed
         newPath.value = null as any // null value for data mapping
         newPath.type = 'data'
-        newPath.displayName = convertToUnicode(defaultLabel)
+        newPath.displayName = convertToUnicode(newPath.label ?? '')
       } else {
         // Default all non-dataset paths to value 1.0
         newPath.value = 1.0
@@ -2327,13 +2387,34 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 Load Model
               </button>
             ) : (
-              <button
-                title="Import Graph JSON"
-                className="py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100"
-                onClick={() => handleImportClick()}
-              >
-                {'{ }'} Import JSON
-              </button>
+              <>
+                <button
+                  title="Load a model from a JSON file"
+                  className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                  onClick={() => handleImportClick()}
+                >
+                  Load Model
+                </button>
+                <button
+                  title="Save model to a JSON file"
+                  className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                  onClick={handleSaveClick}
+                >
+                  Save
+                </button>
+                <button
+                  title="Clear the canvas"
+                  className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-red-50 hover:text-red-600"
+                  onClick={() => {
+                    setModels((ms) => ms.map((m) =>
+                      m.id === currentModelId ? { ...m, nodes: [], paths: [], label: '' } : m
+                    ))
+                    deselectAll()
+                  }}
+                >
+                  Clear
+                </button>
+              </>
             )}
             <div className="border-l mx-2"></div>
             <label className="text-sm font-medium flex items-center gap-2">

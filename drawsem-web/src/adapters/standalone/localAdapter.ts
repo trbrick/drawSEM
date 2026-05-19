@@ -140,9 +140,14 @@ export function createLocalAdapter(): GraphAdapter {
         const jsonString = JSON.stringify(schema, null, 2)
         const blob = new Blob([jsonString], { type: 'application/json' })
 
-        // Generate filename with timestamp
+        // Generate filename from model label with date fallback
+        const firstModel = schema.models[Object.keys(schema.models)[0]]
+        const modelLabel = firstModel?.label?.trim()
+        const slug = modelLabel
+          ? modelLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          : null
         const timestamp = new Date().toISOString().split('T')[0]
-        const filename = `graph-${timestamp}.json`
+        const filename = slug ? `${slug}.json` : `graph-${timestamp}.json`
 
         // Create download link
         const url = URL.createObjectURL(blob)
