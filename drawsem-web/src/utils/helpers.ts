@@ -67,6 +67,14 @@ export function isDatasetPath(path: Path, nodes: Node[]): boolean {
   return srcNode?.type === 'dataset'
 }
 
+export function modelFilename(label: string | undefined, ext: string): string {
+  const slug = label?.trim()
+    ? label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    : null
+  const timestamp = new Date().toISOString().split('T')[0]
+  return slug ? `${slug}.${ext}` : `graph-${timestamp}.${ext}`
+}
+
 // Geometry helpers
 export function nodeCircleBBox(node: Node, radius: number) {
   return {

@@ -5,11 +5,12 @@ import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
-import { uid, isDatasetPath } from '../utils/helpers'
+import { uid, isDatasetPath, modelFilename } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
+import { useSvgExport } from '../hooks/useSvgExport'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -124,6 +125,7 @@ interface CanvasToolProps {
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
+  const { exportToSvg, downloadSvg } = useSvgExport()
   // Multi-model state
   const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
@@ -800,6 +802,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false)
   // Stable viewBox — only re-fit on model load and auto-layout, never on interactive edits.
   // A fixed default is used for the empty canvas so the SVG coordinate space is consistent
   // from the first click; nodes will not jump after being placed.
@@ -1146,62 +1149,114 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     csvFileInputRef.current?.click()
   }
 
-  async function handleSaveClick() {
-    if (!currentModel) return
-    try {
-      const idToLabel: Record<string, string> = {}
-      currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
-      const parameterTypes = currentModel.parameterTypes
-      const schema: GraphSchema = {
-        schemaVersion: 1,
-        models: {
-          [currentModel.id]: {
-            label: currentModel.label,
-            nodes: currentModel.nodes.map((n) => ({
-              label: n.label,
-              type: n.type,
-              ...(n.description ? { description: n.description } : {}),
-              ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
-              ...(n.tags ? { tags: n.tags } : {}),
-              ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
-              ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
-              ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
-              visual: {
-                x: n.x,
-                y: n.y,
-                ...(n.width ? { width: n.width } : {}),
-                ...(n.height ? { height: n.height } : {}),
-              },
-            })),
-            paths: currentModel.paths.map((p) => ({
-              from: idToLabel[p.from] ?? p.from,
-              to: idToLabel[p.to] ?? p.to,
-              ...(p.type ? { type: p.type } : {}),
-              ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
-              ...(p.label !== undefined ? { label: p.label } : {}),
-              ...(p.value !== undefined ? { value: p.value } : {}),
-              ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
-              ...(p.parameterType ? { parameterType: p.parameterType } : {}),
-              ...(p.optimization ? { optimization: p.optimization } : {}),
-              ...(p.side || p.visual?.midpointOffset
-                ? {
-                    visual: {
-                      ...(p.side ? { loopSide: p.side } : {}),
-                      ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
-                    },
-                  }
-                : {}),
-            })),
-            ...(parameterTypes && Object.keys(parameterTypes).length > 0
-              ? { optimization: { parameterTypes } }
+  function buildCurrentSchema(): GraphSchema | null {
+    if (!currentModel) return null
+    const idToLabel: Record<string, string> = {}
+    currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
+    const parameterTypes = currentModel.parameterTypes
+    return {
+      schemaVersion: 1,
+      models: {
+        [currentModel.id]: {
+          label: currentModel.label,
+          nodes: currentModel.nodes.map((n) => ({
+            label: n.label,
+            type: n.type,
+            ...(n.description ? { description: n.description } : {}),
+            ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
+            ...(n.tags ? { tags: n.tags } : {}),
+            ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
+            ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
+            ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
+            visual: {
+              x: n.x,
+              y: n.y,
+              ...(n.width ? { width: n.width } : {}),
+              ...(n.height ? { height: n.height } : {}),
+            },
+          })),
+          paths: currentModel.paths.map((p) => ({
+            from: idToLabel[p.from] ?? p.from,
+            to: idToLabel[p.to] ?? p.to,
+            ...(p.type ? { type: p.type } : {}),
+            ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
+            ...(p.label !== undefined ? { label: p.label } : {}),
+            ...(p.value !== undefined ? { value: p.value } : {}),
+            ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
+            ...(p.parameterType ? { parameterType: p.parameterType } : {}),
+            ...(p.optimization ? { optimization: p.optimization } : {}),
+            ...(p.side || p.visual?.midpointOffset
+              ? {
+                  visual: {
+                    ...(p.side ? { loopSide: p.side } : {}),
+                    ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
+                  },
+                }
               : {}),
-          }
+          })),
+          ...(parameterTypes && Object.keys(parameterTypes).length > 0
+            ? { optimization: { parameterTypes } }
+            : {}),
         }
       }
+    }
+  }
+
+  async function handleSaveClick() {
+    try {
+      const schema = buildCurrentSchema()
+      if (!schema) return
       await adapter.save(schema)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setErrorMessage(`Save failed: ${msg}`)
+      setTimeout(() => setErrorMessage(null), 4000)
+    }
+  }
+
+  function handleExportSvg() {
+    try {
+      const schema = buildCurrentSchema()
+      if (!schema) return
+      const svgString = exportToSvg(schema)
+      downloadSvg(svgString, modelFilename(currentModel?.label, 'svg'))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMessage(`SVG export failed: ${msg}`)
+      setTimeout(() => setErrorMessage(null), 4000)
+    }
+  }
+
+  async function handleExportPng() {
+    try {
+      const schema = buildCurrentSchema()
+      if (!schema) return
+      const svgString = exportToSvg(schema)
+      const blob = new Blob([svgString], { type: 'image/svg+xml' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = reject
+        img.src = url
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = 'white'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      URL.revokeObjectURL(url)
+      const link = document.createElement('a')
+      link.download = modelFilename(currentModel?.label, 'png')
+      link.href = canvas.toDataURL('image/png')
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMessage(`PNG export failed: ${msg}`)
       setTimeout(() => setErrorMessage(null), 4000)
     }
   }
@@ -2402,6 +2457,34 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 >
                   Save
                 </button>
+                <div className="relative inline-flex">
+                  {showExportMenu && (
+                    <div className="fixed inset-0 z-10" onClick={() => setShowExportMenu(false)} />
+                  )}
+                  <button
+                    title="Export graph image"
+                    className="py-2 px-3 rounded text-sm flex items-center gap-1 bg-white border hover:bg-sky-100"
+                    onClick={() => setShowExportMenu((v) => !v)}
+                  >
+                    Image ▾
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded shadow-md min-w-max">
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
+                        onClick={() => { handleExportSvg(); setShowExportMenu(false) }}
+                      >
+                        SVG
+                      </button>
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
+                        onClick={() => { handleExportPng(); setShowExportMenu(false) }}
+                      >
+                        PNG
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   title="Clear the canvas"
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-red-50 hover:text-red-600"
