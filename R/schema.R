@@ -250,6 +250,11 @@ saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
                           warning("Failed to write data file: ", conditionMessage(e))
                         }
                       )
+
+                      if (file.exists(data_filepath)) {
+                        schema$models[[model_id]]$nodes[[i]]$datasetSource$md5 <-
+                          unname(as.character(tools::md5sum(data_filepath)[[1]]))
+                      }
                       
                       # Update schema with relative path
                       rel_path <- file.path(dataFile)
@@ -266,6 +271,11 @@ saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
                         warning("Failed to write data file: ", conditionMessage(e))
                       }
                     )
+
+                    if (file.exists(data_filepath)) {
+                      schema$models[[model_id]]$nodes[[i]]$datasetSource$md5 <-
+                        unname(as.character(tools::md5sum(data_filepath)[[1]]))
+                    }
                     
                     # Update schema with relative path
                     rel_path <- file.path(dataFile)

@@ -202,6 +202,10 @@ test_that("saveSchema exports data when writeData=TRUE", {
   ds_type <- dataset_nodes[[1]]$datasetSource$type
   if (is.list(ds_type)) ds_type <- unlist(ds_type)  # Handle jsonlite list-wrapping
   expect_equal(ds_type, "file")
+  expected_md5 <- unname(as.character(tools::md5sum(csv_file)[[1]]))
+  ds_md5 <- dataset_nodes[[1]]$datasetSource$md5
+  if (is.list(ds_md5)) ds_md5 <- unlist(ds_md5)
+  expect_equal(ds_md5, expected_md5)
 })
 
 test_that("saveSchema with writeData=NA warns if file exists", {
