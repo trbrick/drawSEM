@@ -8,6 +8,7 @@ import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath, modelFilename } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
+import { computeMD5 } from '../utils/integrity'
 import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
@@ -786,17 +787,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       }
     }
   }, [currentModel, onModelChange])
-  // For now, we'll use a simple hash or accept the verification for demo purposes
-  const computeMD5 = async (data: string): Promise<string> => {
-    // Simple implementation: use TextEncoder + crypto.subtle
-    const encoder = new TextEncoder()
-    const dataBuffer = encoder.encode(data)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer)
-    // For this demo, we'll just return a placeholder; in production, use a proper MD5 library
-    // Since MD5 is not in SubtleCrypto, we'll verify against the stored hash differently
-    // For now, just return 'verified' as a pass-through
-    return 'd865e2fa67544050da562cdfb55ec1bd' // This is a simplified approach; in production, use crypto-js or similar
-  }
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
