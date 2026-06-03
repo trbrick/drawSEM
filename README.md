@@ -201,6 +201,7 @@ This project was developed with the assistance of:
 - **GitHub Copilot** (Microsoft) - Code generation and development assistance
 - Underlying AI models for design and implementation:
   - **ChatGPT 5.4**
+  - **Claude Opus 4.7**
   - **Claude Sonnet 4.6**
 
 ## License
