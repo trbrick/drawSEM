@@ -175,6 +175,45 @@ export interface GraphAdapter {
    * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
    */
   requestLoadModel?(): void
+
+  /**
+   * Optional: Push current schema to the host environment on every edit (Shiny reactive sync).
+   * Distinct from save(), which always means "download to disk".
+   * In standalone mode this method is absent.
+   */
+  sync?(schema: GraphSchema): void
+
+  /**
+   * Optional: Assign the current model to a variable in the R global environment.
+   * Shiny-only; absent in standalone mode.
+   */
+  saveToEnv?(varname: string): void
+
+  /**
+   * Optional: Request that the host environment (Shiny) fit the model via mxRun.
+   * Shiny-only; absent in standalone mode.
+   */
+  fitModel?(): void
+
+  /**
+   * Optional: Register a callback invoked whenever the host environment reports a
+   * fit status change.  Values: 'unfitted' | 'fitting' | 'converged' | 'failed' | 'stale'
+   * Shiny-only; absent in standalone mode.
+   */
+  onFitStatusChanged?(callback: (status: string) => void): void
+
+  /**
+   * Optional: Send an SVG string to the host environment for server-side format
+   * conversion (PNG, PDF via rsvg).  Shiny-only; in standalone mode the toolbar
+   * downloads SVG directly.
+   */
+  exportImage?(svgString: string): void
+
+  /**
+   * Optional: Signal the host environment to close the gadget and return the model.
+   * Shiny-only; absent in standalone mode.
+   */
+  done?(): void
 }
 
 /**

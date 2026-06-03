@@ -588,6 +588,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     adapterOptional.signalReady()
   }, [models, adapterOptional])
 
+  // Subscribe to fit status updates from R (shiny only)
+  React.useEffect(() => {
+    adapterOptional?.onFitStatusChanged?.((status) => setFitStatus(status))
+  }, [adapterOptional])
+
   // Auto-load CSV files for dataset nodes that have datasetSource metadata
   React.useEffect(() => {
     let mounted = true
@@ -803,6 +808,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false)
+  const [showSaveMenu, setShowSaveMenu] = useState<boolean>(false)
+  const [showSaveToRDialog, setShowSaveToRDialog] = useState<boolean>(false)
+  const [saveToRVarname, setSaveToRVarname] = useState<string>('myModel')
+  const [showCodeExportDialog, setShowCodeExportDialog] = useState<boolean>(false)
+  const [codeExportFormat, setCodeExportFormat] = useState<'openmx' | 'lavaan' | 'blavaan'>('openmx')
+  const [exportedCode, setExportedCode] = useState<string | null>(null)
+  const [codeExportLoading, setCodeExportLoading] = useState<boolean>(false)
+  const [fitStatus, setFitStatus] = useState<string>('unfitted')
   // Stable viewBox — only re-fit on model load and auto-layout, never on interactive edits.
   // A fixed default is used for the empty canvas so the SVG coordinate space is consistent
   // from the first click; nodes will not jump after being placed.
@@ -1259,6 +1272,42 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setErrorMessage(`PNG export failed: ${msg}`)
       setTimeout(() => setErrorMessage(null), 4000)
     }
+  }
+
+  function handleImageExportShiny() {
+    try {
+      const schema = buildCurrentSchema()
+      if (!schema) return
+      const svgString = exportToSvg(schema)
+      adapter.exportImage?.(svgString)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMessage(`Image export failed: ${msg}`)
+      setTimeout(() => setErrorMessage(null), 4000)
+    }
+  }
+
+  async function handleGenerateCode() {
+    const schema = buildCurrentSchema()
+    if (!schema) return
+    setExportedCode(null)
+    setCodeExportLoading(true)
+    try {
+      const code = await adapter.export(schema, codeExportFormat)
+      setExportedCode(code)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setExportedCode(`# Export failed:\n# ${msg}`)
+    } finally {
+      setCodeExportLoading(false)
+    }
+  }
+
+  function handleSaveToEnv() {
+    const varname = saveToRVarname.trim()
+    if (!varname) return
+    adapter.saveToEnv?.(varname)
+    setShowSaveToRDialog(false)
   }
 
   // Apply auto-layout to current model: recompute all node positions via RAMPath algorithm
@@ -2341,6 +2390,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   return (
+    <>
     <div className="flex flex-col h-full canvas-container">
       {/* Top toolbar with icon buttons */}
       {viewMode !== 'widget' && (
@@ -2433,15 +2483,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               {isLayingOut ? '…' : '⟳'} Auto-layout
             </button>
             <div className="border-l mx-2"></div>
-            {viewMode === 'shiny' ? (
-              <button
-                title="Load a model JSON file via R"
-                className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
-                onClick={() => adapter.requestLoadModel?.()}
-              >
-                Load Model
-              </button>
-            ) : (
+            {viewMode !== 'shiny' && (
               <>
                 <button
                   title="Load a model from a JSON file"
@@ -2524,6 +2566,96 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             </label>
           </div>
         </div>
+        {/* Shiny action row — separate row keeps it out of the tools flex layout */}
+        {viewMode === 'shiny' && (
+          <div className="flex items-center gap-2 px-3 pb-2 border-t pt-2">
+            <button
+              title="Load a model JSON file via R"
+              className="py-1 px-3 rounded text-sm bg-white border hover:bg-sky-100"
+              onClick={() => adapter.requestLoadModel?.()}
+            >
+              Load Model
+            </button>
+            {/* Save dropdown: JSON download or save to R environment */}
+            <div className="relative inline-flex">
+              {showSaveMenu && (
+                <div className="fixed inset-0 z-10" onClick={() => setShowSaveMenu(false)} />
+              )}
+              <button
+                title="Save model"
+                className="py-1 px-3 rounded text-sm bg-white border hover:bg-sky-100"
+                onClick={() => setShowSaveMenu((v) => !v)}
+              >
+                Save ▾
+              </button>
+              {showSaveMenu && (
+                <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded shadow-md min-w-max">
+                  <button
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
+                    onClick={() => { handleSaveClick(); setShowSaveMenu(false) }}
+                  >
+                    JSON file
+                  </button>
+                  <button
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
+                    onClick={() => { setShowSaveMenu(false); setShowSaveToRDialog(true) }}
+                  >
+                    Save to R…
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              title="Export image (R converts to SVG/PNG/PDF)"
+              className="py-1 px-3 rounded text-sm bg-white border hover:bg-sky-100"
+              onClick={handleImageExportShiny}
+            >
+              Image
+            </button>
+            <button
+              title="Generate R code for this model"
+              className="py-1 px-3 rounded text-sm bg-white border hover:bg-sky-100"
+              onClick={() => { setShowCodeExportDialog(true); setExportedCode(null) }}
+            >
+              Export
+            </button>
+            <button
+              title="Clear the canvas"
+              className="py-1 px-3 rounded text-sm bg-white border hover:bg-red-50 hover:text-red-600"
+              onClick={() => {
+                setModels((ms) => ms.map((m) =>
+                  m.id === currentModelId ? { ...m, nodes: [], paths: [], label: '' } : m
+                ))
+                deselectAll()
+              }}
+            >
+              Clear
+            </button>
+            <div className="border-l self-stretch mx-1" />
+            <button
+              title="Fit model via OpenMx"
+              className="py-1 px-3 rounded text-sm bg-sky-600 text-white hover:bg-sky-700"
+              onClick={() => adapter.fitModel?.()}
+            >
+              Fit
+            </button>
+            <span className="flex items-center gap-1 text-xs text-slate-500 select-none">
+              <span style={{
+                display: 'inline-block', width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                background: ({ unfitted: '#64748b', fitting: '#f59e0b', converged: '#22c55e', failed: '#ef4444', stale: '#f97316' } as Record<string, string>)[fitStatus] ?? '#64748b'
+              }} />
+              {({ unfitted: 'Not fitted', fitting: 'Fitting…', converged: 'Converged', failed: 'Failed', stale: 'Stale' } as Record<string, string>)[fitStatus] ?? fitStatus}
+            </span>
+            <div className="flex-1" />
+            <button
+              title="Close editor and return model to R"
+              className="py-1 px-3 rounded text-sm bg-green-600 text-white hover:bg-green-700"
+              onClick={() => adapter.done?.()}
+            >
+              Done
+            </button>
+          </div>
+        )}
       </header>
       )}
 
@@ -3581,6 +3713,68 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       )}
     </div>
     </div>
+
+    {/* ── Save to R dialog ─────────────────────────────────────── */}
+    {showSaveToRDialog && (
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setShowSaveToRDialog(false)}>
+        <div className="bg-white rounded-lg shadow-xl p-5 w-72 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+          <div className="font-semibold text-sm">Save to R Environment</div>
+          <div>
+            <label className="block text-xs text-slate-600 mb-1">Variable name</label>
+            <input
+              className="border rounded px-2 py-1 text-sm w-full focus:outline-none focus:border-sky-400"
+              value={saveToRVarname}
+              onChange={(e) => setSaveToRVarname(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveToEnv(); if (e.key === 'Escape') setShowSaveToRDialog(false) }}
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button className="px-3 py-1 text-sm border rounded hover:bg-slate-50" onClick={() => setShowSaveToRDialog(false)}>Cancel</button>
+            <button className="px-3 py-1 text-sm bg-sky-600 text-white rounded hover:bg-sky-700" onClick={handleSaveToEnv}>Save</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Export R code dialog ──────────────────────────────────── */}
+    {showCodeExportDialog && (
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setShowCodeExportDialog(false)}>
+        <div className="bg-white rounded-lg shadow-xl p-5 w-[580px] max-h-[80vh] flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-sm">Export R Code</span>
+            <button className="text-slate-400 hover:text-slate-600 text-lg leading-none" onClick={() => setShowCodeExportDialog(false)}>✕</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-600">Format</label>
+            <select
+              className="border rounded px-2 py-1 text-sm bg-white"
+              value={codeExportFormat}
+              onChange={(e) => setCodeExportFormat(e.target.value as 'openmx' | 'lavaan' | 'blavaan')}
+            >
+              <option value="openmx">OpenMx</option>
+              <option value="lavaan">lavaan</option>
+              <option value="blavaan">blavaan</option>
+            </select>
+            <button
+              className="px-3 py-1 text-sm bg-sky-600 text-white rounded hover:bg-sky-700 disabled:opacity-50"
+              onClick={handleGenerateCode}
+              disabled={codeExportLoading}
+            >
+              {codeExportLoading ? 'Generating\u2026' : 'Generate'}
+            </button>
+          </div>
+          {exportedCode !== null && (
+            <textarea
+              readOnly
+              className="font-mono text-xs border rounded p-2 flex-1 resize-none min-h-[260px] bg-slate-50"
+              value={exportedCode ?? ''}
+            />
+          )}
+        </div>
+      </div>
+    )}
+    </>
   )
 }
  

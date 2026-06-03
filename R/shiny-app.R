@@ -51,63 +51,17 @@ NULL
 #' @noRd
 .drawSEM_ui <- function() {
 
-  # The widget in 'shiny' viewMode already shows its full chrome:
-  # toolbar (add nodes/paths, import JSON, auto-layout, path-label dropdown),
-  # left layer panel, and floating selection popup.  The bottom bar here
-  # provides only the R-backend operations the browser can't perform itself.
-
-  bar_sep <- shiny::div(
-    style = "border-left:1px solid rgba(255,255,255,0.18); align-self:stretch; margin:8px 3px; flex-shrink:0;"
-  )
-
-  bar_btn <- "height:30px; font-size:12px; padding:0 9px; background:transparent; color:#e2e8f0; border:1px solid rgba(255,255,255,0.3); border-radius:4px;"
-
-  bottom_bar <- shiny::div(
-    id = "drawsem-bar",
-    style = paste0(
-      "position:fixed; bottom:0; left:0; right:0; height:44px;",
-      "background:#1e293b; color:#e2e8f0;",
-      "display:flex; align-items:center; padding:0 10px; gap:4px;",
-      "z-index:9999; box-shadow:0 -2px 6px rgba(0,0,0,0.4);",
-      "font-family:system-ui,sans-serif; font-size:13px;"
-    ),
-
-    shiny::actionButton("new_model_btn", "New",
-      icon = shiny::icon("plus"), style = bar_btn),
-    shiny::actionButton("data_btn", "Data\u2026",
-      icon = shiny::icon("database"), style = bar_btn),
-    bar_sep,
-
-    shiny::actionButton(
-      "fit_btn", "Fit",
-      icon = shiny::icon("play"),
-      style = "height:30px; font-size:12px; padding:0 10px; background:#2563eb; color:#fff; border:none; border-radius:4px;"
-    ),
-    shiny::uiOutput("fit_status_ui", inline = TRUE),
-    bar_sep,
-
-    shiny::downloadButton("download_json", "JSON",
-      style = paste0(bar_btn, " display:inline-flex; align-items:center; gap:5px; text-decoration:none;")),
-    shiny::actionButton("save_to_r_btn", "Save to R\u2026",
-      icon = shiny::icon("arrow-up-right-from-square"), style = bar_btn),
-    shiny::actionButton("image_btn", "Image\u2026",
-      icon = shiny::icon("image"), style = bar_btn),
-    bar_sep,
-    shiny::actionButton(
-      "done_btn", "Done",
-      icon = shiny::icon("check"),
-      style = "height:30px; font-size:12px; padding:0 10px; background:#16a34a; color:#fff; border:none; border-radius:4px;"
-    )
-  )
+  # The widget in 'shiny' viewMode provides its own full toolbar:
+  # add nodes/paths, load data/model, save, image, export, fit, done.
+  # R only needs to host the widget container and a modal root for
+  # server-side dialogs (image downloads, data loading, code results).
 
   shiny::tagList(
     shiny::tags$head(
-      shiny::tags$script("tailwind.config={corePlugins:{preflight:false}}"),
-      shiny::tags$script(src = "https://cdn.tailwindcss.com"),
       shiny::tags$style(
         "html,body{margin:0;padding:0;overflow:hidden;height:100%;background:#fff;}
          #drawsem-widget-container{
-           position:fixed; top:0; left:0; right:0; bottom:44px; overflow:hidden;
+           position:fixed; top:0; left:0; right:0; bottom:0; overflow:hidden;
          }
          #drawsem-widget-container .shiny-html-output,
          #drawsem-widget-container .shiny-html-output>div,
@@ -117,10 +71,6 @@ NULL
            height:100% !important;
          }
          #drawsem-widget-container .html-fill-item { flex:none !important; }
-         #drawsem-bar .btn { box-shadow:none !important; }
-         #drawsem-bar .btn:hover { filter:brightness(1.2); }
-         #download_json .glyphicon, #download_json .fa { margin-right:4px; }
-         .shiny-notification-panel { bottom:54px !important; }
          /* Form elements inside Tailwind modals */
          .dsem-label { display:block; font-size:13px; font-weight:500; color:#475569; margin-bottom:4px; }
          .dsem-field { margin-bottom:14px; }
@@ -131,8 +81,7 @@ NULL
       )
     ),
     shiny::div(id = "drawsem-modal-host"),
-    shiny::div(id = "drawsem-widget-container", shiny::uiOutput("sem_widget_ui")),
-    bottom_bar
+    shiny::div(id = "drawsem-widget-container", shiny::uiOutput("sem_widget_ui"))
   )
 }
 
@@ -277,13 +226,19 @@ NULL
         }
       }
       currentModel(gm)
-      # Only dirty the fit on structural changes — visual-only moves/resizes
-      # do not reset a converged fit. Uses the same hashStructure() logic as
-      # the schema's provenance.structureHash / fitResults[n].structureHash.
-      if (fitStatus() == "converged") {
+      # Empty model (Clear) → reset to unfitted
+      first_model <- (gm@schema$models %||% list())[[1]]
+      is_empty <- length(first_model$nodes %||% list()) == 0 &&
+                  length(first_model$paths %||% list()) == 0
+      if (is_empty) {
+        .sendFitStatus("unfitted")
+        svgData(NULL)
+      } else if (fitStatus() == "converged") {
+        # Only dirty the fit on structural changes — visual-only moves do not
+        # reset a converged fit.
         new_fp <- hashStructure(gm)
         if (!identical(new_fp, lastStructuralFingerprint())) {
-          fitStatus("stale")
+          .sendFitStatus("stale")
         }
         lastStructuralFingerprint(new_fp)
       }
@@ -293,65 +248,16 @@ NULL
     })
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
-  # ── Model name (centre of bar) ─────────────────────────────────────────
-  output$model_name_display <- shiny::renderText({
-    gm  <- currentModel()
-    if (is.null(gm)) return("")
-    ids <- names(gm@schema$models %||% list())
-    if (length(ids) == 0) return("(unnamed)")
-    # Prefer the human-readable label if set, otherwise fall back to the ID key
-    labels <- vapply(ids, function(id) {
-      lbl <- gm@schema$models[[id]]$label
-      if (!is.null(lbl) && nzchar(lbl)) lbl else id
-    }, character(1))
-    paste(labels, collapse = ", ")
-  })
+  # ── Sync fit status to React toolbar ──────────────────────────────────
+  .sendFitStatus <- function(status) {
+    fitStatus(status)
+    session$sendCustomMessage("fit_status_update", list(status = status))
+  }
 
-  # ── Fit status dot ────────────────────────────────────────────────────
-  output$fit_status_ui <- shiny::renderUI({
-    colour <- switch(fitStatus(),
-      unfitted  = "#64748b",
-      fitting   = "#f59e0b",
-      converged = "#22c55e",
-      failed    = "#ef4444",
-      stale     = "#f97316",
-      "#64748b"
-    )
-    label <- switch(fitStatus(),
-      unfitted  = "Not fitted",
-      fitting   = "Fitting\u2026",
-      converged = "Converged",
-      failed    = "Failed",
-      stale     = "Stale",
-      fitStatus()
-    )
-    shiny::tags$span(
-      style = "display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#cbd5e1;",
-      shiny::tags$span(
-        style = sprintf("width:7px; height:7px; border-radius:50%%; background:%s; flex-shrink:0;", colour)
-      ),
-      label
-    )
-  })
-
-  # ── New empty model ────────────────────────────────────────────────────
-  shiny::observeEvent(input$new_model_btn, {
-    schema <- list(
-      schemaVersion = 1L,
-      models = list(model1 = list(nodes = list(), paths = list()))
-    )
-    gm <- methods::new("GraphModel", schema = schema)
-    currentModel(gm)
-    fitStatus("unfitted")
-    svgData(NULL)
-    session$sendCustomMessage("update_model", list(schema = gm@schema))
-    shiny::showNotification("New empty model created.", type = "message", duration = 2)
-  })
-
-  # ── Data modal ────────────────────────────────────────────────────────
-  shiny::observeEvent(input$data_btn, {
-    .showDataModal(currentModel())
-  })
+  # ── Signal readiness: push current fit status to toolbar ───────────────
+  shiny::observeEvent(input$graph_tool_ready, {
+    session$sendCustomMessage("fit_status_update", list(status = fitStatus()))
+  }, ignoreNULL = TRUE)
 
   # ── Data modal ("Load Data" toolbar button in Shiny mode) ─────────────
   shiny::observeEvent(input$load_data_request, {
@@ -405,18 +311,18 @@ NULL
   })
 
   # ── Fit model ─────────────────────────────────────────────────────────
-  shiny::observeEvent(input$fit_btn, {
+  shiny::observeEvent(input$fit_model_request, {
     gm <- currentModel()
     if (is.null(gm)) {
       shiny::showNotification("No model to fit.", type = "warning", duration = 4)
       return()
     }
-    fitStatus("fitting")
+    .sendFitStatus("fitting")
 
     result <- tryCatch(runOpenMx(gm), error = function(e) e)
 
     if (inherits(result, "error")) {
-      fitStatus("failed")
+      .sendFitStatus("failed")
       shiny::insertUI("#drawsem-modal-host", "afterBegin",
         .modal("dsem-modal-fit-fail", "Fit Failed",
           shiny::tags$pre(
@@ -435,7 +341,7 @@ NULL
     }
 
     currentModel(result)
-    fitStatus("converged")
+    .sendFitStatus("converged")
     lastStructuralFingerprint(hashStructure(result))
     suppressNextEcho(TRUE)
     session$sendCustomMessage("update_model", list(schema = result@schema))
@@ -519,49 +425,9 @@ NULL
     )
   })
 
-  # ── Download JSON ─────────────────────────────────────────────────────
-  output$download_json <- shiny::downloadHandler(
-    filename = function() {
-      gm  <- currentModel()
-      mid <- names(gm@schema$models %||% list(model1 = NULL))[1]
-      paste0(mid, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".json")
-    },
-    content = function(file) {
-      shiny::req(!is.null(currentModel()))
-      exportSchema(currentModel(), file)
-    }
-  )
-
-  # ── Save to R modal ───────────────────────────────────────────────────
-  shiny::observeEvent(input$save_to_r_btn, {
-    if (is.null(currentModel())) {
-      shiny::showNotification("No model to save.", type = "warning", duration = 4)
-      return()
-    }
-    shiny::insertUI("#drawsem-modal-host", "afterBegin",
-      .modal("dsem-modal-save", "Save to R Environment",
-        shiny::div(class = "dsem-field",
-          shiny::tags$label(class = "dsem-label", `for` = "save_r_varname", "Variable name"),
-          shiny::textInput("save_r_varname", NULL,
-            value = shiny::isolate(lastVarname()), width = "100%")
-        ),
-        shiny::tagList(
-          shiny::tags$button(
-            style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
-            onclick = "Shiny.setInputValue('modal_close','dsem-modal-save',{priority:'event'})",
-            "Cancel"
-          ),
-          shiny::actionButton("confirm_save_r_btn", "Save",
-            style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;")
-        ),
-        size = "s"
-      ),
-      immediate = TRUE
-    )
-  })
-
-  shiny::observeEvent(input$confirm_save_r_btn, {
-    varname <- trimws(input$save_r_varname %||% "")
+  # ── Save to R environment (dialog rendered in React, R just assigns) ──
+  shiny::observeEvent(input$save_to_env_request, {
+    varname <- trimws(input$save_to_env_request$varname %||% "")
     if (!grepl("^[a-zA-Z.][a-zA-Z0-9_.]*$", varname)) {
       shiny::showNotification(
         "Invalid R variable name. Use letters, digits, '.' or '_', starting with a letter or '.'.",
@@ -570,15 +436,14 @@ NULL
     }
     lastVarname(varname)
     assign(varname, currentModel(), envir = .GlobalEnv)
-    .closeModal("dsem-modal-save")
     shiny::showNotification(sprintf("Saved as '%s' in .GlobalEnv.", varname),
                             type = "message", duration = 4)
-  })
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
-  # ── Image export modal ────────────────────────────────────────────────
-  shiny::observeEvent(input$image_btn, {
-    svgData(NULL)
-    session$sendCustomMessage("trigger_svg_export", list())
+  # ── Image: JS sends SVG directly; R inserts download modal ────────────
+  shiny::observeEvent(input$svg_export_data, {
+    shiny::req(input$svg_export_data)
+    svgData(input$svg_export_data)
     shiny::insertUI("#drawsem-modal-host", "afterBegin",
       .modal("dsem-modal-image", "Export Image",
         shiny::uiOutput("image_modal_body"),
@@ -591,11 +456,29 @@ NULL
       ),
       immediate = TRUE
     )
-  })
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
-  shiny::observeEvent(input$svg_export_data, {
-    shiny::req(input$svg_export_data)
-    svgData(input$svg_export_data)
+  # ── Export R code ──────────────────────────────────────────────────────
+  shiny::observeEvent(input$export_request, {
+    shiny::req(input$export_request)
+    fmt <- input$export_request$format %||% "openmx"
+    gm  <- currentModel()
+    result <- tryCatch({
+      if (fmt != "openmx") stop(sprintf("Export format '%s' is not yet supported.", fmt))
+      schema_json <- jsonlite::toJSON(gm@schema, auto_unbox = TRUE, null = "null")
+      code <- paste0(
+        "# Generated by drawSEM\n",
+        "library(drawSEM)\n\n",
+        "schema_json <- ", deparse(as.character(schema_json)), "\n",
+        "gm <- as.GraphModel(schema_json)\n",
+        "result <- runOpenMx(gm)\n",
+        "summary(result)\n"
+      )
+      list(success = TRUE, code = code)
+    }, error = function(e) {
+      list(success = FALSE, error = conditionMessage(e))
+    })
+    session$sendCustomMessage(paste0("export_", fmt, "_result"), result)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   output$image_modal_body <- shiny::renderUI({
@@ -653,9 +536,9 @@ NULL
   )
 
   # ── Done ──────────────────────────────────────────────────────────────
-  shiny::observeEvent(input$done_btn, {
+  shiny::observeEvent(input$done_request, {
     shiny::stopApp(returnValue = currentModel())
-  })
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 }
 
 

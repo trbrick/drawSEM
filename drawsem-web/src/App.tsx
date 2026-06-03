@@ -10,11 +10,12 @@ interface AppProps {
 export default function App({ viewMode = 'full' }: AppProps): JSX.Element {
   const adapter = useAdapter()
 
-  // In Shiny mode, sync every model edit back to R via adapter.save().
-  // In standalone mode we do NOT call adapter.save() on every change — that
-  // would trigger a file download on every keystroke.
+  // In Shiny mode, sync every model edit back to R via adapter.sync().
+  // save() now consistently means "download to disk" in both adapters,
+  // so we use the separate sync() method for reactive updates.
+  // In standalone mode there is no sync target.
   const handleModelChange = viewMode === 'shiny'
-    ? (schema: GraphSchema) => { adapter.save(schema) }
+    ? (schema: GraphSchema) => { adapter.sync?.(schema) }
     : undefined
 
   return (
