@@ -78,11 +78,25 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE) {
   # Phase 3: Build mxPath list ==========================================
   constant_label <- getConstantNodeLabel(model$nodes)
   paths_to_create <- buildPathList(model$paths, constant_label)
+
+  normalize_bound <- function(x) {
+    if (is.null(x) || length(x) == 0 || is.na(x)) {
+      NULL
+    } else {
+      as.numeric(x)
+    }
+  }
   
   # Convert path specifications to actual mxPath() calls
   mxpaths <- lapply(paths_to_create, function(pspec) {
-    # Filter out unsupported fields (bounds, etc.)
-    OpenMx::mxPath(
+    lbound <- NULL
+    ubound <- NULL
+    if (!is.null(pspec$bounds) && length(pspec$bounds) >= 2) {
+      lbound <- normalize_bound(pspec$bounds[[1]])
+      ubound <- normalize_bound(pspec$bounds[[2]])
+    }
+
+    path_args <- list(
       from = pspec$from,
       to = pspec$to,
       arrows = pspec$arrows,
@@ -90,6 +104,16 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE) {
       values = pspec$values,
       free = pspec$free
     )
+
+    # Only include bounds when present; OpenMx errors on explicit NULL bounds.
+    if (!is.null(lbound)) {
+      path_args$lbound <- lbound
+    }
+    if (!is.null(ubound)) {
+      path_args$ubound <- ubound
+    }
+
+    do.call(OpenMx::mxPath, path_args)
   })
   
   # Phase 4: Build mxModel ==============================================

@@ -686,7 +686,7 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
   lbound <- as.numeric(matrix$lbound[row_idx, col_idx])
   ubound <- as.numeric(matrix$ubound[row_idx, col_idx])
   if (!is.na(lbound) || !is.na(ubound)) {
-    opt_list$bounds <- c(
+    opt_list$bounds <- list(
       if (is.na(lbound)) NULL else lbound,
       if (is.na(ubound)) NULL else ubound
     )
@@ -900,6 +900,11 @@ setMethod(
               } else {
                 TRUE
               }
+            }
+
+            # Only include optimization if not NULL
+            if (!is.null(opt_info)) {
+              path$optimization <- opt_info
             }
             
             path_list <- c(path_list, list(path))

@@ -244,3 +244,66 @@ test_that("as.GraphModel emits named freeParameter strings for labelled MxRAMMod
   res_fp <- sapply(manifest_residuals, function(p) p$freeParameter)
   expect_setequal(res_fp, c("e1", "e2", "e3"))
 })
+
+test_that("as.GraphModel captures start values and bounds from MxModel paths", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  data <- data.frame(x1 = rnorm(100), x2 = rnorm(100))
+
+  model <- OpenMx::mxModel(
+    "bounds_model",
+    type = "RAM",
+    manifestVars = c("x1", "x2"),
+    OpenMx::mxData(data, type = "raw"),
+    OpenMx::mxPath(from = "x1", arrows = 2, free = TRUE, values = 0.3,
+                   lbound = 0, ubound = 1, labels = "var_x1"),
+    OpenMx::mxPath(from = "x2", arrows = 2, free = TRUE, values = 1.1,
+                   labels = "var_x2")
+  )
+
+  g <- as.GraphModel(model)
+  paths <- g@schema$models$bounds_model$paths
+
+  x1_var <- Filter(function(p) p$from == "x1" && p$to == "x1" && p$numberOfArrows == 2, paths)[[1]]
+  x2_var <- Filter(function(p) p$from == "x2" && p$to == "x2" && p$numberOfArrows == 2, paths)[[1]]
+
+  expect_equal(x1_var$optimization$start, 0.3)
+  expect_equal(x1_var$optimization$bounds[[1]], 0)
+  expect_equal(x1_var$optimization$bounds[[2]], 1)
+
+  expect_equal(x2_var$optimization$start, 1.1)
+  expect_true(is.null(x2_var$optimization$bounds))
+})
+
+test_that("as.MxModel applies path optimization bounds to mxPath", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  schema <- list(
+    schemaVersion = 1,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable")
+        ),
+        paths = list(
+          list(
+            from = "x1",
+            to = "x1",
+            numberOfArrows = 2,
+            value = 0.4,
+            freeParameter = TRUE,
+            optimization = list(bounds = list(0.001, NULL))
+          )
+        ),
+        optimization = list(fitFunction = "ML")
+      )
+    )
+  )
+
+  gm <- as.GraphModel(schema)
+  mx_model <- as.MxModel(gm)
+
+  expect_equal(as.numeric(mx_model$S$values[1, 1]), 0.4)
+  expect_equal(as.numeric(mx_model$S$lbound[1, 1]), 0.001)
+  expect_true(is.na(as.numeric(mx_model$S$ubound[1, 1])))
+})
