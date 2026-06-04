@@ -4,6 +4,7 @@ import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
+import { modelToSchema } from '../utils/runtimeToSchema'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath, modelFilename } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
@@ -732,55 +733,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   React.useEffect(() => {
     if (onModelChange && currentModel) {
       try {
-        // Build a GraphSchema from current runtime state, stripping runtime-only ids.
-        const idToLabel: Record<string, string> = {}
-        currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
-        const modelSchema: GraphSchema = {
-          schemaVersion: 1,
-          models: {
-            [currentModel.id]: {
-              label: currentModel.label,
-              nodes: currentModel.nodes.map((n) => ({
-                label: n.label,
-                type: n.type,
-                ...(n.description ? { description: n.description } : {}),
-                ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
-                ...(n.tags ? { tags: n.tags } : {}),
-                ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
-                ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
-                ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
-                visual: {
-                  x: n.x,
-                  y: n.y,
-                  ...(n.width ? { width: n.width } : {}),
-                  ...(n.height ? { height: n.height } : {}),
-                },
-              })),
-              paths: currentModel.paths.map((p) => ({
-                from: idToLabel[p.from] ?? p.from,
-                to: idToLabel[p.to] ?? p.to,
-                ...(p.type ? { type: p.type } : {}),
-                ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
-                ...(p.label !== undefined ? { label: p.label } : {}),
-                ...(p.value !== undefined ? { value: p.value } : {}),
-                ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
-                ...(p.parameterType ? { parameterType: p.parameterType } : {}),
-                ...(p.optimization ? { optimization: p.optimization } : {}),
-                ...(p.side || p.visual?.midpointOffset
-                  ? {
-                      visual: {
-                        ...(p.side ? { loopSide: p.side } : {}),
-                        ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
-                      },
-                    }
-                  : {}),
-              })),
-              optimization: {
-                parameterTypes: currentModel.parameterTypes
-              }
-            }
-          }
-        }
+        const modelSchema = modelToSchema(currentModel)
         onModelChange(modelSchema)
       } catch (e) {
         console.error('[onModelChange] Error calling callback:', e)
@@ -1154,55 +1107,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function buildCurrentSchema(): GraphSchema | null {
     if (!currentModel) return null
-    const idToLabel: Record<string, string> = {}
-    currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
-    const parameterTypes = currentModel.parameterTypes
-    return {
-      schemaVersion: 1,
-      models: {
-        [currentModel.id]: {
-          label: currentModel.label,
-          nodes: currentModel.nodes.map((n) => ({
-            label: n.label,
-            type: n.type,
-            ...(n.description ? { description: n.description } : {}),
-            ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
-            ...(n.tags ? { tags: n.tags } : {}),
-            ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
-            ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
-            ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
-            visual: {
-              x: n.x,
-              y: n.y,
-              ...(n.width ? { width: n.width } : {}),
-              ...(n.height ? { height: n.height } : {}),
-            },
-          })),
-          paths: currentModel.paths.map((p) => ({
-            from: idToLabel[p.from] ?? p.from,
-            to: idToLabel[p.to] ?? p.to,
-            ...(p.type ? { type: p.type } : {}),
-            ...(p.type !== 'data' ? { numberOfArrows: p.twoSided ? 2 : 1 } : {}),
-            ...(p.label !== undefined ? { label: p.label } : {}),
-            ...(p.value !== undefined ? { value: p.value } : {}),
-            ...(p.freeParameter !== undefined ? { freeParameter: p.freeParameter } : {}),
-            ...(p.parameterType ? { parameterType: p.parameterType } : {}),
-            ...(p.optimization ? { optimization: p.optimization } : {}),
-            ...(p.side || p.visual?.midpointOffset
-              ? {
-                  visual: {
-                    ...(p.side ? { loopSide: p.side } : {}),
-                    ...(p.visual?.midpointOffset ? { midpointOffset: p.visual.midpointOffset } : {}),
-                  },
-                }
-              : {}),
-          })),
-          ...(parameterTypes && Object.keys(parameterTypes).length > 0
-            ? { optimization: { parameterTypes } }
-            : {}),
-        }
-      }
-    }
+    return modelToSchema(currentModel)
   }
 
   async function handleSaveClick() {
@@ -1305,32 +1210,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (!currentModel || isLayingOut) return
     setIsLayingOut(true)
     try {
-      // Build id→label map so runtime paths (which store node IDs) can be
-      // translated back to the schema field names (from / to) that
-      // autoLayout() expects.
-      const idToLabel: Record<string, string> = {}
-      currentModel.nodes.forEach((n) => { idToLabel[n.id] = n.label })
-
-      const schema = {
-        schemaVersion: 1,
-        models: {
-          [currentModel.id]: {
-            label: currentModel.label,
-            nodes: currentModel.nodes.map((n) => ({
-              label: n.label,
-              type: n.type,
-              visual: { x: n.x, y: n.y },
-            })),
-            paths: currentModel.paths.map((p) => ({
-              from:           idToLabel[p.from] ?? p.from,
-              to:             idToLabel[p.to]   ?? p.to,
-              numberOfArrows: p.twoSided ? 2 : 1,
-              freeParameter:  p.freeParameter,
-              value:          p.value,
-            })),
-          },
-        },
-      } as unknown as GraphSchema
+      const schema = modelToSchema(currentModel, { forAutoLayout: true })
       const positions: PositionMap = autoLayout(schema)
       const newNodes = currentModel.nodes.map((n) => {
         const pos = positions[n.label]
