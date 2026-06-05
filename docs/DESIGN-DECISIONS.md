@@ -7,6 +7,13 @@ This document has two sections:
 - **Open questions:** Genuinely undecided design questions. AI tools must not
   resolve these unilaterally — raise them with the developer before proceeding.
 
+**Scope of this document.** These decisions describe the **currently implemented**
+schema, designated `schemaVersion: 0`. The **target** architecture
+(`schemaVersion: 1`) lives in `SCHEMA-VISION.md` (the vision) and `SCHEMA-DESIGN.md`
+(the design); several open questions below carry a proposed target direction there,
+noted inline. Do not build target-design features against the current schema without
+explicit direction.
+
 ---
 
 ## Settled Decisions
@@ -18,7 +25,8 @@ This document has two sections:
 - The schema is intended to be a **portable, backend-agnostic model spec** —
   not just an internal format. The goal is for SEM packages (starting with
   OpenMx) to implement schema importers and exporters directly.
-- Current schema version: `schemaVersion: 1`.
+- Current schema version: `schemaVersion: 1`, being renumbered to **`0`** to free
+  `1` for the target design (`SCHEMA-DESIGN.md`); see the easy-wins plan.
 - Schema design should favour **readability and unambiguity**: a schema should
   be straightforward for a human to read and understand, and equally
   straightforward for an AI to generate, validate, or modify correctly. Prefer
@@ -198,6 +206,9 @@ without explicit direction from the developer.
 
 ### 1. Data connection model (high impact)
 
+**Target direction (`schemaVersion: 1`):** a separate relational data layer
+(option 5) — see `SCHEMA-DESIGN.md` §3–4. Governs the current schema until then.
+
 **The question:** Should data links be represented as **paths in the graph**, as
 **properties of variable nodes**, or as a **separate data model**?
 
@@ -232,6 +243,10 @@ columns from a data popup to create manifest nodes.
 
 ### 3. Visual representation of model cascades / multilevel structure
 
+**Target direction (`schemaVersion: 1`):** the cascade/dimension *model* is designed
+in `SCHEMA-DESIGN.md` §5 (repeat-along-a-dimension); the visual/UI representation
+remains open.
+
 **The question:** How should the UI represent models that expand over dimensions
 (time, person, classroom, etc.)?
 
@@ -245,6 +260,9 @@ to this — exploratory, not settled.
 ---
 
 ### 4. Composition and cascade semantics
+
+**Target direction (`schemaVersion: 1`):** designed in `SCHEMA-DESIGN.md` §3–7
+(dimensions, units, unit relationships, composition, the data layer).
 
 **The question:** When a model cascades over a dimension (e.g., a growth curve
 cascades a measurement model over time), how is the unit of measurement for the

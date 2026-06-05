@@ -6,6 +6,8 @@ drawSEM is a **Vite + React + TypeScript web application** for building visual s
 
 **Key Purpose:** Bridge visual model specification and statistical modeling backends (OpenMx).
 
+> **Schema redesign in progress.** This file documents the **current, implemented** flat schema (being designated `schemaVersion: 0`). A **target** architecture (`schemaVersion: 1`) — relational data layer, composition, dimensions/units — is designed in `docs/SCHEMA-VISION.md` and `docs/SCHEMA-DESIGN.md` and is **not yet built**. Treat the details below as the current `schemaVersion: 0` reference; consult the design docs before building toward the new schema.
+
 ## Architecture
 
 ### Multi-Model Structure

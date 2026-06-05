@@ -17,7 +17,12 @@
 | Project structure, build commands, implementation status | `docs/ARCHITECTURE.md` |
 | Settled design decisions (do not re-litigate) + open questions (do not resolve unilaterally) | `docs/DESIGN-DECISIONS.md` |
 | OpenMx concepts AI tools commonly get wrong | `docs/OPENMX-PRIMER.md` |
+| Long-term vision — what the schema should be (target `schemaVersion: 1`) | `docs/SCHEMA-VISION.md` |
+| Target schema design — relational core, composition, data layer, expressions | `docs/SCHEMA-DESIGN.md` |
+| Application-model benchmark (what must be expressible) | `docs/APPLICATION-MODEL-CATALOG.md` |
 | Active tasks | `ai-workflow/TASKS.md` |
+
+**Schema versions.** The implemented schema is `schemaVersion: 1` today, being renumbered to **`0`**; **`schemaVersion: 1`** is reserved for the target architecture in `docs/SCHEMA-VISION.md` + `docs/SCHEMA-DESIGN.md` (designed, not yet built). Do not build target-design features against the current schema without explicit direction.
 
 ## Repository structure
 

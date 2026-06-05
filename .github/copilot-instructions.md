@@ -52,6 +52,9 @@ npm test                # vitest suite
 |-------|----------|
 | Architecture, class slots, key functions | `docs/ARCHITECTURE.md` |
 | Settled design decisions and open questions | `docs/DESIGN-DECISIONS.md` |
+| Long-term vision (target `schemaVersion: 1`) | `docs/SCHEMA-VISION.md` |
+| Target schema design (composition, data layer, expressions) | `docs/SCHEMA-DESIGN.md` |
+| Application-model benchmark catalog | `docs/APPLICATION-MODEL-CATALOG.md` |
 | OpenMx-specific guidance | `docs/OPENMX-PRIMER.md` |
 | Working notes, task lists, session state | `ai-workflow/` (gitignored) |
 
@@ -79,7 +82,9 @@ structure, node types, path semantics, or data representation.
 ## Open questions — do not resolve unilaterally
 
 These design questions are intentionally unresolved. Raise them with the
-developer rather than picking an approach:
+developer rather than picking an approach. (Target directions for several are
+drafted in `docs/SCHEMA-DESIGN.md`, the `schemaVersion: 1` design; still raise
+before implementing against the current schema.)
 
 - **Data connection model:** should data links be paths, node properties, or a
   separate layer? (Current implementation uses paths; may change.)
