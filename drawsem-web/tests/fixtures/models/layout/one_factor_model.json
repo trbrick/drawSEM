@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "One Factor Model",
     "description": "Single latent factor F with three manifest indicators X1-X3 with means and variances"

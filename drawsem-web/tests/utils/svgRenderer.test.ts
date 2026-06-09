@@ -333,7 +333,7 @@ describe('SVG Renderer', () => {
     it('should handle self-loops', () => {
       // Create a simple self-loop model for testing
       const schema: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           test: {
             nodes: [
@@ -506,7 +506,7 @@ describe('SVG Renderer', () => {
   describe('Edge cases', () => {
     it('should handle empty model', () => {
       const schema: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           empty: {
             nodes: [],
@@ -524,7 +524,7 @@ describe('SVG Renderer', () => {
 
     it('should handle missing positions', () => {
       const schema: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           test: {
             nodes: [{ id: 'X', label: 'X', type: 'variable' }],
@@ -543,7 +543,7 @@ describe('SVG Renderer', () => {
 
     it('should handle nodes with missing visual properties', () => {
       const schema: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           test: {
             nodes: [
@@ -572,7 +572,7 @@ describe('SVG Renderer', () => {
 
     it('should handle paths with missing labels and values', () => {
       const schema: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           test: {
             nodes: [

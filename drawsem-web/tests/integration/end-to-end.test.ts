@@ -30,7 +30,7 @@ describe.skip('Integration - End-to-End', () => {
   it('should handle multi-model projects', () => {
     // 1. Create multi-model project
     const project = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       meta: { title: 'Multi-Model Project' },
       models: {
         model1: loadFixture('models/path-analysis.json').models.path_model,

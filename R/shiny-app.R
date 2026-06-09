@@ -25,7 +25,7 @@ NULL
   if (is.null(initialModel)) {
     # Minimal empty schema
     schema <- list(
-      schemaVersion = 1L,
+      schemaVersion = 0L,
       models = list(model1 = list(nodes = list(), paths = list()))
     )
     gm <- methods::new("GraphModel", schema = schema)

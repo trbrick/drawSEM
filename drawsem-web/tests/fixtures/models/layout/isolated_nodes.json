@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Isolated Nodes Model",
     "description": "Mix of connected and isolated nodes with means and error variances"

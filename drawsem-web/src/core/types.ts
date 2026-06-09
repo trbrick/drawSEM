@@ -9,7 +9,7 @@
  * This is the universal interchange format for all operations
  */
 export interface GraphSchema {
-  schemaVersion: 1
+  schemaVersion: 0
   meta?: Record<string, unknown>  // Global metadata
   models: Record<string, Model>   // Named dictionary of models
 }
@@ -242,7 +242,7 @@ export function isGraphSchema(obj: unknown): obj is GraphSchema {
     obj !== null &&
     'schemaVersion' in obj &&
     'models' in obj &&
-    (obj as any).schemaVersion === 1 &&
+    (obj as any).schemaVersion === 0 &&
     typeof (obj as any).models === 'object'
   )
 }

@@ -472,13 +472,13 @@ describe('RAMPath Layout Algorithm', () => {
 
   describe('Error handling', () => {
     it('should throw error if schema has no models', () => {
-      const invalidSchema = { schemaVersion: 1, models: {} } as GraphSchema
+      const invalidSchema = { schemaVersion: 0, models: {} } as GraphSchema
       expect(() => autoLayout(invalidSchema)).toThrow()
     })
 
     it('should handle empty models gracefully', () => {
       const emptyModel: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           test: {
             label: 'test',
@@ -561,7 +561,7 @@ describe('RAMPath Layout Algorithm', () => {
       const withErrors = autoLayout(model)
 
       const noErrorModel: GraphSchema = {
-        schemaVersion: 1,
+        schemaVersion: 0,
         models: {
           m: {
             label: 'no errors',

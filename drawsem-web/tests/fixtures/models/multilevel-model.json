@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Multilevel SEM Model",
     "description": "Within-level and between-level variables with cross-level interactions",

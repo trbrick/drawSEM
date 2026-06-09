@@ -143,6 +143,14 @@ constraints, definition variables, etc.
   can be overridden per-path in the path's own `optimization` field. Per-path
   values always win.
 - Path starting values are stored directly on the path as `value`.
+- **`start` is an advisory computational hint, not portable statistical
+  meaning.** It influences the optimization path, not the estimand; a backend
+  may ignore or recompute it. Bounds, priors, and starting values are each
+  optional layers — any may be absent, and a given backend may decline to apply
+  a layer it does not support (e.g. OpenMx ignores priors). See
+  `SCHEMA-DESIGN.md` §10 (analysis-config vs. computational settings). The v1
+  split of `optimization` into analysis-config vs. computational slots — and
+  where `bounds` belongs — is deferred.
 - The OpenMx converter **does not apply priors** (OpenMx is frequentist);
   they are stored for future use by blavaan and other Bayesian backends.
 - Bounds are stored but not currently passed to `mxPath` in v0.1.

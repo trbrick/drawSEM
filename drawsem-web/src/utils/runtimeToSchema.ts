@@ -82,7 +82,7 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
 
 export function modelToSchema(model: RuntimeModel, options: RuntimeToSchemaOptions = {}): GraphSchema {
   return {
-    schemaVersion: 1,
+    schemaVersion: 0,
     models: {
       [model.id]: modelToSchemaModel(model, options),
     },

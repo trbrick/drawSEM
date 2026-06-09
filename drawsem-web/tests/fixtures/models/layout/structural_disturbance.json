@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Structural Model with Factor Disturbance",
     "description": "Two-level structural model: F1→F2→X1/X2/X3, with D_F2 as a RAM-style disturbance on the endogenous factor F2. F1 has a free variance self-loop. D_F2 has a free variance self-loop and a fixed-1.0 unit path to F2. Because F2 is non-terminal (it loads on X1/X2/X3), D_F2 is classified as 'beside' and placed at the same rank as F2."

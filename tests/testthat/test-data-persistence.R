@@ -103,7 +103,7 @@ test_that("loadSchema loads embedded data correctly", {
   
   # Create a temporary schema file with embedded data
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -156,7 +156,7 @@ test_that("saveSchema exports data when writeData=TRUE", {
   
   # Create a GraphModel with data
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -212,7 +212,7 @@ test_that("saveSchema with writeData=NA warns if file exists", {
   skip_if_not(requireNamespace("jsonlite", quietly = TRUE), "jsonlite not available")
   
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -255,7 +255,7 @@ test_that("saveSchema with writeData=NA warns if file exists", {
 
 test_that("saveSchema with strictData=TRUE errors on missing data", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -331,7 +331,7 @@ test_that("as.GraphModel.MxRAMModel creates embedded datasetSource", {
 test_that("buildMxData loads embedded data correctly", {
   # Create a schema with embedded datasetSource
   schema_list <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -427,7 +427,7 @@ test_that("loadSchema smart-loads based on file size", {
   
   # Create schema with file-based data source
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(

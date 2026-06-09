@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Two-Level Factor Model",
     "description": "Second-order factor model with F3 as higher-order factor loading on F1 and F2, which load on manifest indicators X1-X6"

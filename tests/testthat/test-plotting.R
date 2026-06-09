@@ -26,7 +26,7 @@ load_fixture <- function(filename) {
     error = function(e) {
       # Return a minimal valid schema if fixture not found
       list(
-        schemaVersion = 1,
+        schemaVersion = 0,
         models = list(
           model1 = list(
             nodes = list(
@@ -63,7 +63,7 @@ create_test_graphmodel <- function(nodes = NULL, paths = NULL) {
   }
   
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = nodes,
@@ -604,7 +604,7 @@ describe("Edge cases", {
     )
     paths <- list()
     schema <- list(
-      schemaVersion = 1,
+      schemaVersion = 0,
       models = list(
         model1 = list(
           nodes = nodes,

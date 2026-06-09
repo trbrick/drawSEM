@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "CFA with Error Nodes",
     "description": "One factor with three indicators and explicit RAM-style error nodes. Reproduces the graph.example.json pattern: F_1→x_1/x_2/x_3, eps_x1→x_1, eps_x3→x_3, correlated errors eps_x1↔eps_x3, x_2 carries its own free variance loop (no dedicated error node)."

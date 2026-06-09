@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Confirmatory Factor Analysis Model",
     "description": "Single latent factor with three manifest indicators",

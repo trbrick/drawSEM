@@ -16,7 +16,7 @@ The schema now supports **multiple models within a single project**, organized a
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "models": {
     "model1": { "nodes": [...], "paths": [...], "optimization": {...} },
     "model2": { "nodes": [...], "paths": [...], "optimization": {...} }

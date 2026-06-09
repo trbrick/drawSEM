@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["schemaVersion", "models"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 1 },
+    "schemaVersion": { "type": "integer", "const": 0 },
     "meta": { "type": "object", "description": "Global metadata (project-wide)", "additionalProperties": true },
     "models": {
       "type": "object",
@@ -52,7 +52,7 @@
                     },
                     "start": {
                       "type": ["number", "string", "null"],
-                      "description": "Starting value for optimization; 'auto' for automatic initialization"
+                      "description": "Advisory optimizer starting value ('auto' for automatic initialization). A computational hint, not part of the model's statistical meaning: a backend may ignore or recompute it. See SCHEMA-DESIGN.md §10."
                     }
                   },
                   "additionalProperties": false
@@ -299,7 +299,7 @@
                     },
                     "start": {
                       "type": ["number", "string", "null"],
-                      "description": "Starting value for optimization; 'auto' for automatic initialization (overrides parameterType default)"
+                      "description": "Advisory optimizer starting value ('auto' for automatic initialization); overrides parameterType default. A computational hint, not part of the model's statistical meaning: a backend may ignore or recompute it. See SCHEMA-DESIGN.md §10."
                     }
                   },
                   "additionalProperties": false
