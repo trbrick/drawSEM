@@ -318,15 +318,22 @@ generate it. The user never types unit-of-analysis sets or correspondences.
 
 The spec describes model meaning; estimation is configured separately.
 
-- **Computational** (start values, optimizer, threads): never in the spec; the backend
-  chooses; does not change the estimand.
+- **Computational** (start values, optimizer choice, threads): an optional **hint**
+  layer — recordable and pinnable but **advisory**; a backend may ignore or override it,
+  and provenance records what actually ran. A hint never changes the estimand, only the
+  path taken to it, so recording one is configuration (a noun, §1), not implementation.
+  Pinning is sometimes practically necessary for *convergence* — e.g. IRT / marginal-ML
+  models that need an E/M-style optimizer to converge at all — so the spec must be able
+  to carry the hint even though a competent backend is free to disregard it.
 - **Analysis configuration** (fit function ML/WLS/DWLS/FIML, missingness handling,
   Bayesian vs frequentist): **not derivable** — competent backends legitimately differ
   (Mplus defaults to DWLS for speed; OpenMx to joint ordinal/continuous FIML for
   completeness). An optional, **pinnable** layer; absence delegates to backend policy,
   which is not canonical.
-- **Model content** (structure, variable types, priors): always in the spec. Priors
-  make Bayesian available; they do not force it.
+- **Model content**: structure and variable types are **intrinsic** — always in the
+  spec (a model without them is not a model). **Priors** are *optional* model content,
+  present only when the author adds them; they make Bayesian available but do not force
+  it, and their absence is not a backend default to be filled in.
 
 Anything not pinned is changeable at fit time, consistent with practice (trying
 optimizers/fit functions until satisfied); provenance records what actually ran.
