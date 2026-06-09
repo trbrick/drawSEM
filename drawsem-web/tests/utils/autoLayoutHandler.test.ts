@@ -43,7 +43,7 @@ describe('handleAutoLayout – schema construction', () => {
     const modelId = 'test_model'
 
     const schema: GraphSchema = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         [modelId]: {
           label: 'Test',
@@ -112,7 +112,7 @@ describe('handleAutoLayout – schema construction', () => {
     ]
 
     const schema: GraphSchema = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         m: {
           label: 'Chain',
@@ -193,7 +193,7 @@ describe('handleAutoLayout – autoLayout() output', () => {
 
   it('handles an inline minimal schema without filesystem access', () => {
     const schema: GraphSchema = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         m: {
           label: 'Minimal',

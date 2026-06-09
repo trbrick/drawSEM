@@ -1,6 +1,6 @@
 test_that("GraphModel class instantiation with valid schema", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(),
@@ -11,7 +11,7 @@ test_that("GraphModel class instantiation with valid schema", {
 
   gm <- new("GraphModel", schema = schema)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
   expect_true("model1" %in% names(gm@schema$models))
 })
 
@@ -27,7 +27,7 @@ test_that("GraphModel fails with missing schemaVersion", {
 })
 
 test_that("GraphModel fails with missing models", {
-  schema <- list(schemaVersion = 1)
+  schema <- list(schemaVersion = 0)
 
   expect_error(
     new("GraphModel", schema = schema),
@@ -37,7 +37,7 @@ test_that("GraphModel fails with missing models", {
 
 test_that("GraphModel initializes with empty data and metadata", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
 
@@ -49,7 +49,7 @@ test_that("GraphModel initializes with empty data and metadata", {
 
 test_that("GraphModel schema getter/setter works", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
   gm <- new("GraphModel", schema = schema)
@@ -57,7 +57,7 @@ test_that("GraphModel schema getter/setter works", {
   expect_equal(gm$schema, schema)
 
   new_schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(nodes = list(), paths = list()),
       model2 = list(nodes = list(), paths = list())
@@ -70,7 +70,7 @@ test_that("GraphModel schema getter/setter works", {
 
 test_that("GraphModel data getter/setter works", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
   gm <- new("GraphModel", schema = schema)
@@ -84,7 +84,7 @@ test_that("GraphModel data getter/setter works", {
 
 test_that("GraphModel metadata getter/setter works", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
   gm <- new("GraphModel", schema = schema)
@@ -97,7 +97,7 @@ test_that("GraphModel metadata getter/setter works", {
 
 test_that("GraphModel show method displays information", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
   gm <- new("GraphModel", schema = schema)
@@ -108,7 +108,7 @@ test_that("GraphModel show method displays information", {
 
 test_that("GraphModel with multiple models", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(nodes = list(), paths = list()),
       model2 = list(nodes = list(), paths = list()),
@@ -123,7 +123,7 @@ test_that("GraphModel with multiple models", {
 
 test_that("GraphModel lastBuiltModel tracking", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
   gm <- new("GraphModel", schema = schema)

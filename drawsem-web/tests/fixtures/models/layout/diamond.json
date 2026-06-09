@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Diamond Model",
     "description": "Convergence pattern: X→Y, X→Z, Y→W, Z→W with means and error variances"

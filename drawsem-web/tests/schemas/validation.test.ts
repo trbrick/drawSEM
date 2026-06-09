@@ -25,7 +25,7 @@ describe('Schema Validation', () => {
 
   it('should reject graphs without models', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
     };
     
     const result = validateGraph(invalidGraph);
@@ -34,7 +34,7 @@ describe('Schema Validation', () => {
 
   it('should require at least one model', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {},
     };
     
@@ -44,7 +44,7 @@ describe('Schema Validation', () => {
 
   it('should validate nodes with required fields', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -65,7 +65,7 @@ describe('Schema Validation', () => {
 
   it('should reject nodes without label', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -85,7 +85,7 @@ describe('Schema Validation', () => {
 
   it('should reject invalid node types', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -106,7 +106,7 @@ describe('Schema Validation', () => {
 
   it('should accept all valid node types', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -125,7 +125,7 @@ describe('Schema Validation', () => {
 
   it('should validate paths with required fields', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -151,7 +151,7 @@ describe('Schema Validation', () => {
 
   it('should reject paths without from', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -174,7 +174,7 @@ describe('Schema Validation', () => {
 
   it('should validate numberOfArrows range', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -194,7 +194,7 @@ describe('Schema Validation', () => {
 
   it('should reject numberOfArrows: 0', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
@@ -211,7 +211,7 @@ describe('Schema Validation', () => {
 
   it('should reject numberOfArrows outside valid range', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
@@ -228,7 +228,7 @@ describe('Schema Validation', () => {
 
   it('should validate free parameter options', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -249,7 +249,7 @@ describe('Schema Validation', () => {
 
   it('should support parameter types in optimization', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -278,7 +278,7 @@ describe('Schema Validation', () => {
 
   it('should validate loopSide options for self-loops', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],
@@ -318,7 +318,7 @@ describe('Schema Validation', () => {
 
   it('should support dataset nodes with file metadata', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -349,37 +349,9 @@ describe('Schema Validation', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('should support multilevel nodes with levelOfMeasurement', () => {
-    const validGraph = {
-      schemaVersion: 1,
-      models: {
-        model1: {
-          nodes: [
-            {
-              label: 'X_within',
-              type: 'variable',
-              levelOfMeasurement: 'within',
-              visual: { x: 0, y: 0 },
-            },
-            {
-              label: 'X_between',
-              type: 'variable',
-              levelOfMeasurement: 'between',
-              visual: { x: 100, y: 0 },
-            },
-          ],
-          paths: [],
-        },
-      },
-    };
-    
-    const result = validateGraph(validGraph);
-    expect(result.ok).toBe(true);
-  });
-
   it('should support node and path tags', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -408,7 +380,7 @@ describe('Schema Validation', () => {
 
   it('should accept type="data" paths without numberOfArrows', () => {
     const validGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -428,7 +400,7 @@ describe('Schema Validation', () => {
 
   it('should reject type="data" paths that include numberOfArrows', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [
@@ -448,7 +420,7 @@ describe('Schema Validation', () => {
 
   it('should reject unknown path type values', () => {
     const invalidGraph = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: {
           nodes: [{ label: 'X', type: 'variable', visual: { x: 0, y: 0 } }],

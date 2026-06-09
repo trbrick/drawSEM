@@ -12,7 +12,7 @@ test_that("End-to-end: Load graph.example.json and convert to mxModel", {
     on.exit(unlink(schema_file))
 
     schema <- list(
-      schemaVersion = 1,
+      schemaVersion = 0,
       meta = list(title = "Test Model"),
       models = list(
         model1 = list(
@@ -28,8 +28,8 @@ test_that("End-to-end: Load graph.example.json and convert to mxModel", {
           ),
           nodes = list(
             list(label = "F1", type = "variable", tags = list("factor")),
-            list(label = "x1", type = "variable", levelOfMeasurement = "individual"),
-            list(label = "x2", type = "variable", levelOfMeasurement = "individual"),
+            list(label = "x1", type = "variable"),
+            list(label = "x2", type = "variable"),
             list(label = "1", type = "constant"),
             list(label = "e1", type = "variable"),
             list(label = "e2", type = "variable")
@@ -122,7 +122,7 @@ test_that("End-to-end: Load graph.example.json and convert to mxModel", {
 
   gm <- loadGraphModel(schema_file)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
 })
 
 test_that("End-to-end: GraphModel with data binds and converts correctly", {
@@ -133,18 +133,17 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
   )
 
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
           list(label = "F1", type = "variable"),
-          list(label = "x1", type = "variable", levelOfMeasurement = "individual"),
-          list(label = "x2", type = "variable", levelOfMeasurement = "individual"),
+          list(label = "x1", type = "variable"),
+          list(label = "x2", type = "variable"),
           list(label = "1", type = "constant"),
           list(label = "e1", type = "variable"),
           list(label = "e2", type = "variable"),
-          list(label = "sample", type = "dataset", 
-            levelOfMeasurement = "individual")
+          list(label = "sample", type = "dataset")
         ),
         paths = list(
           list(from = "F1", to = "F1", numberOfArrows = 2, value = 1.0),
@@ -174,7 +173,7 @@ test_that("End-to-end: GraphModel with data binds and converts correctly", {
 
 test_that("End-to-end: Manifest/latent variable inference works correctly", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -213,7 +212,7 @@ test_that("End-to-end: Manifest/latent variable inference works correctly", {
 
 test_that("End-to-end: Constant node label conversion in mxPaths", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -241,7 +240,7 @@ test_that("End-to-end: Constant node label conversion in mxPaths", {
 
 test_that("End-to-end: Free parameter default values applied correctly", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -270,7 +269,7 @@ test_that("End-to-end: Free parameter default values applied correctly", {
 
 test_that("End-to-end: Schema with unsupported features warns user", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -296,7 +295,7 @@ test_that("End-to-end: Schema with unsupported features warns user", {
 
 test_that("End-to-end: Multiple models in schema are preserved", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x1", type = "variable")),

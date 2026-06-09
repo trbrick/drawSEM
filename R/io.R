@@ -198,7 +198,7 @@ normalizeSchemaFromJSON <- function(obj) {
 #' \dontrun{
 #' # From list
 #' schema <- list(
-#'   schemaVersion = 1,
+#'   schemaVersion = 0,
 #'   models = list(model1 = list(nodes = list(), paths = list()))
 #' )
 #' g <- as.GraphModel(schema, data = list(mydata = my_df))
@@ -1017,7 +1017,7 @@ setMethod(
     
     # Build schema
     schema <- list(
-      schemaVersion = 1,
+      schemaVersion = 0,
       meta = list(
         source = "OpenMx",
         modelName = model_name

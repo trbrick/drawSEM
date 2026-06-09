@@ -8,7 +8,7 @@ import { GraphSchema } from '../../src/core/types'
 
 // Valid test schema
 const validSchema: GraphSchema = {
-  schemaVersion: 1,
+  schemaVersion: 0,
   models: {
     model1: {
       label: 'Test Model',

@@ -160,7 +160,7 @@ renderGraphModel <- function(expr, env = parent.frame(), quoted = FALSE) {
 #' @examples
 #' # Minimal example with auto-layout
 #' schema <- list(
-#'   schemaVersion = 1,
+#'   schemaVersion = 0,
 #'   models = list(
 #'     model1 = list(
 #'       nodes = list(
@@ -643,7 +643,7 @@ setLocation <- function(graphModel, nodeId, x, y) {
 #' @examples
 #' # Create a simple GraphModel
 #' schema <- list(
-#'   schemaVersion = 1,
+#'   schemaVersion = 0,
 #'   models = list(
 #'     model1 = list(
 #'       nodes = list(

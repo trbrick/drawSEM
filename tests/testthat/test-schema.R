@@ -1,6 +1,6 @@
 test_that("validateSchema accepts valid schema list", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(),
@@ -40,7 +40,9 @@ test_that("loadSchema reads JSON from file", {
 
 test_that("saveSchema writes valid JSON", {
   schema <- list(
-    schemaVersion = 1.0,
+    # Integer literal: loadSchema normalizes schemaVersion to integer, so the
+    # fixture must match that for the round-trip identity check below.
+    schemaVersion = 0L,
     models = list(
       m1 = list(
         nodes = list(),

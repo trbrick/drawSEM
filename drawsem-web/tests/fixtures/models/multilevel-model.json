@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Multilevel SEM Model",
     "description": "Within-level and between-level variables with cross-level interactions",
@@ -15,28 +15,24 @@
         {
           "label": "X_within",
           "type": "variable",
-          "levelOfMeasurement": "within",
           "tags": ["level1"],
           "visual": { "x": 0, "y": 50 }
         },
         {
           "label": "Y_within",
           "type": "variable",
-          "levelOfMeasurement": "within",
           "tags": ["level1"],
           "visual": { "x": 150, "y": 50 }
         },
         {
           "label": "X_between",
           "type": "variable",
-          "levelOfMeasurement": "between",
           "tags": ["level2"],
           "visual": { "x": 0, "y": 200 }
         },
         {
           "label": "Y_between",
           "type": "variable",
-          "levelOfMeasurement": "between",
           "tags": ["level2"],
           "visual": { "x": 150, "y": 200 }
         }

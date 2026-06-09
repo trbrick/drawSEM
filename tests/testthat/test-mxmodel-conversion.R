@@ -31,7 +31,7 @@ test_that("as.GraphModel converts simple one-factor path model", {
   g <- as.GraphModel(model)
   
   expect_s4_class(g, "GraphModel")
-  expect_equal(g@schema$schemaVersion, 1)
+  expect_equal(g@schema$schemaVersion, 0)
   expect_true("one_factor_model" %in% names(g@schema$models))
   
   # Check that manifest variables are present
@@ -70,7 +70,7 @@ test_that("as.GraphModel handles bivariate path model", {
   g <- as.GraphModel(model)
   
   expect_s4_class(g, "GraphModel")
-  expect_equal(g@schema$schemaVersion, 1)
+  expect_equal(g@schema$schemaVersion, 0)
   expect_true("bivariate_model" %in% names(g@schema$models))
   
   # Check that manifest variables are present
@@ -148,7 +148,7 @@ test_that("as.GraphModel extracts means from mxPath 'one' entries", {
   g <- as.GraphModel(model)
   
   expect_s4_class(g, "GraphModel")
-  expect_equal(g@schema$schemaVersion, 1)
+  expect_equal(g@schema$schemaVersion, 0)
   expect_true("means_model" %in% names(g@schema$models))
   
   # Check that manifest variables are present
@@ -279,7 +279,7 @@ test_that("as.MxModel applies path optimization bounds to mxPath", {
   skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
 
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(

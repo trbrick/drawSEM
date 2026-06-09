@@ -1,6 +1,6 @@
 test_that("validateSchemaStructure passes with valid schema", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
 
@@ -12,14 +12,14 @@ test_that("validateSchemaStructure passes with valid schema", {
 
 test_that("validateSchemaStructure coerces whole-number doubles to integer", {
   schema <- list(
-    schemaVersion = 1.0,
+    schemaVersion = 0.0,
     models = list(model1 = list(nodes = list(), paths = list()))
   )
 
   validated <- validateSchemaStructure(schema, verbose = FALSE)
 
   expect_type(validated$schemaVersion, "integer")
-  expect_identical(validated$schemaVersion, 1L)
+  expect_identical(validated$schemaVersion, 0L)
 })
 
 test_that("validateSchemaStructure fails without schemaVersion", {
@@ -34,7 +34,7 @@ test_that("validateSchemaStructure fails without schemaVersion", {
 })
 
 test_that("validateSchemaStructure fails without models", {
-  schema <- list(schemaVersion = 1)
+  schema <- list(schemaVersion = 0)
 
   expect_error(
     validateSchemaStructure(schema),
@@ -44,7 +44,7 @@ test_that("validateSchemaStructure fails without models", {
 
 test_that("validateNodeIntegrity detects duplicate node IDs", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -64,7 +64,7 @@ test_that("validateNodeIntegrity detects duplicate node IDs", {
 
 test_that("validateNodeIntegrity detects invalid node types", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -83,7 +83,7 @@ test_that("validateNodeIntegrity detects invalid node types", {
 
 test_that("validateNodeIntegrity passes with valid nodes", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -105,7 +105,7 @@ test_that("validateNodeIntegrity passes with valid nodes", {
 
 test_that("validatePathReferences detects undefined source node", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -126,7 +126,7 @@ test_that("validatePathReferences detects undefined source node", {
 
 test_that("validatePathReferences detects undefined target node", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -147,7 +147,7 @@ test_that("validatePathReferences detects undefined target node", {
 
 test_that("validatePathReferences detects invalid numberOfArrows", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -169,7 +169,7 @@ test_that("validatePathReferences detects invalid numberOfArrows", {
 
 test_that("validatePathReferences passes with valid paths", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -194,7 +194,7 @@ test_that("validatePathReferences passes with valid paths", {
 
 test_that("validateOptimizationParams detects fixed without value", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -215,7 +215,7 @@ test_that("validateOptimizationParams detects fixed without value", {
 
 test_that("validateOptimizationParams rejects invalid freeParameter values", {
   schema_false <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x1", type = "variable")),
@@ -226,7 +226,7 @@ test_that("validateOptimizationParams rejects invalid freeParameter values", {
   expect_error(validateOptimizationParams(schema_false), "freeParameter: false is not valid")
 
   schema_bad <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x1", type = "variable")),
@@ -239,7 +239,7 @@ test_that("validateOptimizationParams rejects invalid freeParameter values", {
 
 test_that("validateOptimizationParams passes with valid params", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -262,7 +262,7 @@ test_that("validateOptimizationParams passes with valid params", {
 
 test_that("validateSchema orchestrates all validators", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -287,7 +287,7 @@ test_that("validateSchema orchestrates all validators", {
 
 test_that("validateSchema fails on any validation error", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(

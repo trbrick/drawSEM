@@ -44,7 +44,6 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
       label: n.label,
       type: n.type,
       ...(n.description ? { description: n.description } : {}),
-      ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
       ...(n.tags ? { tags: n.tags } : {}),
       ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
       ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
@@ -83,7 +82,7 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
 
 export function modelToSchema(model: RuntimeModel, options: RuntimeToSchemaOptions = {}): GraphSchema {
   return {
-    schemaVersion: 1,
+    schemaVersion: 0,
     models: {
       [model.id]: modelToSchemaModel(model, options),
     },

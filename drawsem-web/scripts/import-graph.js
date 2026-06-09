@@ -87,7 +87,6 @@ const modelsOut = Object.entries(modelsDict).map(([modelId, model]) => {
       out.height = typeof visual.height === 'number' ? visual.height : 60
     }
     // Copy optional fields
-    if (n.levelOfMeasurement) out.levelOfMeasurement = n.levelOfMeasurement
     if (n.datasetFile) out.datasetFile = n.datasetFile
     return out
   })

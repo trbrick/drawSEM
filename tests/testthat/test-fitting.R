@@ -1,6 +1,6 @@
 test_that("hashStructure() creates consistent hashes for same structure", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -34,7 +34,7 @@ test_that("hashStructure() creates consistent hashes for same structure", {
 
 test_that("hashStructure() detects structural changes", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -59,7 +59,7 @@ test_that("hashStructure() detects structural changes", {
 
 test_that("hashStructure() ignores visual properties", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -85,7 +85,7 @@ test_that("hashStructure() ignores visual properties", {
 
 test_that("getFitResults() returns NULL when no fits available", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -103,7 +103,7 @@ test_that("getFitResults() returns NULL when no fits available", {
 
 test_that("getFitResults() returns NA with warning when fit is stale", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -142,7 +142,7 @@ test_that("getFitResults() returns NA with warning when fit is stale", {
 
 test_that("getFitResults() works with includeStale = TRUE", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -181,7 +181,7 @@ test_that("getFitResults() works with includeStale = TRUE", {
 test_that("getFitResults(which = 'all') returns all fits", {
   # Create base schema
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -214,7 +214,7 @@ test_that("getFitResults(which = 'all') returns all fits", {
 
 test_that("markFitDirty() updates structure hash and timestamp", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -238,7 +238,7 @@ test_that("markFitDirty() updates structure hash and timestamp", {
 
 test_that("loglik() returns NA when no fit available", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -260,7 +260,7 @@ test_that("loglik() returns NA when no fit available", {
 test_that("coef() returns parameters from fit", {
   # Create base schema
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),
@@ -299,7 +299,7 @@ test_that("coef() returns parameters from fit", {
 test_that("confint() returns confidence interval data frame", {
   # Create base schema
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(id = "x1", label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest"))),

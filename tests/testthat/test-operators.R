@@ -2,7 +2,7 @@
 
 test_that("$ operator accesses schema slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x1", type = "variable")),
@@ -13,13 +13,13 @@ test_that("$ operator accesses schema slot", {
   gm <- as.GraphModel(schema)
 
   result <- gm$schema
-  expect_equal(result$schemaVersion, 1)
+  expect_equal(result$schemaVersion, 0)
   expect_equal(length(result$models), 1)
 })
 
 test_that("$ operator accesses data slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -38,7 +38,7 @@ test_that("$ operator accesses data slot", {
 
 test_that("$ operator accesses metadata slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -55,7 +55,7 @@ test_that("$ operator accesses metadata slot", {
 
 test_that("$ operator accesses lastBuiltModel slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -71,7 +71,7 @@ test_that("$ operator accesses lastBuiltModel slot", {
 
 test_that("$<- operator modifies metadata slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -89,7 +89,7 @@ test_that("$<- operator modifies metadata slot", {
 
 test_that("$<- operator modifies data slot", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -108,7 +108,7 @@ test_that("$<- operator modifies data slot", {
 
 test_that("$<- operator modifies schema slot", {
   schema1 <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -127,7 +127,7 @@ test_that("$<- operator modifies schema slot", {
   )
 
   gm <- as.GraphModel(schema1)
-  expect_equal(gm$schema$schemaVersion, 1)
+  expect_equal(gm$schema$schemaVersion, 0)
 
   # Replace schema
   gm$schema <- schema2
@@ -137,7 +137,7 @@ test_that("$<- operator modifies schema slot", {
 
 test_that("$ operator with nested list access", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x1", type = "variable")),
@@ -149,13 +149,13 @@ test_that("$ operator with nested list access", {
 
   # Nested access should work
   expect_equal(gm$data$mydata$x, c(1, 2, 3))
-  expect_equal(gm$schema$schemaVersion, 1)
+  expect_equal(gm$schema$schemaVersion, 0)
   expect_equal(gm$schema$models$model1$nodes[[1]]$label, "x1")
 })
 
 test_that("$<- operator with nested list modification", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),
@@ -175,7 +175,7 @@ test_that("$<- operator with nested list modification", {
 
 test_that("$ operator fails gracefully with invalid slot name", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(list(label = "x", type = "variable")),

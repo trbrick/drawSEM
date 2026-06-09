@@ -16,7 +16,7 @@ The schema now supports **multiple models within a single project**, organized a
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "models": {
     "model1": { "nodes": [...], "paths": [...], "optimization": {...} },
     "model2": { "nodes": [...], "paths": [...], "optimization": {...} }
@@ -36,7 +36,7 @@ Three main entity types flow through the system:
 1. **Schema Format** (`schema/graph.schema.json`): Persistent JSON representation with:
    - `models`: named dictionary where each key is a model ID
    - Each model contains `nodes[]`, `paths[]`, optional `optimization.parameterTypes`
-   - `nodes[]` with `label`, `type` (variable|constant|dataset), optional `levelOfMeasurement`, `visual` coords
+   - `nodes[]` with `label`, `type` (variable|constant|dataset), optional `visual` coords
    - `paths[]` with `fromLabel`/`toLabel`, `numberOfArrows`, `value`, `free` (free|fixed), optional `parameterType`
    - `optimization.parameterTypes`: semantic categories for path parameters with priors, bounds, start values
    - `meta`: arbitrary metadata (title, description, approach) at global and model levels
@@ -144,10 +144,6 @@ Paths can override via `optimization` object (path-level trumps parameter type d
 CanvasTool tracks `activeLayer` ('all'|'sem'|'data'|string) and `offLayerVisibility` ('transparent'|'invisible'). 
 - Use node `tags[]` or `type` to classify nodes into layers
 - Rendering applies opacity/z-index based on layer membership
-
-### Multilevel Model Support
-
-Nodes support `levelOfMeasurement` field (e.g., `'within'`, `'between'`, `'between-person'`) for organizing multilevel structures. Schema supports this; rendering currently ignores it (future enhancement).
 
 ## Common Issues & Patterns
 

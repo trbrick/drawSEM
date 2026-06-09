@@ -95,7 +95,7 @@ describe.skip('Export Format Validation', () => {
 describe.skip('Multi-Model Export', () => {
   it('should export multiple models independently', () => {
     const projectFile = {
-      schemaVersion: 1,
+      schemaVersion: 0,
       models: {
         model1: loadFixture('models/path-analysis.json').models.path_model,
         model2: loadFixture('models/cfa-model.json').models.cfa_model,

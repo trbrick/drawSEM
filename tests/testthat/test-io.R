@@ -1,6 +1,6 @@
 test_that("as.GraphModel creates GraphModel from list schema", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -16,7 +16,7 @@ test_that("as.GraphModel creates GraphModel from list schema", {
 
   gm <- as.GraphModel(schema)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
   expect_true("model1" %in% names(gm@schema$models))
 })
 
@@ -35,7 +35,7 @@ test_that("as.GraphModel validates schema before creating GraphModel", {
 
 test_that("as.GraphModel detects unsupported features", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -57,7 +57,7 @@ test_that("as.GraphModel detects unsupported features", {
 
 test_that("as.GraphModel works with JSON string", {
   json_schema <- '{
-    "schemaVersion": 1,
+    "schemaVersion": 0,
     "models": {
       "model1": {
         "nodes": [
@@ -73,13 +73,13 @@ test_that("as.GraphModel works with JSON string", {
 
   gm <- as.GraphModel(json_schema)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
 })
 
 test_that("as.GraphModel works with file path", {
   # Create a temporary schema file
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -100,12 +100,12 @@ test_that("as.GraphModel works with file path", {
 
   gm <- as.GraphModel(temp_file)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
 })
 
 test_that("as.GraphModel binds data when provided", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -129,7 +129,7 @@ test_that("as.GraphModel binds data when provided", {
 
 test_that("exportSchema saves schema to JSON file", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -151,14 +151,14 @@ test_that("exportSchema saves schema to JSON file", {
 
   loaded <- jsonlite::read_json(temp_file)
   # jsonlite wraps scalar values in lists when simplifyVector=FALSE
-  expect_equal(unlist(loaded$schemaVersion), 1)
+  expect_equal(unlist(loaded$schemaVersion), 0)
   expect_true("model1" %in% names(loaded$models))
 })
 
 test_that("loadGraphModel loads schema from JSON file", {
   # Create a temporary schema file
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -176,13 +176,13 @@ test_that("loadGraphModel loads schema from JSON file", {
 
   gm <- loadGraphModel(temp_file)
   expect_s4_class(gm, "GraphModel")
-  expect_equal(gm@schema$schemaVersion, 1)
+  expect_equal(gm@schema$schemaVersion, 0)
 })
 
 test_that("loadGraphModel binds data when CSV path provided", {
   # Create a temporary schema file
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -215,7 +215,7 @@ test_that("loadGraphModel binds data when CSV path provided", {
 test_that("as.MxModel converts GraphModel to MxModel", {
   # Create a minimal valid schema
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(
@@ -243,7 +243,7 @@ test_that("as.MxModel converts GraphModel to MxModel", {
 
 test_that("as.MxModel caches built model in GraphModel", {
   schema <- list(
-    schemaVersion = 1,
+    schemaVersion = 0,
     models = list(
       model1 = list(
         nodes = list(

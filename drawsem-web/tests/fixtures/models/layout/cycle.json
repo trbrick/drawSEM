@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 0,
   "meta": {
     "title": "Cycle Model",
     "description": "Cyclic path X→Y→Z→X with means and error variances. Note: requires special handling in later versions"
