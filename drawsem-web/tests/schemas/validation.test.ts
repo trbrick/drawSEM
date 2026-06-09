@@ -349,34 +349,6 @@ describe('Schema Validation', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('should support multilevel nodes with levelOfMeasurement', () => {
-    const validGraph = {
-      schemaVersion: 1,
-      models: {
-        model1: {
-          nodes: [
-            {
-              label: 'X_within',
-              type: 'variable',
-              levelOfMeasurement: 'within',
-              visual: { x: 0, y: 0 },
-            },
-            {
-              label: 'X_between',
-              type: 'variable',
-              levelOfMeasurement: 'between',
-              visual: { x: 100, y: 0 },
-            },
-          ],
-          paths: [],
-        },
-      },
-    };
-    
-    const result = validateGraph(validGraph);
-    expect(result.ok).toBe(true);
-  });
-
   it('should support node and path tags', () => {
     const validGraph = {
       schemaVersion: 1,

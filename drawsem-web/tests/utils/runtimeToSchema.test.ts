@@ -20,7 +20,6 @@ function normalizeRuntimeModel(model: any) {
       label: n.label,
       type: n.type,
       description: n.description,
-      levelOfMeasurement: n.levelOfMeasurement,
       tags: n.tags,
       variableCharacteristics: n.variableCharacteristics,
       bindingMappings: n.bindingMappings,

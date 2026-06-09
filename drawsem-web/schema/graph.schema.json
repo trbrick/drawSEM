@@ -87,7 +87,6 @@
                   },
                   "additionalProperties": false
                 },
-                "levelOfMeasurement": { "type": "string", "description": "Level of measurement for multilevel models (e.g., 'within', 'between')" },
                 "tags": {
                   "type": "array",
                   "items": { "type": "string" },

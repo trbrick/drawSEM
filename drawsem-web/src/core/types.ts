@@ -34,7 +34,6 @@ export interface Node {
   label: string                        // Required identifier
   type: 'variable' | 'constant' | 'dataset'
   description?: string
-  levelOfMeasurement?: string          // 'within' | 'between' for multilevel
   tags?: string[]                      // Classification tags
   visual?: VisualProperties
   bindingMappings?: Record<string, string>

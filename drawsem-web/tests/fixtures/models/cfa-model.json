@@ -21,21 +21,18 @@
         {
           "label": "X1",
           "type": "variable",
-          "levelOfMeasurement": "observed",
           "tags": ["manifest"],
           "visual": { "x": 0, "y": 200, "width": 60, "height": 60 }
         },
         {
           "label": "X2",
           "type": "variable",
-          "levelOfMeasurement": "observed",
           "tags": ["manifest"],
           "visual": { "x": 150, "y": 200, "width": 60, "height": 60 }
         },
         {
           "label": "X3",
           "type": "variable",
-          "levelOfMeasurement": "observed",
           "tags": ["manifest"],
           "visual": { "x": 300, "y": 200, "width": 60, "height": 60 }
         },

@@ -15,7 +15,6 @@ export interface Node {
     manifestLatent?: 'manifest' | 'latent'
     exogeneity?: 'exogenous' | 'endogenous'
   }
-  levelOfMeasurement?: string
   width?: number
   height?: number
   dataset?: {

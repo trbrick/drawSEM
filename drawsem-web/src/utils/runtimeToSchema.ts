@@ -44,7 +44,6 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
       label: n.label,
       type: n.type,
       ...(n.description ? { description: n.description } : {}),
-      ...(n.levelOfMeasurement ? { levelOfMeasurement: n.levelOfMeasurement } : {}),
       ...(n.tags ? { tags: n.tags } : {}),
       ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
       ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),

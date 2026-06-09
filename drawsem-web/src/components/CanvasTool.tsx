@@ -31,8 +31,6 @@ type Node = {
     manifestLatent?: 'manifest' | 'latent'
     exogeneity?: 'exogenous' | 'endogenous'
   }
-  // optional level of measurement (for multilevel models)
-  levelOfMeasurement?: string // e.g., 'within', 'between', 'between-person', etc.
   // optional size for manifest nodes
   width?: number
   height?: number
@@ -226,7 +224,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
   }
 
-  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data' | string>('all')
+  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationWarnings, setValidationWarnings] = useState<string[]>([])
@@ -252,27 +250,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // Empty effect - SVG ref handling is done elsewhere
     return () => {}
   }, []) // Only on mount
-
-  // Get all unique level of measurement values from nodes (explicitly specified only)
-  const getLevelOfMeasurementOptions = (): string[] => {
-    const levels = new Set<string>()
-    nodes.forEach((n) => {
-      if (n.levelOfMeasurement) {
-        levels.add(n.levelOfMeasurement)
-      }
-    })
-    return Array.from(levels).sort()
-  }
-
-  // Get effective level of measurement for a node (specified or defaulted to single level)
-  const getEffectiveLevelOfMeasurement = (node: Node): { level: string | undefined; isDefault: boolean } => {
-    // If explicitly set, use that
-    if (node.levelOfMeasurement) return { level: node.levelOfMeasurement, isDefault: false }
-    // If there's only one level in the graph, use it as default
-    const levels = getLevelOfMeasurementOptions()
-    if (levels.length === 1) return { level: levels[0], isDefault: true }
-    return { level: undefined, isDefault: false }
-  }
 
   // Helper: Get effective optimization config for a path (merge defaults from parameterType + path overrides)
   const getPathOptimizationConfig = (path: Path) => {
@@ -347,23 +324,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return 'Datasets cannot have two-headed paths. Use → for one-headed paths from datasets.'
     }
 
-    // Paths from datasets to nodes with different level of measurement
-    if (srcNode?.type === 'dataset') {
-      const srcEffective = getEffectiveLevelOfMeasurement(srcNode)
-      const dstEffective = getEffectiveLevelOfMeasurement(dstNode!)
-      if (srcEffective.level && dstEffective.level && srcEffective.level !== dstEffective.level) {
-        return `Cannot connect dataset (level: ${srcEffective.level}) to node at different level (${dstEffective.level}). All connected nodes must be at the same level of measurement.`
-      }
-    }
-
-    // Paths to nodes without level of measurement when dataset has one
-    if (srcNode?.type === 'dataset' && srcNode.levelOfMeasurement && !dstNode?.levelOfMeasurement) {
-      const specifiedLevels = getLevelOfMeasurementOptions()
-      if (specifiedLevels.length > 1) {
-        return `Target node has no level of measurement specified. Please assign a level first, or this node will be treated as unspecified.`
-      }
-    }
-
     // Duplicate one-headed paths
     if (!twoSided) {
       const exists = paths.find((pp) => pp.from === srcId && pp.to === dstId && pp.twoSided === false)
@@ -389,10 +349,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const isNodeInLayer = (node: Node): boolean => {
     if (activeLayer === 'all') return true
     if (activeLayer === 'sem') return node.type !== 'dataset'
-    if (activeLayer === 'data') return node.type === 'dataset' || node.type === 'manifest'
-    // Level of measurement layer: show nodes with that specific level (using effective level)
-    const effective = getEffectiveLevelOfMeasurement(node)
-    if (effective.level === activeLayer) return true
+    if (activeLayer === 'data') return node.type === 'dataset' || getVariableRenderType(node.id) === 'manifest'
     return false
   }
 
@@ -406,12 +363,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     if (activeLayer === 'data') {
       // Data layer: show paths from datasets to manifest variables
-      return isDatasetPath(path, nodes) && toNode?.type === 'manifest'
+      return isDatasetPath(path, nodes) && !!toNode && getVariableRenderType(toNode.id) === 'manifest'
     }
-    // Level of measurement layer: show paths between nodes with that level (using effective levels)
-    const fromEffective = fromNode ? getEffectiveLevelOfMeasurement(fromNode) : { level: undefined, isDefault: false }
-    const toEffective = toNode ? getEffectiveLevelOfMeasurement(toNode) : { level: undefined, isDefault: false }
-    if (fromEffective.level === activeLayer && toEffective.level === activeLayer) return true
     return false
   }
 
@@ -842,16 +795,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return node.variableCharacteristics.manifestLatent
     }
     
-    // Otherwise, auto-infer from database paths
-    // Check if there's an incoming path from a dataset node at the same level
+    // Otherwise, auto-infer: manifest if any incoming path from a dataset node
     const incomingDatasetPath = paths.find((p) => {
       if (p.to !== nodeId) return false
       const sourceNode = nodes.find((n) => n.id === p.from)
-      if (!sourceNode || sourceNode.type !== 'dataset') return false
-      // Check level match
-      return sourceNode.levelOfMeasurement === node.levelOfMeasurement
+      return sourceNode?.type === 'dataset'
     })
-    
+
     return incomingDatasetPath ? 'manifest' : 'latent'
   }
 
@@ -863,9 +813,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return paths.some((p) => {
       if (p.to !== nodeId) return false
       const sourceNode = nodes.find((n) => n.id === p.from)
-      if (!sourceNode || sourceNode.type !== 'dataset') return false
-      // Check level match
-      return sourceNode.levelOfMeasurement === node.levelOfMeasurement
+      return sourceNode?.type === 'dataset'
     })
   }
 
@@ -1677,7 +1625,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     } else {
       // Create new variable at drop location
       // Keep label as simple columnName for matching, use displayName for UI
-      // Match the dataset's levelOfMeasurement to make it render as manifest
       const newNode: Node = {
         id: uid('n_'),
         x: dropX,
@@ -1687,7 +1634,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         type: 'variable',
         width: MANIFEST_DEFAULT_W,
         height: MANIFEST_DEFAULT_H,
-        levelOfMeasurement: selectedNode.levelOfMeasurement, // Match dataset's level
       }
       setNodes((ns) => [...ns, newNode])
 
@@ -1798,12 +1744,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const arrow = twoSided ? ' ↔ ' : ' → '
         p.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
       }
-      
-      // If destination node lacks levelOfMeasurement and source is a dataset, inherit it
-      if (srcNode?.type === 'dataset' && !dstNode?.levelOfMeasurement && srcNode.levelOfMeasurement) {
-        setNodes((ns) => ns.map((n) => (n.id === dstNode!.id ? { ...n, levelOfMeasurement: srcNode.levelOfMeasurement } : n)))
-      }
-      
+
       setPaths((ps) => [...ps, p])
       setTempLine(null)
       setPathSource(null)
@@ -2567,36 +2508,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               >
                 Data
               </button>
-              {/* Visual break before measurement level layers */}
-              {getLevelOfMeasurementOptions().length > 0 && (
-                <div className="mt-2 pt-2 border-t">
-                  <div className="text-xs font-medium text-slate-600 px-1 mb-1">Level of Measurement</div>
-                </div>
-              )}
-              {/* Dynamic measurement level layers */}
-              {getLevelOfMeasurementOptions().map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setActiveLayer(level)}
-                  className={`w-full text-left px-2 py-2 rounded text-xs transition ${
-                    activeLayer === level
-                      ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
-                      : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
             </div>
             <div className="text-xs text-slate-500 mt-2 p-2 bg-slate-50 rounded">
               {activeLayer === 'sem' && 'Variables, constants & SEM paths'}
               {activeLayer === 'data' && 'Datasets & data connections'}
               {activeLayer === 'all' && 'All elements'}
-              {![
-                'sem',
-                'data',
-                'all',
-              ].includes(activeLayer) && `Level: ${activeLayer}`}
             </div>
           </div>
 
@@ -2767,34 +2683,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     {selectedNode.datasetSource.rowCount && <div><span className="font-medium">Row Count:</span> {selectedNode.datasetSource.rowCount}</div>}
                   </>
                 )}
-                <div>
-                  <span className="font-medium">Level of Measurement:</span>
-                  <input
-                    type="text"
-                    list="levelOfMeasurementList"
-                    value={selectedNode.levelOfMeasurement || ''}
-                    onChange={(e) => {
-                      const val = e.target.value.trim()
-                      setNodes((ns) =>
-                        ns.map((n) =>
-                          n.id === selectedNode.id
-                            ? { ...n, levelOfMeasurement: val || undefined }
-                            : n
-                        )
-                      )
-                    }}
-                    placeholder="e.g., 'within', 'between', 'individual'"
-                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
-                  />
-                  <datalist id="levelOfMeasurementList">
-                    {Array.from(new Set(nodes
-                      .filter((n) => n.levelOfMeasurement)
-                      .map((n) => n.levelOfMeasurement)
-                    )).map((level) => (
-                      <option key={level} value={level} />
-                    ))}
-                  </datalist>
-                </div>
               </div>
             )}
 
@@ -2897,25 +2785,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
                 )}
-                <div>
-                  <span className="font-medium">Level of Measurement:</span>
-                  <input
-                    type="text"
-                    value={selectedNode.levelOfMeasurement || ''}
-                    onChange={(e) => {
-                      const val = e.target.value.trim()
-                      setNodes((ns) =>
-                        ns.map((n) =>
-                          n.id === selectedNode.id
-                            ? { ...n, levelOfMeasurement: val || undefined }
-                            : n
-                        )
-                      )
-                    }}
-                    placeholder="(e.g., 'within', 'between')"
-                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
-                  />
-                </div>
               </div>
             )}
 
