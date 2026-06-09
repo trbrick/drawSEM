@@ -118,7 +118,7 @@ Recommended workflow for reproducible plotting:
 \examples{
 # Minimal example with auto-layout
 schema <- list(
-  schemaVersion = 1,
+  schemaVersion = 0,
   models = list(
     model1 = list(
       nodes = list(

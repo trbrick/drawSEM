@@ -67,7 +67,7 @@ Names are dataset labels, values are lists with:
 \dontrun{
 # Create from JSON schema
 schema_list <- list(
-  schemaVersion = 1,
+  schemaVersion = 0,
   models = list(
     model1 = list(
       nodes = list(...),

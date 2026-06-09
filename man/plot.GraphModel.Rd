@@ -32,7 +32,7 @@ through the \code{...} argument.
 \examples{
 # Create a simple GraphModel
 schema <- list(
-  schemaVersion = 1,
+  schemaVersion = 0,
   models = list(
     model1 = list(
       nodes = list(
