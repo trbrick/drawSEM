@@ -96,6 +96,15 @@ and everything downstream re-derives. (Worked target: two CFAs → connect to a 
 in tall format where timepoints and person-grouping come from the data → connect
 that to a random-intercept model ⇒ an RI-CLPM, each step a legal input to the next.)
 
+**Connection points join model elements of any kind, not just data ports.** A
+state-space module exposes a per-timepoint *latent* state slot, and a measurement
+model plugs into it latent-to-latent, then cascades over time. Data never binds at
+the seam; it binds at the components' manifest leaves (here, the CFA indicators) and
+is lifted along with the structure. A lifting dimension's extent may come from the
+bound data (tall — e.g. timepoints from a time column) or from an enumerated list in
+the spec (e.g. one latent state process per named entry), and liftings stack: a
+state-space model can lift over time and over state process at once.
+
 ### 6. Bindings are declared, never silently inferred.
 
 Whether `time = 1` in one module is the same as `time = 1` in another, and whether
