@@ -300,7 +300,48 @@ NULL
         return()
       }
       gm@data[[label]] <- df
+
+      # Surface the loaded data as a dataset node on the canvas (embedded source)
+      # and push the updated model to the widget. Without this the data would sit
+      # only in the R session, with no node to bind columns from.
+      schema <- gm@schema
+      model_ids <- names(schema$models %||% list())
+      if (length(model_ids) > 0) {
+        model_id <- model_ids[[1]]
+        nodes <- schema$models[[model_id]]$nodes %||% list()
+
+        data_as_json <- dataFrameToJSON(df)
+        dataset_source <- list(
+          type = "embedded",
+          format = "json",
+          encoding = "UTF-8",
+          # Named list so JSON serialization produces an object map.
+          columnTypes = as.list(data_as_json$columnTypes),
+          object = data_as_json$object,
+          rowCount = nrow(df)
+        )
+
+        existing_idx <- Position(
+          function(n) identical(n$type, "dataset") && identical(n$label, label),
+          nodes
+        )
+        if (!is.null(existing_idx)) {
+          nodes[[existing_idx]]$datasetSource <- dataset_source
+        } else {
+          n_datasets <- length(Filter(function(n) identical(n$type, "dataset"), nodes))
+          nodes[[length(nodes) + 1]] <- list(
+            label = label,
+            type = "dataset",
+            datasetSource = dataset_source,
+            visual = list(x = 300, y = 450 + n_datasets * 100)
+          )
+        }
+        schema$models[[model_id]]$nodes <- nodes
+        gm@schema <- schema
+      }
+
       currentModel(gm)
+      session$sendCustomMessage("update_model", list(schema = gm@schema))
       .closeModal("dsem-modal-data")
       shiny::showNotification(sprintf("Dataset '%s' attached (%d \u00d7 %d).", label, nrow(df), ncol(df)),
                               type = "message", duration = 4)

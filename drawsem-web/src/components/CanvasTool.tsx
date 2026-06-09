@@ -548,6 +548,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     adapterOptional?.onFitStatusChanged?.((status) => setFitStatus(status))
   }, [adapterOptional])
 
+  // Compute per-column summary statistics (Welford) from an array of row objects.
+  // Shared by the file-based and embedded dataset loaders.
+  const computeColumnStats = (rows: any[], headers: string[]) => {
+    return headers.map((h: string) => {
+      const values = rows.map((row: any) => row[h]).filter((v: any) => v !== null && v !== undefined && v !== '')
+      const numValues = values.filter((v: any) => !isNaN(parseFloat(v))).map(parseFloat)
+      let mean = 0, m2 = 0, n = 0, min = Infinity, max = -Infinity
+      numValues.forEach((val: number) => {
+        n++
+        const delta = val - mean
+        mean += delta / n
+        const delta2 = val - mean
+        m2 += delta * delta2
+        min = Math.min(min, val)
+        max = Math.max(max, val)
+      })
+      const std = n > 1 ? Math.sqrt(m2 / (n - 1)) : 0
+      return {
+        name: h,
+        distinct: new Set(values).size,
+        cardinality: new Set(values).size,
+        mean: n > 0 ? mean : null,
+        std: n > 1 ? std : null,
+        min: n > 0 ? min : null,
+        max: n > 0 ? max : null,
+        count: values.length,
+      }
+    })
+  }
+
   // Auto-load CSV files for dataset nodes that have datasetSource metadata
   React.useEffect(() => {
     let mounted = true
@@ -611,32 +641,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               }
 
               // Compute per-column statistics (Welford)
-              const columns = headers.map((h: string) => {
-                const values = results.data.map((row: any) => row[h]).filter((v: any) => v !== null && v !== undefined && v !== '')
-                const numValues = values.filter((v: any) => !isNaN(parseFloat(v))).map(parseFloat)
-                let mean = 0, m2 = 0, n = 0, min = Infinity, max = -Infinity
-                numValues.forEach((val: number) => {
-                  n++
-                  const delta = val - mean
-                  mean += delta / n
-                  const delta2 = val - mean
-                  m2 += delta * delta2
-                  min = Math.min(min, val)
-                  max = Math.max(max, val)
-                })
-                const std = n > 1 ? Math.sqrt(m2 / (n - 1)) : 0
-                return {
-                  name: h,
-                  distinct: new Set(values).size,
-                  cardinality: new Set(values).size,
-                  mean: n > 0 ? mean : null,
-                  std: n > 1 ? std : null,
-                  min: n > 0 ? min : null,
-                  max: n > 0 ? max : null,
-                  count: values.length
-                }
-              })
-              
+              const columns = computeColumnStats(results.data, headers)
+
               // Update the dataset node with loaded metadata
               setNodes((ns) =>
                 ns.map((n) =>
@@ -681,6 +687,24 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       mounted = false
     }
   }, [nodes.filter((n) => n.type === 'dataset').map((n) => n.datasetSource?.location).join(',')])
+
+  // Populate column metadata for embedded dataset nodes (data carried in the
+  // schema rather than an external file — e.g. data loaded via the Shiny session).
+  React.useEffect(() => {
+    nodes.forEach((n) => {
+      if (n.type !== 'dataset' || n.datasetSource?.type !== 'embedded' || n.dataset) return
+      const rows = (n.datasetSource.object as any[]) || []
+      const headers = n.datasetSource.columnTypes
+        ? Object.keys(n.datasetSource.columnTypes)
+        : (rows.length > 0 ? Object.keys(rows[0]) : [])
+      const columns = computeColumnStats(rows, headers)
+      setNodes((ns) =>
+        ns.map((node) =>
+          node.id === n.id ? { ...node, dataset: { fileName: node.label, headers, columns } } : node
+        )
+      )
+    })
+  }, [nodes.filter((n) => n.type === 'dataset' && n.datasetSource?.type === 'embedded' && !n.dataset).map((n) => n.id).join(',')])
 
   // Call onModelChange callback whenever the current model changes (for Shiny integration)
   React.useEffect(() => {
