@@ -230,6 +230,16 @@
                       "type": "object",
                       "description": "Standard errors for fitted parameters, indexed by free parameter name",
                       "additionalProperties": { "type": "number" }
+                    },
+                    "dataBinding": {
+                      "type": "object",
+                      "description": "Snapshot of the data used for this fit, for reproducibility/staleness checks. Omitted for fits with no dataset node (e.g. covariance-only).",
+                      "properties": {
+                        "datasetLabel": { "type": "string", "description": "Label of the dataset node whose data produced this fit" },
+                        "md5": { "type": "string", "description": "MD5 hash of the dataset at fit time, copied from the dataset node's datasetSource.md5" },
+                        "rowCount": { "type": "integer", "minimum": 0, "description": "Row count of the dataset at fit time, copied from the dataset node's datasetSource.rowCount" }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false

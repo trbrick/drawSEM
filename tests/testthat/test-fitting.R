@@ -339,3 +339,56 @@ test_that("confint() returns confidence interval data frame", {
   expect_true(ci["p1", "lbound"] < ci["p1", "estimate"])
   expect_true(ci["p1", "estimate"] < ci["p1", "ubound"])
 })
+
+test_that("runOpenMx records dataBinding matching the dataset node", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  df <- data.frame(x = c(1.2, 2.4, 0.8, 3.1, 1.9, 2.7))
+
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(id = "x", label = "x", type = "variable"),
+          list(id = "const", label = "1", type = "constant"),
+          list(
+            id = "data1", label = "data", type = "dataset",
+            datasetSource = list(
+              type = "file", location = "x.csv", format = "csv",
+              columnTypes = list(x = "number"),
+              md5 = "deadbeefcafe0001",
+              rowCount = nrow(df)
+            )
+          )
+        ),
+        paths = list(
+          list(from = "data", to = "x", type = "data", label = "x"),
+          list(
+            from = "x", to = "x", numberOfArrows = 2,
+            value = 1.0, freeParameter = TRUE
+          ),
+          list(
+            from = "1", to = "x", numberOfArrows = 1,
+            value = 0.0, freeParameter = TRUE
+          )
+        ),
+        optimization = list(fitFunction = "ML")
+      )
+    )
+  )
+
+  # Attach the data frame directly (keyed by dataset-node label) rather than
+  # round-tripping through JSON, which would mangle embedded column names.
+  g <- as.GraphModel(schema, data = list(data = df))
+
+  fitted <- runOpenMx(g, silent = TRUE)
+  fits <- fitted@schema$models[["model1"]]$provenance$fitResults
+  entry <- fits[[length(fits)]]
+
+  expect_true(entry$converged)
+  expect_false(is.null(entry$dataBinding))
+  expect_equal(entry$dataBinding$datasetLabel, "data")
+  expect_equal(entry$dataBinding$md5, "deadbeefcafe0001")
+  expect_equal(entry$dataBinding$rowCount, nrow(df))
+})

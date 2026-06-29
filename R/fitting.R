@@ -356,7 +356,26 @@ runOpenMx <- function(
   
   # Step 4: Create fit result entry
   current_hash <- hashStructure(graphModel, model_id)
-  
+
+  # Capture a snapshot of the data that produced this fit, for
+  # reproducibility/staleness checks. Pulled from the model's dataset node;
+  # omitted when there is no dataset node (e.g. covariance-only fits).
+  data_binding <- NULL
+  fit_nodes <- graphModel@schema$models[[model_id]]$nodes
+  for (node in fit_nodes) {
+    if (!is.null(node$type) && node$type == "dataset") {
+      ds <- node$datasetSource
+      data_binding <- list(
+        datasetLabel = node$label,
+        md5 = ds$md5,
+        rowCount = ds$rowCount
+      )
+      # Drop NULL components so optional sub-fields are simply absent
+      data_binding <- data_binding[!vapply(data_binding, is.null, logical(1))]
+      break
+    }
+  }
+
   fit_entry <- list(
     timestamp = format(Sys.time(), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     backend = "OpenMx",
@@ -369,6 +388,9 @@ runOpenMx <- function(
     parameterEstimates = as.list(estimates),
     standardErrors = as.list(standard_errors)
   )
+  if (!is.null(data_binding) && length(data_binding) > 0) {
+    fit_entry$dataBinding <- data_binding
+  }
   
   # Step 5: Store in GraphModel schema
   result_model <- graphModel
