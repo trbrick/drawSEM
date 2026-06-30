@@ -235,7 +235,7 @@ extractPendingCore <- function(schema) {
       if (is_zero_headed) {
         pending[[length(pending) + 1]] <- list(
           kind = "selection",
-          provenance = list(nativeForm = "zeroHeadedPath"),
+          origin = list(nativeForm = "zeroHeadedPath"),
           object = path
         )
       } else if (touches_removed) {
@@ -256,6 +256,129 @@ extractPendingCore <- function(schema) {
   }
 
   schema
+}
+
+#' Summarize pendingCore Entries
+#'
+#' Builds human-readable one-line descriptors of every extensions$pendingCore
+#' entry across all models, for import/export warnings so the user can judge
+#' whether subsequent model edits may have invalidated them.
+#'
+#' @param schema The schema list
+#'
+#' @return Character vector of descriptors (empty if none)
+#'
+#' @keywords internal
+summarizePendingCore <- function(schema) {
+  descriptors <- character(0)
+  if (is.null(schema$models)) {
+    return(descriptors)
+  }
+
+  unwrap <- function(x) if (is.list(x)) unlist(x) else x
+
+  for (model_id in names(schema$models)) {
+    pending <- schema$models[[model_id]]$extensions$pendingCore
+    if (is.null(pending) || length(pending) == 0) {
+      next
+    }
+
+    for (entry in pending) {
+      kind <- entry$kind %||% "unknown"
+      # origin may be absent, a proper list, or (on legacy files) collapsed to an
+      # atomic by JSON normalization; only read nativeForm when it is a list.
+      native <- if (is.list(entry$origin)) unwrap(entry$origin$nativeForm) else NULL
+      obj <- entry$object
+
+      # Identifying detail from the verbatim object: edge for paths, label for nodes.
+      from <- unwrap(obj$from)
+      to <- unwrap(obj$to)
+      lbl <- unwrap(obj$label)
+      detail <- if (!is.null(from) && !is.null(to)) {
+        sprintf("%s -> %s", from, to)
+      } else if (!is.null(lbl)) {
+        as.character(lbl)
+      } else {
+        NULL
+      }
+
+      desc <- sprintf("%s: %s", model_id, kind)
+      if (!is.null(native)) desc <- sprintf("%s (%s)", desc, native)
+      if (!is.null(detail)) desc <- sprintf("%s [%s]", desc, detail)
+      descriptors <- c(descriptors, desc)
+    }
+  }
+
+  descriptors
+}
+
+#' Stamp the Exporter onto pendingCore Entries
+#'
+#' Records, on each extensions$pendingCore entry's `origin`, the tool and version
+#' that serialized it into the file. This is the writer (last-writer-wins), which
+#' may differ from the originating tool and can affect how the feature is
+#' represented. Operates on and returns a `models` list copy; does not mutate the
+#' caller's object.
+#'
+#' @param models The schema's `models` list
+#' @param tool Exporter tool name (default "drawSEM")
+#' @param version Exporter version; resolved from the installed package if NULL
+#'
+#' @return The `models` list with `origin$exporter` set on each pendingCore entry
+#'
+#' @keywords internal
+stampExporter <- function(models, tool = "drawSEM", version = NULL) {
+  if (is.null(version)) {
+    version <- tryCatch(
+      as.character(utils::packageVersion("drawSEM")),
+      error = function(e) NA_character_
+    )
+  }
+  for (model_id in names(models)) {
+    pending <- models[[model_id]]$extensions$pendingCore
+    if (is.null(pending) || length(pending) == 0) {
+      next
+    }
+    for (k in seq_along(pending)) {
+      origin <- pending[[k]]$origin
+      if (!is.list(origin)) origin <- list()
+      origin$exporter <- list(tool = tool, version = version)
+      pending[[k]]$origin <- origin
+    }
+    models[[model_id]]$extensions$pendingCore <- pending
+  }
+  models
+}
+
+#' Warn About pendingCore Features
+#'
+#' Emits a single warning listing every extensions$pendingCore entry so the user
+#' can judge whether model edits may have invalidated them. No-op if none.
+#'
+#' @param schema The schema list
+#' @param context Short lead-in for the message (e.g. "Imported", "Exported")
+#'
+#' @return Invisibly TRUE if a warning was emitted, FALSE otherwise
+#'
+#' @keywords internal
+warnPendingCore <- function(schema, context) {
+  pc <- summarizePendingCore(schema)
+  if (length(pc) == 0) {
+    return(invisible(FALSE))
+  }
+  warning(
+    sprintf(
+      paste0(
+        "%s model carries %d pendingCore feature(s), stored verbatim outside ",
+        "the core model:\n  - %s\nThese are not part of the fitted core and ",
+        "pass through unchanged; if you have edited the model, verify they are ",
+        "still valid."
+      ),
+      context, length(pc), paste(pc, collapse = "\n  - ")
+    ),
+    call. = FALSE
+  )
+  invisible(TRUE)
 }
 
 #' Store Optimization Metadata

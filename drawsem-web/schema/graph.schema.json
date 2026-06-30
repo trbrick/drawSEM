@@ -29,14 +29,23 @@
                   "type": "object",
                   "required": ["object"],
                   "properties": {
-                    "kind": { "type": "string", "description": "Tool-neutral concept name (best-effort), e.g. 'selection', 'linkFunction'. The originating tool's own structure for the concept goes in provenance.nativeForm (e.g. OpenMx represents Pearson selection as a 0-headed path)." },
-                    "provenance": {
+                    "kind": { "type": "string", "description": "Tool-neutral concept name (best-effort), e.g. 'selection', 'linkFunction'. The originating tool's own structure for the concept goes in origin.nativeForm (e.g. OpenMx represents Pearson selection as a 0-headed path)." },
+                    "origin": {
                       "type": "object",
-                      "description": "Optional origin stamp to aid interpretation of `object`. Not a handling history.",
+                      "description": "Optional stamp identifying the tool that produced this entry, to aid interpretation of `object`. Distinct from model-level provenance; not a handling history.",
                       "properties": {
                         "tool": { "type": "string" },
                         "version": { "type": "string" },
-                        "nativeForm": { "type": "string", "description": "The originating tool's own structure/term for this concept (e.g. 'zeroHeadedPath' for OpenMx Pearson selection)." }
+                        "nativeForm": { "type": "string", "description": "The originating tool's own structure/term for this concept (e.g. 'zeroHeadedPath' for OpenMx Pearson selection)." },
+                        "exporter": {
+                          "type": "object",
+                          "description": "The tool and version that serialized this entry into the file. May differ from the originating tool and can change how the feature is represented/used.",
+                          "properties": {
+                            "tool": { "type": "string" },
+                            "version": { "type": "string" }
+                          },
+                          "additionalProperties": true
+                        }
                       },
                       "additionalProperties": true
                     },

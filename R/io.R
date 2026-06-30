@@ -160,8 +160,10 @@ normalizeSchemaFromJSON <- function(obj) {
   
   # Recursively normalize all elements
   obj <- lapply(obj, function(x) {
-    if (is.list(x) && length(x) == 1 && !is.list(x[[1]])) {
-      # Single-element list containing a scalar - unwrap it
+    if (is.list(x) && length(x) == 1 && is.null(names(x)) && !is.list(x[[1]])) {
+      # Single-element UNNAMED list containing a scalar (a length-1 JSON array) -
+      # unwrap it. Named single-field objects (e.g. {nativeForm: ...},
+      # {fitFunction: ...}) are left intact so their key is not destroyed.
       return(x[[1]])
     } else if (is.list(x)) {
       # Recursively normalize nested lists
@@ -287,25 +289,8 @@ setMethod(
     if (any(unlist(unsupported))) {
       metadata$unsupported <- unsupported
 
-      # Issue warnings for detected features
-      if (unsupported$zeroHeadedPaths) {
-        warning(
-          "Unsupported features detected: 0-headed paths (Pearson selection) relocated to extensions$pendingCore",
-          call. = FALSE
-        )
-      }
-      if (unsupported$linkFunctions) {
-        warning(
-          "Unsupported features detected: link function nodes relocated to extensions$pendingCore (v0.2+)",
-          call. = FALSE
-        )
-      }
-      if (unsupported$operators) {
-        warning(
-          "Unsupported features detected: operator nodes relocated to extensions$pendingCore",
-          call. = FALSE
-        )
-      }
+      # Priors stay in core; warn that the OpenMx backend will not apply them.
+      # (Relocated features are reported by the pendingCore listing below.)
       if (unsupported$priors) {
         warning(
           "Unsupported features detected: priors not applied by OpenMx backend",
@@ -321,6 +306,10 @@ setMethod(
 
     # Validate the cleaned schema
     schema <- validateSchema(schema, verbose = FALSE)
+
+    # List any pendingCore features (freshly relocated or already present on a
+    # re-imported file) so the user can judge whether edits invalidated them.
+    warnPendingCore(schema, "Imported")
     
     # Initialize data if not provided
     if (is.null(data)) {
@@ -527,11 +516,17 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
   
   # Validate schema before writing
   validateSchema(graph_obj@schema, verbose = FALSE)
+
+  # List any pendingCore features being written verbatim so the user can judge
+  # whether model edits have invalidated them before sharing the file.
+  warnPendingCore(graph_obj@schema, "Exported")
   
-  # Build output list
+  # Build output list. Stamp the exporter onto each pendingCore entry's origin so
+  # a future reader knows which tool/version serialized it (this writes a copy;
+  # the GraphModel's stored schema is untouched).
   output <- list(
     schemaVersion = graph_obj@schema$schemaVersion,
-    models = graph_obj@schema$models
+    models = stampExporter(graph_obj@schema$models)
   )
   
   # Add optional meta field if present in schema

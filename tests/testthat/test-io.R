@@ -51,8 +51,53 @@ test_that("as.GraphModel detects unsupported features", {
 
   expect_warning(
     as.GraphModel(schema),
-    "Unsupported features detected"
+    "pendingCore feature"
   )
+})
+
+test_that("import and export warnings list each pendingCore feature", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable"),
+          list(label = "x2", type = "variable")
+        ),
+        paths = list(
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
+        )
+      )
+    )
+  )
+
+  # Import warning lists the relocated feature with its edge (single-line match;
+  # the descriptor sits on its own line in the multi-line message).
+  expect_warning(
+    gm <- as.GraphModel(schema),
+    "selection \\(zeroHeadedPath\\) \\[x1 -> x2\\]"
+  )
+
+  # Export warning fires too (re-imported file still carries it).
+  tmp <- tempfile(fileext = ".json")
+  on.exit(unlink(tmp), add = TRUE)
+  expect_warning(
+    exportSchema(gm, tmp),
+    "Exported model carries.*pendingCore feature"
+  )
+
+  # A model with no pendingCore is silent on export.
+  clean <- suppressWarnings(as.GraphModel(list(
+    schemaVersion = 0,
+    models = list(model1 = list(
+      nodes = list(list(label = "x1", type = "variable")),
+      paths = list(list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0))
+    ))
+  )))
+  tmp2 <- tempfile(fileext = ".json")
+  on.exit(unlink(tmp2), add = TRUE)
+  expect_no_warning(exportSchema(clean, tmp2))
 })
 
 test_that("as.GraphModel relocates 0-headed paths into extensions$pendingCore", {
@@ -83,7 +128,7 @@ test_that("as.GraphModel relocates 0-headed paths into extensions$pendingCore", 
   pending <- model$extensions$pendingCore
   expect_length(pending, 1)
   expect_equal(pending[[1]]$kind, "selection")
-  expect_equal(pending[[1]]$provenance$nativeForm, "zeroHeadedPath")
+  expect_equal(pending[[1]]$origin$nativeForm, "zeroHeadedPath")
   expect_equal(pending[[1]]$object$numberOfArrows, 0)
   expect_equal(pending[[1]]$object$from, "x1")
   expect_equal(pending[[1]]$object$to, "x2")
@@ -141,7 +186,7 @@ test_that("pendingCore survives an export/import round-trip", {
   gm <- suppressWarnings(as.GraphModel(schema))
   tmp <- tempfile(fileext = ".json")
   on.exit(unlink(tmp), add = TRUE)
-  exportSchema(gm, tmp)
+  suppressWarnings(exportSchema(gm, tmp))
 
   # Re-import: the relocated element is still in pendingCore and not back in core.
   gm2 <- suppressWarnings(as.GraphModel(tmp))
@@ -150,6 +195,10 @@ test_that("pendingCore survives an export/import round-trip", {
   pending2 <- model2$extensions$pendingCore
   expect_length(pending2, 1)
   expect_equal(pending2[[1]]$object$numberOfArrows, 0)
+
+  # Export stamped the writer onto origin; nativeForm (originator) is preserved.
+  expect_equal(pending2[[1]]$origin$exporter$tool, "drawSEM")
+  expect_equal(pending2[[1]]$origin$nativeForm, "zeroHeadedPath")
 
   # Exported file carries no non-conformant top-level metadata key.
   raw <- jsonlite::read_json(tmp, simplifyVector = FALSE)

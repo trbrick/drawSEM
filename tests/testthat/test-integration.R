@@ -286,7 +286,7 @@ test_that("End-to-end: Schema with unsupported features warns user", {
 
   expect_warning(
     gm <- as.GraphModel(schema),
-    "Unsupported features detected"
+    "pendingCore feature"
   )
 
   unsupported <- gm$metadata$unsupported

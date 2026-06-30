@@ -45,8 +45,17 @@ export interface ModelExtensions {
 export interface PendingCoreEntry {
   // Tool-neutral concept name (best-effort), e.g. 'selection', 'linkFunction'.
   kind?: string
-  // Optional origin stamp to aid interpretation of `object`; not a handling history.
-  provenance?: { tool?: string; version?: string; nativeForm?: string } & Record<string, unknown>
+  // Optional stamp identifying where this entry came from, to aid interpretation
+  // of `object`. Distinct from model-level provenance; not a handling history.
+  origin?: {
+    // The tool whose concept this is and its native structure for it.
+    tool?: string
+    version?: string
+    nativeForm?: string
+    // The tool/version that serialized this entry into the file. May differ from
+    // the originating tool and can change how the feature is represented/used.
+    exporter?: { tool?: string; version?: string } & Record<string, unknown>
+  } & Record<string, unknown>
   // The feature, verbatim, for lossless round-trip.
   object: Record<string, unknown>
 }
