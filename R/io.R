@@ -275,29 +275,34 @@ setMethod(
       )
     }
     
-    # Validate schema
-    schema <- validateSchema(schema, verbose = FALSE)
-    
     # Initialize metadata if not provided
     if (is.null(metadata)) {
       metadata <- list()
     }
-    
-    # Collect unsupported features
+
+    # Collect unsupported-feature flags BEFORE extraction, while the elements are
+    # still in core. These drive runtime warnings only and are NOT persisted to
+    # the portable file (they are recomputed on every import).
     unsupported <- collectUnsupportedFeatures(schema)
     if (any(unlist(unsupported))) {
       metadata$unsupported <- unsupported
-      
+
       # Issue warnings for detected features
       if (unsupported$zeroHeadedPaths) {
         warning(
-          "Unsupported features detected: 0-headed paths (Pearson selection) not supported",
+          "Unsupported features detected: 0-headed paths (Pearson selection) relocated to extensions$pendingCore",
           call. = FALSE
         )
       }
       if (unsupported$linkFunctions) {
         warning(
-          "Unsupported features detected: link function nodes not supported (v0.2+)",
+          "Unsupported features detected: link function nodes relocated to extensions$pendingCore (v0.2+)",
+          call. = FALSE
+        )
+      }
+      if (unsupported$operators) {
+        warning(
+          "Unsupported features detected: operator nodes relocated to extensions$pendingCore",
           call. = FALSE
         )
       }
@@ -308,6 +313,14 @@ setMethod(
         )
       }
     }
+
+    # Relocate non-core-representable elements into model$extensions$pendingCore so
+    # the core validates strictly and the rest of the model still loads. Priors
+    # stay in core (handled by the converter's not-applicable tier).
+    schema <- extractPendingCore(schema)
+
+    # Validate the cleaned schema
+    schema <- validateSchema(schema, verbose = FALSE)
     
     # Initialize data if not provided
     if (is.null(data)) {
@@ -495,8 +508,10 @@ mxRun.GraphModel <- function(model, ...) {
 #' @return Invisibly returns the filepath
 #'
 #' @details
-#' Validates the schema before writing. Does NOT save the cached built model
-#' or data objects (these are transient). Only the schema and metadata are saved.
+#' Validates the schema before writing. Does NOT save the cached built model,
+#' data objects, or runtime `@metadata` (these are transient / non-conformant and
+#' are reconstructed on import). Only schema-conformant content is written; non-
+#' core content that must round-trip lives in each model's extensions$pendingCore.
 #'
 #' @examples
 #' \dontrun{
@@ -523,10 +538,13 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
   if (!is.null(graph_obj@schema$meta)) {
     output$meta <- graph_obj@schema$meta
   }
-  
-  # Add metadata
-  output$metadata <- graph_obj@metadata
-  
+
+  # Runtime @metadata (UI colors/selection, recomputed unsupported-feature flags)
+  # is deliberately NOT written: it is not schema-conformant (the root forbids a
+  # top-level `metadata` key) and is reconstructed on import. Non-core content
+  # that must round-trip lives in each model's extensions$pendingCore, which is
+  # already carried by `models` above.
+
   # Write to file
   # Use auto_unbox=TRUE to serialize length-1 vectors as scalars (not arrays)
   # This ensures value, label, and other scalar fields comply with the schema

@@ -18,6 +18,41 @@
         "properties": {
           "label": { "type": "string", "description": "Human-readable name for the model" },
           "meta": { "type": "object", "description": "Model-specific metadata", "additionalProperties": true },
+          "extensions": {
+            "type": "object",
+            "description": "Content kept outside the portable core. May still be required to interpret the model correctly (e.g. an ACE model specified via definition variables): an importer that encounters extensions it does not understand must be cautious and must not assume the core alone is a faithful model.",
+            "properties": {
+              "pendingCore": {
+                "type": "array",
+                "description": "Cross-tool-meaningful features not yet representable in core; preserved verbatim for lossless round-trip. Reader-agnostic. An importer that cannot represent an element in core relocates it here so the rest of the model still loads and validates.",
+                "items": {
+                  "type": "object",
+                  "required": ["object"],
+                  "properties": {
+                    "kind": { "type": "string", "description": "Tool-neutral concept name (best-effort), e.g. 'selection', 'linkFunction'. The originating tool's own structure for the concept goes in provenance.nativeForm (e.g. OpenMx represents Pearson selection as a 0-headed path)." },
+                    "provenance": {
+                      "type": "object",
+                      "description": "Optional origin stamp to aid interpretation of `object`. Not a handling history.",
+                      "properties": {
+                        "tool": { "type": "string" },
+                        "version": { "type": "string" },
+                        "nativeForm": { "type": "string", "description": "The originating tool's own structure/term for this concept (e.g. 'zeroHeadedPath' for OpenMx Pearson selection)." }
+                      },
+                      "additionalProperties": true
+                    },
+                    "object": { "type": "object", "description": "The feature, verbatim, for lossless round-trip.", "additionalProperties": true }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "toolPrivate": {
+                "type": "object",
+                "description": "Tool-specific content with no cross-tool equivalent, keyed by tool name.",
+                "additionalProperties": { "type": "object", "additionalProperties": true }
+              }
+            },
+            "additionalProperties": false
+          },
           "optimization": {
             "type": "object",
             "description": "Optional model-specific optimization configuration including parameter type definitions, fit function, and missing data handling",

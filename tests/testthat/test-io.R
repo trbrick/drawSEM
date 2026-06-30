@@ -55,6 +55,107 @@ test_that("as.GraphModel detects unsupported features", {
   )
 })
 
+test_that("as.GraphModel relocates 0-headed paths into extensions$pendingCore", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable"),
+          list(label = "x2", type = "variable")
+        ),
+        paths = list(
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
+        )
+      )
+    )
+  )
+
+  gm <- suppressWarnings(as.GraphModel(schema))
+  model <- gm@schema$models$model1
+
+  # The 0-headed path is gone from core...
+  expect_length(model$paths, 1)
+  expect_equal(model$paths[[1]]$numberOfArrows, 2)
+
+  # ...and preserved verbatim in extensions$pendingCore.
+  pending <- model$extensions$pendingCore
+  expect_length(pending, 1)
+  expect_equal(pending[[1]]$kind, "selection")
+  expect_equal(pending[[1]]$provenance$nativeForm, "zeroHeadedPath")
+  expect_equal(pending[[1]]$object$numberOfArrows, 0)
+  expect_equal(pending[[1]]$object$from, "x1")
+  expect_equal(pending[[1]]$object$to, "x2")
+})
+
+test_that("extractPendingCore relocates a linkFunction node with its incident paths", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable"),
+          list(label = "L1", type = "linkFunction")
+        ),
+        paths = list(
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x1", to = "L1", numberOfArrows = 1, value = 1.0)
+        )
+      )
+    )
+  )
+
+  cleaned <- extractPendingCore(schema)
+  model <- cleaned$models$model1
+
+  # The linkFunction node and its incident path are removed from core...
+  expect_length(model$nodes, 1)
+  expect_equal(model$nodes[[1]]$label, "x1")
+  expect_length(model$paths, 1)
+  expect_equal(model$paths[[1]]$to, "x1")
+
+  # ...and both land in pendingCore (node + the incident path).
+  kinds <- vapply(model$extensions$pendingCore, function(e) e$kind, character(1))
+  expect_true("linkFunction" %in% kinds)
+  expect_true("incidentPath" %in% kinds)
+})
+
+test_that("pendingCore survives an export/import round-trip", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable"),
+          list(label = "x2", type = "variable")
+        ),
+        paths = list(
+          list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+          list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
+        )
+      )
+    )
+  )
+
+  gm <- suppressWarnings(as.GraphModel(schema))
+  tmp <- tempfile(fileext = ".json")
+  on.exit(unlink(tmp), add = TRUE)
+  exportSchema(gm, tmp)
+
+  # Re-import: the relocated element is still in pendingCore and not back in core.
+  gm2 <- suppressWarnings(as.GraphModel(tmp))
+  model2 <- gm2@schema$models$model1
+  expect_length(model2$paths, 1)
+  pending2 <- model2$extensions$pendingCore
+  expect_length(pending2, 1)
+  expect_equal(pending2[[1]]$object$numberOfArrows, 0)
+
+  # Exported file carries no non-conformant top-level metadata key.
+  raw <- jsonlite::read_json(tmp, simplifyVector = FALSE)
+  expect_null(raw$metadata)
+})
+
 test_that("as.GraphModel works with JSON string", {
   json_schema <- '{
     "schemaVersion": 0,

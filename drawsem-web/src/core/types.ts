@@ -24,6 +24,31 @@ export interface Model {
   nodes: Node[]
   paths: Path[]
   optimization?: ModelOptimization
+  extensions?: ModelExtensions
+}
+
+/**
+ * Non-core content kept outside the portable core. May still be required to
+ * interpret the model correctly (e.g. an ACE model specified via definition
+ * variables): a consumer that encounters extensions it does not understand must
+ * be cautious and must not assume the core alone is a faithful model.
+ */
+export interface ModelExtensions {
+  // Cross-tool-meaningful features not yet representable in core, preserved
+  // verbatim for lossless round-trip. An importer that cannot represent an
+  // element in core relocates it here so the rest of the model still loads.
+  pendingCore?: PendingCoreEntry[]
+  // Tool-specific content with no cross-tool equivalent, keyed by tool name.
+  toolPrivate?: Record<string, Record<string, unknown>>
+}
+
+export interface PendingCoreEntry {
+  // Tool-neutral concept name (best-effort), e.g. 'selection', 'linkFunction'.
+  kind?: string
+  // Optional origin stamp to aid interpretation of `object`; not a handling history.
+  provenance?: { tool?: string; version?: string; nativeForm?: string } & Record<string, unknown>
+  // The feature, verbatim, for lossless round-trip.
+  object: Record<string, unknown>
 }
 
 /**

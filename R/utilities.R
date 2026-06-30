@@ -181,6 +181,83 @@ collectUnsupportedFeatures <- function(schema) {
   unsupported
 }
 
+#' Relocate Non-Core Elements into extensions$pendingCore
+#'
+#' Moves elements that the core schema cannot represent (0-headed paths;
+#' `linkFunction` / `operator` nodes) out of each model's core `nodes`/`paths`
+#' and into `model$extensions$pendingCore`, preserving them verbatim for lossless
+#' round-trip. The cleaned core then validates strictly and the rest of the model
+#' still loads and renders. When a node is relocated, any path incident to it is
+#' relocated too, so the cleaned core has no dangling `from`/`to` references.
+#'
+#' Priors are intentionally NOT relocated: they are schema-valid core content
+#' (`optimization.prior`) that the OpenMx backend simply does not apply. They are
+#' the "not applicable" warning tier, handled by the converter, not pendingCore.
+#'
+#' @param schema The schema list
+#'
+#' @return The schema with unsupported elements moved to extensions$pendingCore
+#'
+#' @keywords internal
+extractPendingCore <- function(schema) {
+  if (is.null(schema$models)) {
+    return(schema)
+  }
+
+  for (model_id in names(schema$models)) {
+    model <- schema$models[[model_id]]
+    pending <- list()
+
+    # Unsupported nodes (linkFunction / operator): relocate the node and remember
+    # its label so incident paths can be relocated with it.
+    removed_node_labels <- character(0)
+    keep_nodes <- list()
+    for (node in model$nodes) {
+      if (!is.null(node$type) && node$type %in% c("linkFunction", "operator")) {
+        pending[[length(pending) + 1]] <- list(kind = node$type, object = node)
+        if (!is.null(node$label)) {
+          removed_node_labels <- c(removed_node_labels, node$label)
+        }
+      } else {
+        keep_nodes[[length(keep_nodes) + 1]] <- node
+      }
+    }
+
+    # Unsupported paths: 0-headed (OpenMx's structure for Pearson selection) plus
+    # any path incident to a relocated node.
+    keep_paths <- list()
+    for (path in model$paths) {
+      is_zero_headed <- !is.null(path$numberOfArrows) && path$numberOfArrows == 0
+      touches_removed <-
+        (!is.null(path$from) && path$from %in% removed_node_labels) ||
+        (!is.null(path$to) && path$to %in% removed_node_labels)
+
+      if (is_zero_headed) {
+        pending[[length(pending) + 1]] <- list(
+          kind = "selection",
+          provenance = list(nativeForm = "zeroHeadedPath"),
+          object = path
+        )
+      } else if (touches_removed) {
+        pending[[length(pending) + 1]] <- list(kind = "incidentPath", object = path)
+      } else {
+        keep_paths[[length(keep_paths) + 1]] <- path
+      }
+    }
+
+    if (length(pending) > 0) {
+      model$nodes <- keep_nodes
+      model$paths <- keep_paths
+      existing <- model$extensions$pendingCore
+      if (is.null(existing)) existing <- list()
+      model$extensions$pendingCore <- c(existing, pending)
+      schema$models[[model_id]] <- model
+    }
+  }
+
+  schema
+}
+
 #' Store Optimization Metadata
 #'
 #' Extracts bounds and priors from paths for later application.

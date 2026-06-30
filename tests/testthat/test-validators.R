@@ -163,7 +163,29 @@ test_that("validatePathReferences detects invalid numberOfArrows", {
 
   expect_error(
     validatePathReferences(schema),
-    "numberOfArrows must be 0, 1, or 2"
+    "numberOfArrows must be 1 or 2"
+  )
+})
+
+test_that("validatePathReferences rejects 0-headed paths (relocated to pendingCore on import)", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable"),
+          list(label = "x2", type = "variable")
+        ),
+        paths = list(
+          list(from = "x1", to = "x2", numberOfArrows = 0)
+        )
+      )
+    )
+  )
+
+  expect_error(
+    validatePathReferences(schema),
+    "numberOfArrows must be 1 or 2"
   )
 })
 
@@ -179,8 +201,7 @@ test_that("validatePathReferences passes with valid paths", {
         ),
         paths = list(
           list(from = "F1", to = "x1", numberOfArrows = 1),
-          list(from = "F1", to = "x1", numberOfArrows = 2),
-          list(from = "x1", to = "x2", numberOfArrows = 0)
+          list(from = "F1", to = "x1", numberOfArrows = 2)
         )
       )
     )

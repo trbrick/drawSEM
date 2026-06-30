@@ -124,8 +124,10 @@ validateNodeIntegrity <- function(schema, verbose = TRUE) {
       )
     }
     
-    # Check node types
-    valid_types <- c("variable", "constant", "dataset", "linkFunction", "operator")
+    # Check node types. Core is strict: linkFunction / operator nodes are not
+    # core-representable and are relocated to extensions$pendingCore on import
+    # (see extractPendingCore), so a validated core never contains them.
+    valid_types <- c("variable", "constant", "dataset")
     for (node in model$nodes) {
       if (!is.null(node$type) && !(node$type %in% valid_types)) {
         stop(
@@ -244,12 +246,14 @@ validatePathReferences <- function(schema, verbose = TRUE) {
           )
         }
 
-        # 0-headed paths (OpenMx selection operator) are structurally valid R-side
-        # but flagged unsupported by collectUnsupportedFeatures
-        if (!(num_arrows %in% c(0, 1, 2))) {
+        # Core is strict: 0-headed paths (OpenMx's structure for Pearson
+        # selection) are not core-representable and are relocated to
+        # extensions$pendingCore on import (see extractPendingCore), so a
+        # validated core never contains one.
+        if (!(num_arrows %in% c(1, 2))) {
           stop(
             sprintf(
-              "Model '%s': path %d: numberOfArrows must be 0, 1, or 2 (got %d)",
+              "Model '%s': path %d: numberOfArrows must be 1 or 2 (got %d)",
               model_id, i, num_arrows
             ),
             call. = FALSE
