@@ -186,6 +186,30 @@ Assume: N persons, T timepoints per person (equally spaced, t = 0, 1, ..., T-1)
 
 **Key difference in specification**: Rather than explicitly listing T different S→Y loadings in the spec, the spec must express "S→Y loading = time value for this (person, time) pair" as a rule.
 
+## Extensions & Expansion Points
+
+The basic single-variable, balanced, fixed-T growth curve is one point in a larger space. Two extensions in particular change how the model is *specified* and *drawn* rather than what it means:
+
+### Unbalanced multilevel growth via coordinate expansion
+
+In real longitudinal data, persons differ in **how many** times they were measured and **when**. The tall-format spec handles this as a single template expanded over (person, time) coordinates, rather than the wide-format approach of drawing each timepoint as its own box:
+
+- **Ragged T per person.** Person p001 may have 3 observations, p002 may have 7. There is no global T; the number of Y instances is whatever each person's data supplies. The Expansion Map above (which assumes a fixed T) becomes Σₚ Tₚ observed nodes.
+- **Definition-variable (per-row) slope loadings.** When timing is irregular and person-specific, the S→Y loading for each observation is read directly from that row's time value (a definition variable), not from a shared loading vector. Each (person, time) instance can carry a distinct loading.
+- **One template, many expansions.** The model is authored once (I, S, one Y, the I↔S covariance) and expanded per coordinate. This is the same machinery as other cascade models, applied to the simplest case — and it is the natural representation for multilevel/longitudinal data with definition-variable loadings.
+
+This is *not* a different model — it is the standard growth curve specified in a way that scales to ragged, irregularly-timed panels. (An earlier exploration filed this under a "non-stationary initial condition" label; that framing was a misnomer — there is no dynamic process with a stationary distribution to depart from. The genuinely useful content is the coordinate-expansion specification approach described here. A true non-stationary *initial condition* belongs to a dynamic process; see `advanced/state-space.md`.)
+
+### Growth factors as the source or target of paths
+
+The Intercept and Slope are person-level latent variables, so they can participate in structure *beyond* loading onto Y:
+
+- **Conditional growth (factors as targets).** Person-level covariates (e.g., treatment, baseline age) can predict I and S — directed paths *into* the growth factors. This is the standard "predictors of growth" model.
+- **Growth factors as predictors (factors as sources).** I and/or S can predict a distal outcome, or feed a structure at a higher grouping level (e.g., person growth factors contributing to a classroom- or family-level model).
+- **Implication for the spec/UI.** I and S must be addressable as ordinary nodes that can be either endpoint of a path at the person level or higher — not treated as terminal "factor-only" nodes that may only emit loadings to indicators.
+
+Other extensions: nonlinear growth (freed basis loadings), multiple parallel processes (see `simple/bivariate-growth.md`), and a second clustering level (growth nested in classrooms).
+
 ## Specification & UI Requirements
 
 ### Must-Support Elements

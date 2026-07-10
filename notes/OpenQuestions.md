@@ -95,3 +95,11 @@ This document is intended to track the still-open "big picture" questions that w
             - UI: Does this need a new button?
             - Exacerbates the problem of data paths being different (e.g. you can't apply this operator between manifests)
         - Suggests similar "lag" operator on data nodes?
+
+- How to handle groups of nodes being connected?
+    - Busses?
+        - Essentially stacks of paths
+        - Possibly with its own visual elements
+            - e.g. expanded / collapsed / hidden
+        - Have connectivity properties
+            - all->all, one->one

@@ -9,10 +9,26 @@ These documents are intended for LLMs evaluating candidate JSON specifications a
 ## Structure
 
 - **`simple/`**: Basic model types that serve as building blocks
-  - `growth-curve.md`: Linear growth model with measurement across timepoints
-  
+  - `cfa.md`: Confirmatory factor analysis — the foundational measurement model (multi-factor; longitudinal CFA as a special case)
+  - `growth-curve.md`: Linear growth model with measurement across timepoints (incl. tall-format coordinate expansion, unbalanced T, and growth factors as nodes)
+  - `bivariate-growth.md`: Two parallel growth processes sharing a time dimension, joined by cross-construct factor covariances
+  - `second-order-growth.md`: Curve-of-factors growth — growth on a latent construct measured by indicators at each timepoint (requires longitudinal invariance)
+
 - **`cross-classified/`**: Models combining multiple random effects that don't nest
   - `growth-curve.md`: Cross-classified structure where students and teachers are crossed at the outcome level
+  - `twin-ace.md`: Behavior-genetics ACE model — a single role self-crossed into pairs within families, with data-supplied (zygosity-dependent) genetic covariance
+
+- **`hierarchical/`**: Nested (one unit inside another) structures
+  - `multilevel-cfa.md`: Two-level CFA decomposing indicator covariance into between- and within-cluster factors
+  - `mlvar-measurement.md`: Multilevel VAR on latent measures with single-indicator measurement and stationarity constraints
+
+- **`multigroup/`**: Models fit to multiple observed groups with cross-group constraints
+  - `measurement-invariance.md`: Multigroup CFA and the configural→metric→scalar→strict invariance ladder
+
+- **`advanced/`**: Combinations and harder patterns
+  - `state-space.md`: Continuous-time state-space model with computed (interval-dependent) autoregressive coefficients
+  - `burst-design.md`: Nested time-within-burst dimensions with optional between-burst carryover
+  - `mixture.md`: Finite mixture / latent-class model — one template, several latent-class parameterizations, estimated membership
 
 ## Navigation
 
@@ -29,6 +45,15 @@ These documents are intended for LLMs evaluating candidate JSON specifications a
    - Coordinate-based parametrization (instances per factor level)
    - Cross-component path specification
    - How composition affects visualization
+
+3. Then sample by theme:
+   - **Replication & shared parameters**: `cross-classified/twin-ace.md` (self-crossing, data-supplied path values, identification needing both groups)
+   - **Parallel processes**: `simple/bivariate-growth.md` (replication scope per node; factor- vs. indicator-level covariance)
+   - **Nesting & levels**: `hierarchical/multilevel-cfa.md`, `hierarchical/mlvar-measurement.md` (between/within decomposition; data-determined dimensions; autoregressive vs. cross-regressive paths)
+   - **Observed vs. latent grouping**: `multigroup/measurement-invariance.md` (observed groups, equality ladder) contrasted with `advanced/mixture.md` (estimated membership)
+   - **Computed values & dynamics**: `advanced/state-space.md` (computed interval-dependent coefficients), `advanced/burst-design.md` (nested dimensions, boundary-targeted paths)
+
+> **Terminology note.** Keep model families distinct: ML-VAR (`mlvar-measurement`) involves latent *measures* linked by *autoregressive / cross-regressive* paths; state-space (`state-space`) involves a latent *state* that *evolves* in time. Do not describe ML-VAR links as state transitions.
 
 ## Document Structure
 
@@ -58,8 +83,10 @@ When evaluating a candidate specification or UI approach:
 
 ## Future Additions
 
-As the specification evolves, this directory will grow to include:
-- `simple/`: Factor models, measurement models, regressions
-- `hierarchical/`: Nested structures (students within schools)
-- `multigroup/`: Invariance constraints, multi-population models
-- `advanced/`: Combinations of the above; rare/complex patterns
+As the specification evolves, this directory will continue to grow. Candidate
+additions not yet written:
+
+- `simple/`: Standalone factor/measurement models and regressions (beyond growth)
+- `hierarchical/`: Three-level nesting; random-slope / cross-level structural models
+- `multigroup/`: Many-group and longitudinal invariance; approximate/Bayesian invariance
+- `advanced/`: Multivariate continuous-time VAR; mixtures with covariate-predicted membership; combinations of the above
