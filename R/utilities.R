@@ -258,6 +258,81 @@ extractPendingCore <- function(schema) {
   schema
 }
 
+#' Format a Single pendingCore Entry
+#'
+#' One-line human-readable descriptor of a pendingCore entry, used in import,
+#' export, and conversion messages: "<model>: <kind> (<nativeForm>) [<detail>]".
+#'
+#' @param model_id The model ID the entry belongs to
+#' @param entry A single extensions$pendingCore entry
+#'
+#' @return A single-length character descriptor
+#'
+#' @keywords internal
+formatPendingEntry <- function(model_id, entry) {
+  unwrap <- function(x) if (is.list(x)) unlist(x) else x
+
+  kind <- entry$kind %||% "unknown"
+  # origin may be absent, a proper list, or (on legacy files) collapsed to an
+  # atomic by JSON normalization; only read nativeForm when it is a list.
+  native <- if (is.list(entry$origin)) unwrap(entry$origin$nativeForm) else NULL
+  obj <- entry$object
+
+  # Identifying detail from the verbatim object: edge for paths, label for nodes.
+  from <- unwrap(obj$from)
+  to <- unwrap(obj$to)
+  lbl <- unwrap(obj$label)
+  detail <- if (!is.null(from) && !is.null(to)) {
+    sprintf("%s -> %s", from, to)
+  } else if (!is.null(lbl)) {
+    as.character(lbl)
+  } else {
+    NULL
+  }
+
+  desc <- sprintf("%s: %s", model_id, kind)
+  if (!is.null(native)) desc <- sprintf("%s (%s)", desc, native)
+  if (!is.null(detail)) desc <- sprintf("%s [%s]", desc, detail)
+  desc
+}
+
+#' Classify pendingCore Entries for Backend Conversion
+#'
+#' Assigns each of a model's pendingCore entries a disposition when converting to
+#' a backend model:
+#' \itemize{
+#'   \item \strong{reconstructed} — rebuilt into the backend model by a
+#'     reconstructor. No reconstructors exist yet, so this is always empty; the
+#'     structure is in place for them to slot in without restructuring callers.
+#'   \item \strong{ignored} — explicitly disregarded via \code{onUnsupported =
+#'     "ignore"} (the fitted model is reduced).
+#'   \item \strong{unhandled} — neither; the caller must refuse.
+#' }
+#'
+#' @param pending A model's extensions$pendingCore list (may be NULL/empty)
+#' @param onUnsupported Either "stop" or "ignore"
+#'
+#' @return A list with elements reconstructed, ignored, unhandled (each a list of
+#'   entries)
+#'
+#' @keywords internal
+disposePendingCore <- function(pending, onUnsupported = "stop") {
+  result <- list(reconstructed = list(), ignored = list(), unhandled = list())
+  if (is.null(pending) || length(pending) == 0) {
+    return(result)
+  }
+
+  for (entry in pending) {
+    # No backend reconstructors yet: every entry is either ignored or unhandled.
+    if (identical(onUnsupported, "ignore")) {
+      result$ignored[[length(result$ignored) + 1]] <- entry
+    } else {
+      result$unhandled[[length(result$unhandled) + 1]] <- entry
+    }
+  }
+  result
+}
+
 #' Summarize pendingCore Entries
 #'
 #' Builds human-readable one-line descriptors of every extensions$pendingCore
@@ -275,37 +350,13 @@ summarizePendingCore <- function(schema) {
     return(descriptors)
   }
 
-  unwrap <- function(x) if (is.list(x)) unlist(x) else x
-
   for (model_id in names(schema$models)) {
     pending <- schema$models[[model_id]]$extensions$pendingCore
     if (is.null(pending) || length(pending) == 0) {
       next
     }
-
     for (entry in pending) {
-      kind <- entry$kind %||% "unknown"
-      # origin may be absent, a proper list, or (on legacy files) collapsed to an
-      # atomic by JSON normalization; only read nativeForm when it is a list.
-      native <- if (is.list(entry$origin)) unwrap(entry$origin$nativeForm) else NULL
-      obj <- entry$object
-
-      # Identifying detail from the verbatim object: edge for paths, label for nodes.
-      from <- unwrap(obj$from)
-      to <- unwrap(obj$to)
-      lbl <- unwrap(obj$label)
-      detail <- if (!is.null(from) && !is.null(to)) {
-        sprintf("%s -> %s", from, to)
-      } else if (!is.null(lbl)) {
-        as.character(lbl)
-      } else {
-        NULL
-      }
-
-      desc <- sprintf("%s: %s", model_id, kind)
-      if (!is.null(native)) desc <- sprintf("%s (%s)", desc, native)
-      if (!is.null(detail)) desc <- sprintf("%s [%s]", desc, detail)
-      descriptors <- c(descriptors, desc)
+      descriptors <- c(descriptors, formatPendingEntry(model_id, entry))
     }
   }
 
@@ -439,11 +490,9 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
       next
     }
 
-    # Skip 0-headed paths (OpenMx selection operator; unsupported in schema)
-    if (!is.null(path$numberOfArrows) && path$numberOfArrows == 0) {
-      next
-    }
-    
+    # (0-headed paths never reach here: they are relocated to
+    # extensions$pendingCore on import and refused/ignored at conversion time.)
+
     # Get from/to labels
     from_label <- path$from
     to_label <- path$to

@@ -11,6 +11,9 @@ NULL
 #' @param data A named list of data.frames (names are dataset node IDs)
 #' @param model_id The model ID to convert (if schema has multiple models)
 #' @param optimize Logical. If TRUE, apply optimization hints from schema
+#' @param onUnsupported How to handle non-core `extensions$pendingCore` features:
+#'   "stop" (default) refuses with an error listing them; "ignore" builds a
+#'   reduced model that omits them (with a warning), leaving them in the schema.
 #'
 #' @return An mxModel object ready for mxRun()
 #'
@@ -24,23 +27,64 @@ NULL
 #' 6. Construct mxModel with correct expectations/fit functions
 #'
 #' @keywords internal
-schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE) {
+schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
+                           onUnsupported = c("stop", "ignore")) {
+  onUnsupported <- match.arg(onUnsupported)
+
   # Determine which model to convert
   if (is.null(model_id)) {
     # Default to first model if not specified
     model_id <- names(schema$models)[1]
   }
-  
+
   if (!(model_id %in% names(schema$models))) {
     stop(
       sprintf("Model '%s' not found in schema", model_id),
       call. = FALSE
     )
   }
-  
+
   model <- schema$models[[model_id]]
   model_label <- model$label %||% model_id
-  
+
+  # Non-core (pendingCore) features per the onUnsupported policy. No backend
+  # reconstructors exist yet, so each entry is either ignored (build a reduced
+  # model, features left in the schema) or unhandled (refuse). Dispositions are
+  # a runtime concern only and are never persisted.
+  disp <- disposePendingCore(model$extensions$pendingCore, onUnsupported)
+  if (length(disp$unhandled) > 0) {
+    blockers <- vapply(
+      disp$unhandled, function(e) formatPendingEntry(model_id, e), character(1)
+    )
+    stop(
+      sprintf(
+        paste0(
+          "Model '%s' carries %d non-core feature(s) the OpenMx backend cannot ",
+          "fit:\n  - %s\nInspect them at extensions$pendingCore. To proceed, ",
+          "refit with onUnsupported=\"ignore\" (fits a reduced model, leaving ",
+          "the features in place) or remove them with dropUnsupported()."
+        ),
+        model_label, length(disp$unhandled), paste(blockers, collapse = "\n  - ")
+      ),
+      call. = FALSE
+    )
+  }
+  if (length(disp$ignored) > 0) {
+    ignored <- vapply(
+      disp$ignored, function(e) formatPendingEntry(model_id, e), character(1)
+    )
+    warning(
+      sprintf(
+        paste0(
+          "Model '%s': ignoring %d non-core feature(s) for this fit; the fitted ",
+          "model is reduced and omits:\n  - %s"
+        ),
+        model_label, length(disp$ignored), paste(ignored, collapse = "\n  - ")
+      ),
+      call. = FALSE
+    )
+  }
+
   # Extract optimization settings
   opt <- model$optimization %||% list()
   fit_function <- opt$fitFunction %||% "ML"

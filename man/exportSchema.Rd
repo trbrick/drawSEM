@@ -20,8 +20,10 @@ Invisibly returns the filepath
 Save a GraphModel's schema and metadata to a JSON file.
 }
 \details{
-Validates the schema before writing. Does NOT save the cached built model
-or data objects (these are transient). Only the schema and metadata are saved.
+Validates the schema before writing. Does NOT save the cached built model,
+data objects, or runtime \verb{@metadata} (these are transient / non-conformant and
+are reconstructed on import). Only schema-conformant content is written; non-
+core content that must round-trip lives in each model's extensions$pendingCore.
 }
 \examples{
 \dontrun{

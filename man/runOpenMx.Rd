@@ -10,6 +10,7 @@ runOpenMx(
   silent = FALSE,
   intervals = FALSE,
   unsafe = FALSE,
+  onUnsupported = c("stop", "ignore"),
   ...
 )
 }
@@ -23,6 +24,10 @@ runOpenMx(
 \item{intervals}{Logical; if TRUE, compute confidence intervals}
 
 \item{unsafe}{Logical; if TRUE, ignore errors during optimization}
+
+\item{onUnsupported}{How to handle non-core \code{extensions$pendingCore} features:
+"stop" (default) refuses with an error listing them; "ignore" fits a reduced
+model that omits them (with a warning), leaving them in the schema.}
 
 \item{...}{Additional arguments passed to mxRun()}
 }

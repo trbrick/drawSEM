@@ -272,3 +272,86 @@ test_that("storeOptimizationMetadata extracts priors", {
 
   expect_true("priors" %in% names(result))
 })
+
+# --- Item 4b: pendingCore conversion policy (onUnsupported) --------------------
+
+# Helper: a model whose only non-core element is a 0-headed path (relocated to
+# extensions$pendingCore on import).
+pendingCoreGraphModel <- function() {
+  suppressWarnings(as.GraphModel(list(
+    schemaVersion = 0,
+    models = list(model1 = list(
+      nodes = list(
+        list(label = "x1", type = "variable"),
+        list(label = "x2", type = "variable")
+      ),
+      paths = list(
+        list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0),
+        list(from = "x2", to = "x2", numberOfArrows = 2, value = 1.0),
+        list(from = "x1", to = "x2", numberOfArrows = 0, value = 1.0)
+      )
+    ))
+  )))
+}
+
+test_that("schemaToOpenMx refuses pendingCore by default, naming blocker and remedy", {
+  gm <- pendingCoreGraphModel()
+
+  err <- expect_error(schemaToOpenMx(gm@schema, list(), onUnsupported = "stop"))
+  msg <- conditionMessage(err)
+  expect_match(msg, "non-core feature")
+  expect_match(msg, "selection")          # the blocker is listed
+  expect_match(msg, "onUnsupported")      # remedy: ignore
+  expect_match(msg, "dropUnsupported")    # remedy: drop
+  expect_match(msg, "extensions\\$pendingCore")  # where to inspect
+})
+
+test_that("schemaToOpenMx onUnsupported='ignore' builds a reduced model and warns", {
+  gm <- pendingCoreGraphModel()
+
+  expect_warning(
+    om <- schemaToOpenMx(gm@schema, list(), onUnsupported = "ignore"),
+    "ignoring 1 non-core feature"
+  )
+  expect_s4_class(om, "MxModel")
+})
+
+test_that("only the model carrying pendingCore is refused", {
+  gm <- suppressWarnings(as.GraphModel(list(
+    schemaVersion = 0,
+    models = list(
+      clean = list(
+        nodes = list(list(label = "x1", type = "variable")),
+        paths = list(list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0))
+      ),
+      dirty = list(
+        nodes = list(
+          list(label = "y1", type = "variable"),
+          list(label = "y2", type = "variable")
+        ),
+        paths = list(
+          list(from = "y1", to = "y1", numberOfArrows = 2, value = 1.0),
+          list(from = "y2", to = "y2", numberOfArrows = 2, value = 1.0),
+          list(from = "y1", to = "y2", numberOfArrows = 0, value = 1.0)
+        )
+      )
+    )
+  )))
+
+  expect_s4_class(
+    schemaToOpenMx(gm@schema, list(), model_id = "clean"), "MxModel"
+  )
+  expect_error(
+    schemaToOpenMx(gm@schema, list(), model_id = "dirty"),
+    "non-core feature"
+  )
+})
+
+test_that("runOpenMx threads onUnsupported through to the converter", {
+  gm <- pendingCoreGraphModel()
+  # Refuses at the build step before any optimization.
+  expect_error(
+    suppressMessages(runOpenMx(gm, silent = TRUE, onUnsupported = "stop")),
+    "non-core feature"
+  )
+})

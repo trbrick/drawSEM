@@ -247,6 +247,9 @@ markFitDirty <- function(graphModel, model_id = NULL) {
 #' @param silent Logical; if TRUE, suppress mxRun() status messages
 #' @param intervals Logical; if TRUE, compute confidence intervals
 #' @param unsafe Logical; if TRUE, ignore errors during optimization
+#' @param onUnsupported How to handle non-core `extensions$pendingCore` features:
+#'   "stop" (default) refuses with an error listing them; "ignore" fits a reduced
+#'   model that omits them (with a warning), leaving them in the schema.
 #' @param ... Additional arguments passed to mxRun()
 #'
 #' @return
@@ -281,19 +284,22 @@ runOpenMx <- function(
     silent = FALSE,
     intervals = FALSE,
     unsafe = FALSE,
+    onUnsupported = c("stop", "ignore"),
     ...) {
-  
+
+  onUnsupported <- match.arg(onUnsupported)
+
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
-  
+
   if (is.null(model_id)) {
     model_id <- names(graphModel@schema$models)[1]
   }
-  
+
   # Step 1: Convert to mxModel
   message(sprintf("Building mxModel from schema (model_id = '%s')...", model_id))
-  mx_model <- as.MxModel(graphModel, model_id = model_id)
+  mx_model <- as.MxModel(graphModel, model_id = model_id, onUnsupported = onUnsupported)
   
   # Step 2: Fit with mxRun
   message("Running optimizer with mxRun()...")

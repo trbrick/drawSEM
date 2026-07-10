@@ -335,6 +335,9 @@ setMethod(
 #' @param x A GraphModel object
 #' @param model_id Optional. ID of the model to convert. Defaults to first model in schema.
 #' @param data Optional. Named list of data.frames to override or supplement connected data.
+#' @param onUnsupported How to handle non-core `extensions$pendingCore` features:
+#'   "stop" (default) refuses with an error listing them; "ignore" builds a
+#'   reduced model that omits them (with a warning), leaving them in the schema.
 #'   If a dataset is in this list, it will be used instead of any eagerly-loaded or lazy-loaded data.
 #'
 #' @return An MxModel object ready for mxRun()
@@ -365,7 +368,10 @@ setGeneric("as.MxModel", function(x, ...) standardGeneric("as.MxModel"), useAsDe
 setMethod(
   "as.MxModel",
   "GraphModel",
-  function(x, model_id = NULL, data = NULL) {
+  function(x, model_id = NULL, data = NULL,
+           onUnsupported = c("stop", "ignore")) {
+    onUnsupported <- match.arg(onUnsupported)
+
     # Determine which model to build
     if (is.null(model_id)) {
       model_id <- names(x@schema$models)[1]
@@ -438,7 +444,10 @@ setMethod(
     }
     
     # Convert to OpenMx
-    om_model <- schemaToOpenMx(x@schema, working_data, model_id = model_id, optimize = TRUE)
+    om_model <- schemaToOpenMx(
+      x@schema, working_data, model_id = model_id, optimize = TRUE,
+      onUnsupported = onUnsupported
+    )
     
     # Cache it
     x@lastBuiltModel <- om_model

@@ -4,7 +4,13 @@
 \alias{schemaToOpenMx}
 \title{Convert Schema to OpenMx Model}
 \usage{
-schemaToOpenMx(schema, data, model_id = NULL, optimize = TRUE)
+schemaToOpenMx(
+  schema,
+  data,
+  model_id = NULL,
+  optimize = TRUE,
+  onUnsupported = c("stop", "ignore")
+)
 }
 \arguments{
 \item{schema}{A validated schema list}
@@ -14,6 +20,10 @@ schemaToOpenMx(schema, data, model_id = NULL, optimize = TRUE)
 \item{model_id}{The model ID to convert (if schema has multiple models)}
 
 \item{optimize}{Logical. If TRUE, apply optimization hints from schema}
+
+\item{onUnsupported}{How to handle non-core \code{extensions$pendingCore} features:
+"stop" (default) refuses with an error listing them; "ignore" builds a
+reduced model that omits them (with a warning), leaving them in the schema.}
 }
 \value{
 An mxModel object ready for mxRun()
