@@ -979,13 +979,19 @@ setMethod(
         m_free <- as.logical(m_mat$free %||% rep(FALSE, length(m_values)))
         
         if (!is.null(m_values)) {
-          # M is typically 1 x p (1 row, p columns for p manifest variables)
+          # M is 1 x p, with one column per variable in the A/S ordering
+          # (manifest AND latent). Resolve column names the same way the A/S
+          # extraction does: prefer the matrix's own colnames, then the RAM
+          # expectation dims, then all_vars. Indexing manifest_vars alone
+          # returns NA for latent-mean columns (j past the manifest list).
+          m_col_names <- colnames(m_mat$values) %||% x$expectation$dims %||% all_vars
           m_paths <- list()
           for (j in seq_along(m_values)) {
             val <- m_values[j]
             if (!is.na(val) && val != 0) {
-              # Map to correct manifest variable
-              var_name <- manifest_vars[j] %||% paste0("V", j)
+              # Map to correct variable (manifest or latent)
+              var_name <- m_col_names[j]
+              if (is.null(var_name) || is.na(var_name)) var_name <- paste0("V", j)
               label <- m_labels[j] %||% NA
               free <- m_free[j] %||% FALSE
               
