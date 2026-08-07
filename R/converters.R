@@ -120,8 +120,8 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   latent_var_labels <- latent_var_labels[!sapply(latent_var_labels, is.null)]
   
   # Phase 3: Build mxPath list ==========================================
-  constant_label <- getConstantNodeLabel(model$nodes)
-  paths_to_create <- buildPathList(model$paths, constant_label)
+  constant_labels <- getConstantNodeLabels(model$nodes)
+  paths_to_create <- buildPathList(model$paths, constant_labels)
 
   normalize_bound <- function(x) {
     if (is.null(x) || length(x) == 0 || is.na(x)) {

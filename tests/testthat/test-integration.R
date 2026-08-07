@@ -258,7 +258,7 @@ test_that("End-to-end: Free parameter default values applied correctly", {
   )
 
   paths <- schema$models$model1$paths
-  mxpath_list <- buildPathList(paths, constantNodeLabel = NULL)
+  mxpath_list <- buildPathList(paths, constantNodeLabels = NULL)
 
   # First path (F1 -> x1) should have 0.1 default
   expect_equal(mxpath_list[[1]]$values, 0.1)
@@ -316,4 +316,81 @@ test_that("End-to-end: Multiple models in schema are preserved", {
 
   expect_equal(length(gm$schema$models), 3)
   expect_true(all(c("model1", "model2", "model3") %in% names(gm$schema$models)))
+})
+
+# Regression: schemaToOpenMx used to translate only the FIRST constant node's
+# label to OpenMx's "one", so mean paths from any second constant node reached
+# mxModel() with their raw schema label and errored out.
+constantNodeSchema <- function(constant_labels = character(0)) {
+  nodes <- list(
+    list(label = "d", type = "dataset"),
+    list(label = "x", type = "variable"),
+    list(label = "y", type = "variable")
+  )
+  paths <- list(
+    list(from = "d", to = "x", type = "data", label = "x"),
+    list(from = "d", to = "y", type = "data", label = "y"),
+    list(from = "x", to = "x", numberOfArrows = 2, freeParameter = TRUE, value = 1),
+    list(from = "y", to = "y", numberOfArrows = 2, freeParameter = TRUE, value = 1)
+  )
+
+  # One mean path per constant node; the first constant feeds x, the rest feed y.
+  for (i in seq_along(constant_labels)) {
+    lbl <- constant_labels[[i]]
+    nodes[[length(nodes) + 1]] <- list(label = lbl, type = "constant")
+    paths[[length(paths) + 1]] <- list(
+      from = lbl, to = if (i == 1) "x" else "y",
+      numberOfArrows = 1, freeParameter = TRUE, value = 0, type = "constant"
+    )
+  }
+
+  list(
+    schemaVersion = 0,
+    models = list(m1 = list(label = "m1", nodes = nodes, paths = paths))
+  )
+}
+
+test_that("End-to-end: multiple constant nodes all convert to OpenMx 'one'", {
+  set.seed(1)
+  df <- data.frame(x = rnorm(50), y = rnorm(50))
+  schema <- constantNodeSchema(c("1", "1b"))
+
+  expect_no_error(validateSchema(schema, verbose = FALSE))
+
+  om <- schemaToOpenMx(schema, list(d = df))
+
+  expect_true(is(om, "MxRAMModel"))
+  # Neither constant label leaks into the variable lists
+  expect_false(any(c("1", "1b") %in% c(om$manifestVars, om$latentVars)))
+
+  # Both mean paths land in the M matrix, one per target variable
+  expect_true(!is.null(om$M))
+  expect_true(om$M$free[1, "x"])
+  expect_true(om$M$free[1, "y"])
+})
+
+test_that("End-to-end: single constant node still converts", {
+  set.seed(1)
+  df <- data.frame(x = rnorm(50), y = rnorm(50))
+  schema <- constantNodeSchema("1")
+
+  om <- schemaToOpenMx(schema, list(d = df))
+
+  expect_true(is(om, "MxRAMModel"))
+  expect_false("1" %in% c(om$manifestVars, om$latentVars))
+  expect_true(om$M$free[1, "x"])
+  expect_false(om$M$free[1, "y"])
+})
+
+test_that("End-to-end: model with no constant nodes still converts", {
+  set.seed(1)
+  df <- data.frame(x = rnorm(50), y = rnorm(50))
+  schema <- constantNodeSchema(character(0))
+
+  om <- schemaToOpenMx(schema, list(d = df))
+
+  expect_true(is(om, "MxRAMModel"))
+  expect_setequal(om$manifestVars, c("x", "y"))
+  # No mean paths at all: every M entry is fixed
+  expect_false(any(om$M$free))
 })

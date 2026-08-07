@@ -4,12 +4,14 @@
 \alias{buildPathList}
 \title{Build Path List for mxModel}
 \usage{
-buildPathList(paths, constantNodeLabel = NULL)
+buildPathList(paths, constantNodeLabels = character(0))
 }
 \arguments{
 \item{paths}{List of path specifications}
 
-\item{constantNodeLabel}{Label of the constant node (if any)}
+\item{constantNodeLabels}{Character vector of every constant node label in the
+model (see \code{\link[=getConstantNodeLabels]{getConstantNodeLabels()}}). May be \code{NULL} or \code{character(0)} when
+the model has no constant nodes.}
 }
 \value{
 A list of path specifications, ready for mxPath()

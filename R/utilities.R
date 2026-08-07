@@ -475,12 +475,15 @@ storeOptimizationMetadata <- function(paths) {
 #' Converts schema paths to a list of mxPath specifications.
 #'
 #' @param paths List of path specifications
-#' @param constantNodeLabel Label of the constant node (if any)
+#' @param constantNodeLabels Character vector of every constant node label in the
+#'   model (see [getConstantNodeLabels()]). May be `NULL` or `character(0)` when
+#'   the model has no constant nodes.
 #'
 #' @return A list of path specifications, ready for mxPath()
 #'
 #' @keywords internal
-buildPathList <- function(paths, constantNodeLabel = NULL) {
+buildPathList <- function(paths, constantNodeLabels = character(0)) {
+  constantNodeLabels <- as.character(constantNodeLabels %||% character(0))
   paths_list <- list()
   
   for (path in paths) {
@@ -497,8 +500,11 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
     from_label <- path$from
     to_label <- path$to
     
-    # Convert constant node label to "one" for mxPath
-    if (!is.null(constantNodeLabel) && from_label == constantNodeLabel) {
+    # Convert any constant node label to "one" for mxPath. Only the `from` side
+    # is translated: constant nodes are sources only (the editor rejects them as
+    # path destinations), and OpenMx has no representation for a path into the
+    # unit constant.
+    if (length(constantNodeLabels) > 0 && from_label %in% constantNodeLabels) {
       from_label <- "one"
     }
     
@@ -546,23 +552,28 @@ buildPathList <- function(paths, constantNodeLabel = NULL) {
   paths_list
 }
 
-#' Get Constant Node Label
+#' Get Constant Node Labels
 #'
-#' Finds the constant node in a list of nodes and returns its label.
+#' Finds every constant node in a list of nodes and returns their labels. A model
+#' may carry more than one constant node (node labels are unique, so additional
+#' constants carry distinct labels such as `"1b"`); all of them contribute to the
+#' means model and all are translated to OpenMx's `"one"` when building mxPaths.
 #'
 #' @param nodes List of node specifications
 #'
-#' @return The label of the constant node (or NULL if none found)
+#' @return A character vector of constant node labels, `character(0)` if none
 #'
 #' @keywords internal
-getConstantNodeLabel <- function(nodes) {
-  for (node in nodes) {
-    if (node$type == "constant") {
-      return(node$label)
-    }
-  }
-  
-  NULL
+getConstantNodeLabels <- function(nodes) {
+  labels <- vapply(
+    nodes,
+    function(node) {
+      if (isTRUE(node$type == "constant")) as.character(node$label %||% NA) else NA_character_
+    },
+    character(1)
+  )
+
+  unique(as.character(labels[!is.na(labels)]))
 }
 
 #' NULL Coalescing Operator

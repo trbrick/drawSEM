@@ -4,7 +4,7 @@ test_that("buildPathList constructs correct mxPath specifications", {
     list(from = "x1", to = "x1", numberOfArrows = 2, value = 1.0)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_length(result, 2)
   expect_equal(result[[1]]$from, "F1")
@@ -23,7 +23,7 @@ test_that("buildPathList converts constant node label to 'one'", {
     list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = "1")
+  result <- buildPathList(paths, constantNodeLabels = "1")
 
   expect_equal(result[[1]]$from, "one")
 })
@@ -33,7 +33,7 @@ test_that("buildPathList applies 0.1 default for free null parameters", {
     list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = NULL)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_equal(result[[1]]$values, 0.1)
 })
@@ -43,7 +43,7 @@ test_that("buildPathList preserves non-null values for free parameters", {
     list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, value = 2.5)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_equal(result[[1]]$values, 2.5)
 })
@@ -53,7 +53,7 @@ test_that("buildPathList preserves labels when present", {
     list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, label = "loading_1")
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_equal(result[[1]]$labels, "loading_1")
 })
@@ -63,7 +63,7 @@ test_that("buildPathList uses freeParameter string as mxPath label for named fre
     list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = "lambda_x1", value = 0.8)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_equal(result[[1]]$labels, "lambda_x1")
   expect_true(result[[1]]$free)
@@ -76,7 +76,7 @@ test_that("buildPathList enforces equality constraints via shared freeParameter 
     list(from = "F1", to = "x2", numberOfArrows = 1, freeParameter = "lambda", value = 1.0)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   expect_equal(length(result), 2)
   expect_equal(result[[1]]$labels, "lambda")
@@ -91,13 +91,13 @@ test_that("buildPathList: named freeParameter takes precedence over path$label",
          freeParameter = "param_name", label = "display_label", value = 1.0)
   )
 
-  result <- buildPathList(paths, constantNodeLabel = NULL)
+  result <- buildPathList(paths, constantNodeLabels = NULL)
 
   # freeParameter string is the mxPath label (equality constraint name)
   expect_equal(result[[1]]$labels, "param_name")
 })
 
-test_that("getConstantNodeLabel identifies constant node correctly", {
+test_that("getConstantNodeLabels identifies constant node correctly", {
   schema <- list(
     nodes = list(
       list(label = "F1", type = "variable"),
@@ -106,11 +106,26 @@ test_that("getConstantNodeLabel identifies constant node correctly", {
     )
   )
 
-  result <- getConstantNodeLabel(schema$nodes)
+  result <- getConstantNodeLabels(schema$nodes)
   expect_equal(result, "1")
 })
 
-test_that("getConstantNodeLabel returns NULL when no constant node", {
+test_that("getConstantNodeLabels returns every constant node label", {
+  schema <- list(
+    nodes = list(
+      list(label = "F1", type = "variable"),
+      list(label = "1", type = "constant"),
+      list(label = "x1", type = "variable"),
+      list(label = "1b", type = "constant"),
+      list(label = "d", type = "dataset")
+    )
+  )
+
+  result <- getConstantNodeLabels(schema$nodes)
+  expect_equal(result, c("1", "1b"))
+})
+
+test_that("getConstantNodeLabels returns character(0) when no constant node", {
   schema <- list(
     nodes = list(
       list(label = "F1", type = "variable"),
@@ -118,8 +133,26 @@ test_that("getConstantNodeLabel returns NULL when no constant node", {
     )
   )
 
-  result <- getConstantNodeLabel(schema$nodes)
-  expect_null(result)
+  result <- getConstantNodeLabels(schema$nodes)
+  expect_identical(result, character(0))
+})
+
+test_that("buildPathList converts every constant node label to 'one'", {
+  paths <- list(
+    list(from = "1", to = "x1", numberOfArrows = 1, freeParameter = TRUE, type = "constant"),
+    list(from = "1b", to = "x2", numberOfArrows = 1, freeParameter = TRUE, type = "constant"),
+    list(from = "F1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
+  )
+
+  result <- buildPathList(paths, constantNodeLabels = c("1", "1b"))
+
+  expect_equal(result[[1]]$from, "one")
+  expect_equal(result[[2]]$from, "one")
+  # Non-constant sources are untouched
+  expect_equal(result[[3]]$from, "F1")
+  # The `to` side is never translated (constants are sources only)
+  expect_equal(result[[1]]$to, "x1")
+  expect_equal(result[[2]]$to, "x2")
 })
 
 test_that("inferManifestVariables identifies variables with dataset paths", {
