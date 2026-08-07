@@ -19,6 +19,7 @@ Imports:
   OpenMx (>= 2.21)
 Suggests:
   rsvg,
+  chromote,
   testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Collate: 

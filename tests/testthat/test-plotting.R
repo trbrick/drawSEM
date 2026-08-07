@@ -633,9 +633,80 @@ describe("Edge cases", {
   
   test_that("plotGraphModel with all layers disabled still works", {
     gm <- create_test_graphmodel()
-    
+
     w <- plotGraphModel(gm, showDataPaths = FALSE, showConstantPaths = FALSE)
-    
+
     expect_s3_class(w, "htmlwidget")
+  })
+})
+
+# ==============================================================================
+# exportImage() Tests
+#
+# These drive a real headless Chrome session via chromote and are skipped when
+# chromote, a Chrome/Chromium install, or (for PNG/PDF) rsvg is unavailable.
+# ==============================================================================
+
+describe("exportImage()", {
+
+  skip_export_if_unavailable <- function() {
+    skip_if_not_installed("chromote")
+    chrome <- tryCatch(chromote::find_chrome(), error = function(e) NULL)
+    if (is.null(chrome) || !nzchar(chrome)) {
+      skip("No Chrome/Chromium available for headless export")
+    }
+  }
+
+  test_that("input validation happens before launching Chrome", {
+    gm <- create_test_graphmodel()
+    # An unknown format must error without needing Chrome at all.
+    expect_error(
+      exportImage(gm, tempfile(fileext = ".gif"), format = "gif"),
+      "format must be"
+    )
+  })
+
+  test_that("SVG export produces a complete diagram (nodes, labels, edges)", {
+    skip_export_if_unavailable()
+    gm <- create_test_graphmodel()
+    f <- tempfile(fileext = ".svg")
+    on.exit(unlink(f), add = TRUE)
+
+    res <- exportImage(gm, f, timeout = 30)
+
+    expect_identical(res, f)
+    expect_true(file.exists(f))
+    expect_gt(file.info(f)$size, 0)
+
+    svg <- paste(readLines(f, warn = FALSE), collapse = "")
+    expect_match(svg, "<svg")
+    # All three node labels must be present in the exported diagram.
+    expect_match(svg, ">X<")
+    expect_match(svg, ">Y<")
+    expect_match(svg, ">Z<")
+    # And at least the two structural edges.
+    expect_gte(lengths(regmatches(svg, gregexpr("<path", svg))), 2)
+  })
+
+  test_that("PNG and PDF export produce non-empty files", {
+    skip_export_if_unavailable()
+    skip_if_not_installed("rsvg")
+    gm <- create_test_graphmodel()
+
+    png <- tempfile(fileext = ".png")
+    pdf <- tempfile(fileext = ".pdf")
+    on.exit(unlink(c(png, pdf)), add = TRUE)
+
+    exportImage(gm, png, width = 400, timeout = 30)
+    exportImage(gm, pdf, timeout = 30)
+
+    expect_true(file.exists(png))
+    expect_true(file.exists(pdf))
+    expect_gt(file.info(png)$size, 0)
+    expect_gt(file.info(pdf)$size, 0)
+
+    # PNG magic bytes.
+    sig <- readBin(png, "raw", n = 8)
+    expect_identical(sig[1:4], as.raw(c(0x89, 0x50, 0x4e, 0x47)))
   })
 })

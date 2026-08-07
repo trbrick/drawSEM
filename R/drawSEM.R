@@ -723,7 +723,7 @@ plot.GraphModel <- function(x, editable = NA, autoLayout = NA, ...) {
 plot.MxModel <- function(x, editable = NA, autoLayout = NA, ...) {
   # Convert mxModel to GraphModel
   graphModel <- as.GraphModel(x)
-  
+
   # Plot the result and return widget visibly
   w <- plotGraphModel(
     graphModel = graphModel,
@@ -733,4 +733,164 @@ plot.MxModel <- function(x, editable = NA, autoLayout = NA, ...) {
   )
   # Return widget WITHOUT invisible() so it prints/displays
   w
+}
+
+#' Export a model diagram to SVG, PNG, or PDF
+#'
+#' Generates a complete SVG of a model using the same generator as the editor's
+#' *Export Image* button, then writes it to disk. SVG is written directly; PNG
+#' and PDF are produced from the SVG with the \pkg{rsvg} package, so PDF output
+#' is true vector graphics rather than a rasterised screenshot.
+#'
+#' The SVG is produced by the widget's own JavaScript export generator running
+#' in a headless Chrome session, so headless output matches the editor exactly.
+#' A Chrome/Chromium install is therefore required (via the \pkg{chromote}
+#' package); PNG and PDF additionally require \pkg{rsvg}. Node positions are read
+#' from the model; any node without a stored position is laid out automatically
+#' first, so a bare model still exports sensibly.
+#'
+#' @param graphModel A `GraphModel`, or anything accepted by [as.GraphModel()].
+#' @param file Output file path. The format is inferred from its extension
+#'   unless `format` is supplied.
+#' @param format One of `"svg"`, `"png"`, or `"pdf"`. Defaults to the
+#'   extension of `file`.
+#' @param width,height Optional output size in pixels for `"png"` (passed to
+#'   [rsvg::rsvg_png()]). Ignored for `"svg"` and `"pdf"`, which use the
+#'   diagram's intrinsic dimensions.
+#' @param pathLabels Path-label style, one of `"neither"` (default), `"labels"`,
+#'   `"values"`, or `"both"`. Mirrors the editor's *Export Image* option.
+#' @param showDatasets,showConstants Whether to include dataset nodes and the
+#'   constant (`"1"`) node in the export. Both default to `TRUE`, matching the
+#'   editor's *Export Image* button.
+#' @param autoLayout Passed to [plotGraphModel()] when building the page.
+#'   Defaults to `"full"` so a model without stored node positions is laid out.
+#' @param timeout Maximum seconds to wait for the widget to initialise before
+#'   giving up. Default 15.
+#' @param ... Additional arguments passed to [plotGraphModel()] when building the
+#'   page. Rarely needed; do not pass `showDataPaths`/`showConstantPaths` here
+#'   (use `showDatasets`/`showConstants`).
+#'
+#' @return The output `file` path, invisibly.
+#'
+#' @examples
+#' \dontrun{
+#' gm <- loadGraphModel("model.json")
+#' exportImage(gm, "model.pdf")                 # vector PDF
+#' exportImage(gm, "model.png", width = 1600)   # raster PNG
+#' exportImage(gm, "model.svg")                 # raw SVG
+#' }
+#'
+#' @seealso [plotGraphModel()] for the interactive/embeddable widget.
+#' @export
+exportImage <- function(graphModel, file,
+                        format = tools::file_ext(file),
+                        width = NULL, height = NULL,
+                        pathLabels = c("neither", "labels", "values", "both"),
+                        showDatasets = TRUE, showConstants = TRUE,
+                        autoLayout = "full", timeout = 15, ...) {
+  format <- tolower(format)
+  if (!isTRUE(format %in% c("svg", "png", "pdf"))) {
+    stop("format must be 'svg', 'png', or 'pdf' (got '", format, "').",
+         call. = FALSE)
+  }
+  pathLabels <- match.arg(pathLabels)
+  if (!requireNamespace("chromote", quietly = TRUE)) {
+    stop("exportImage() requires the 'chromote' package and a Chrome/Chromium ",
+         "install: install.packages('chromote').", call. = FALSE)
+  }
+  if (format %in% c("png", "pdf") && !requireNamespace("rsvg", quietly = TRUE)) {
+    stop(toupper(format), " export requires the 'rsvg' package: ",
+         "install.packages('rsvg').", call. = FALSE)
+  }
+
+  # 1. Build a static widget page and write it to a temp HTML file. The page
+  #    loads the widget bundle (which exposes window.drawSEMExportSVG) and embeds
+  #    the model schema. showDataPaths/showConstantPaths are forced on so the
+  #    embedded schema is complete; export visibility is controlled by the
+  #    showDatasets/showConstants options below. selfcontained = FALSE keeps the
+  #    dependency libraries in a sibling folder and avoids requiring pandoc.
+  widget <- plotGraphModel(graphModel, editable = FALSE, autoLayout = autoLayout,
+                           showDataPaths = TRUE, showConstantPaths = TRUE, ...)
+  dir <- tempfile("drawsem_export_")
+  dir.create(dir)
+  on.exit(unlink(dir, recursive = TRUE), add = TRUE)
+  html <- file.path(dir, "index.html")
+  htmlwidgets::saveWidget(widget, html, selfcontained = FALSE)
+
+  # 2. Generate the SVG with the widget's own export generator.
+  options <- list(
+    pathLabelFormat   = pathLabels,
+    showDatasetNodes  = isTRUE(showDatasets),
+    showConstantNodes = isTRUE(showConstants)
+  )
+  svg <- .drawsem_render_svg(html, options = options, timeout = timeout)
+  if (is.null(svg) || !nzchar(svg)) {
+    stop("The widget returned an empty SVG.", call. = FALSE)
+  }
+
+  # 3. Emit the requested format.
+  if (format == "svg") {
+    writeLines(svg, file)
+  } else {
+    tmp <- tempfile(fileext = ".svg")
+    on.exit(unlink(tmp), add = TRUE)
+    writeLines(svg, tmp)
+    if (format == "png") {
+      rsvg::rsvg_png(tmp, file, width = width, height = height)
+    } else {
+      rsvg::rsvg_pdf(tmp, file)
+    }
+  }
+  invisible(file)
+}
+
+# Internal: load a saved widget page in headless Chrome and generate the export
+# SVG by calling the bundle's own generator (window.drawSEMExportSVG) on the
+# embedded schema. This is the same `modelToSVG` path as the in-app "Export
+# Image" button, so the result is a complete diagram (nodes + edges + labels),
+# not a scrape of the interactive canvas.
+.drawsem_render_svg <- function(htmlfile, options = list(), timeout = 15) {
+  session <- tryCatch(
+    chromote::ChromoteSession$new(),
+    error = function(e) {
+      stop("Could not start headless Chrome for exportImage(): ",
+           conditionMessage(e),
+           "\nEnsure Chrome/Chromium is installed (see ?chromote::find_chrome).",
+           call. = FALSE)
+    }
+  )
+  on.exit(session$close(), add = TRUE)
+
+  url <- paste0("file://", normalizePath(htmlfile, winslash = "/"))
+  session$Page$navigate(url)
+  session$Page$loadEventFired(wait_ = TRUE)
+
+  # Poll until the export hook and the embedded model are both available.
+  ready <- paste0(
+    "(typeof window.drawSEMExportSVG === 'function' && ",
+    "!!(window.drawSEMConfig && window.drawSEMConfig.initialModel))"
+  )
+  deadline <- Sys.time() + timeout
+  repeat {
+    if (isTRUE(session$Runtime$evaluate(ready)$result$value)) break
+    if (Sys.time() > deadline) {
+      stop("The drawSEM widget did not initialise within ", timeout,
+           " seconds. Try increasing `timeout`.", call. = FALSE)
+    }
+    Sys.sleep(0.1)
+  }
+
+  # Generate the SVG from the embedded schema via the bundle's export generator.
+  opts_json <- jsonlite::toJSON(options, auto_unbox = TRUE)
+  expr <- paste0(
+    "window.drawSEMExportSVG(window.drawSEMConfig.initialModel, null, ",
+    opts_json, ")"
+  )
+  res <- session$Runtime$evaluate(expr, returnByValue = TRUE)
+  if (!is.null(res$exceptionDetails)) {
+    detail <- res$exceptionDetails$exception$description %||%
+      res$exceptionDetails$text %||% "unknown error"
+    stop("SVG generation failed in the widget: ", detail, call. = FALSE)
+  }
+  res$result$value
 }

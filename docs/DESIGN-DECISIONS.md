@@ -297,3 +297,75 @@ for column names (e.g., `x_{time}`).
 - The frontend source directory is `drawsem-web/`.
 - The schema filename remains `graph.schema.json`, but the schema `$id` uses the
   `drawSEM` identity.
+
+---
+
+### 7. Unify the two SVG emitters (interactive canvas vs. export generator)
+
+**The question:** Should the interactive canvas and the static export share a
+single SVG rendering implementation, instead of the two independent emitters
+that exist today?
+
+**Current state:** There are two SVG renderers:
+
+- **Interactive** — JSX in `CanvasTool.tsx` emits `<g>/<rect>/<circle>/<text>`
+  directly into the live canvas `<svg>` (nodes and edges are both SVG).
+- **Export** — `modelToSVG()` in `svgRenderer.ts`/`nodeRender.ts` builds an SVG
+  string from `schema.nodes[].visual` positions. This is what the "Export Image"
+  button and the headless `exportImage()` both use.
+
+They already share the geometry constants (`constants.ts`) and the
+manifest/latent decision (`getVariableRenderType`), so node shapes, sizes, and
+colors stay consistent. What can drift is the hand-written emission detail —
+text baseline offsets, path curvature, label placement — because those are
+coded twice.
+
+**Options under consideration:**
+
+| Option | Description | Key tradeoff |
+| ------ | ----------- | ------------ |
+| A | Keep two emitters (status quo) | No refactor; risk of cosmetic drift between what's on screen and what's exported |
+| B | Extract per-element SVG emission into shared pure functions used by both the JSX canvas and `modelToSVG` | Single source of truth for geometry; interactive layer keeps its own event wiring |
+| C | Make the interactive canvas consume `modelToSVG` output plus a thin interaction overlay | Strongest WYSIWYG guarantee; largest rewrite of the canvas |
+
+**Note:** The export feature does not require resolving this — headless export
+is byte-identical to the existing "Export Image" button because both call the
+same `modelToSVG`. The consistency target for export is that button, not the
+live canvas. This question is about long-term maintainability.
+
+**Affected areas:** `CanvasTool.tsx`, `svgRenderer.ts`, `nodeRender.ts`,
+`useSvgExport.ts`.
+
+---
+
+### 8. Intuitive rapid layout of graphModels from R
+
+**The question:** How do we best allow intuitive, rapid layout of `GraphModel`s
+from R?
+
+**Context:** `plotGraphModel()` in the RStudio Viewer auto-detects
+`editable = TRUE`, so nodes are draggable — but a non-Shiny htmlwidget has no
+back-channel to the R session, and the Save/Export toolbar is hidden in
+`viewMode: 'widget'`. So preview drags are ephemeral: they cannot be recovered,
+saved, or exported. `exportImage()` renders from the schema's positions
+(auto-layout), not from any preview drags, so a user who rearranges the preview
+and then exports gets the original layout, not what they see.
+
+**Decision so far:** Any function or RStudio tool that prints to the screen and
+cannot save back should default to `editable = TRUE`. Allowing ephemeral,
+exploratory edits is preferable to a locked, lifeless preview. The consistency
+gap is understood and accepted for now.
+
+**Direction (out of scope for the export work):** A Shiny **gadget**
+(`runGadget`) that edits in the RStudio window and persists layout changes back
+to the R object is the intended way to make rapid layout edits stick. The
+existing Shiny editor `drawSEM()` already round-trips (edit → *Done* → returns
+the edited `GraphModel`), but it opens a separate app rather than editing the
+object in place.
+
+**Options under consideration:** Shiny gadget for in-window editing that writes
+back; R-side layout parameters/seed on `plotGraphModel()`; save-JSON-and-reload;
+`crosstalk`-based sync.
+
+**Affected areas:** `R/drawSEM.R` (`plotGraphModel` editability), `R/shiny-app.R`,
+the widget adapters, `exportImage()`.

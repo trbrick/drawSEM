@@ -4,6 +4,9 @@ import App from './App'
 import { AdapterContext } from './context/AdapterContext'
 import { createWidgetAdapter } from './adapters/widget/widgetAdapter'
 import { createLocalAdapter } from './adapters/standalone/localAdapter'
+import { modelToSVG, SvgExportOptions } from './utils/svgRenderer'
+import { autoLayout } from './utils/autoLayout'
+import { GraphSchema } from './core/types'
 import './index.css'
 
 /**
@@ -63,8 +66,57 @@ export function initializeWidget(el: HTMLElement): void {
   }
 }
 
+/**
+ * Headless SVG export hook.
+ *
+ * Renders a schema to a complete, standalone SVG string using the same
+ * `modelToSVG` generator as the in-app "Export Image" button, so headless
+ * output matches the app exactly. Node positions are read from
+ * `schema.nodes[].visual`; any layout-eligible node that is missing coordinates
+ * is positioned with `autoLayout` first — but only when positions are missing,
+ * so an explicit layout already in the schema is respected.
+ *
+ * Exposed as `window.drawSEMExportSVG` for the R `exportImage()` helper. It is a
+ * pure function of the schema: it does not require the React app to be mounted.
+ */
+export function exportModelToSVG(
+  schema: GraphSchema,
+  modelId?: string,
+  options?: SvgExportOptions
+): string {
+  // Deep-clone so we never mutate the caller's schema.
+  const clone: GraphSchema = JSON.parse(JSON.stringify(schema))
+  const modelKey = modelId ?? Object.keys(clone.models)[0]
+  const model = modelKey ? clone.models[modelKey] : undefined
+
+  if (model) {
+    const needsLayout = model.nodes.some(
+      (n) =>
+        n.type !== 'dataset' &&
+        n.type !== 'constant' &&
+        (n.visual?.x === undefined || n.visual?.y === undefined)
+    )
+    if (needsLayout) {
+      // autoLayout positions the first model of whatever schema it is given, so
+      // hand it a single-model schema to support a non-default modelId.
+      const positions = autoLayout({ ...clone, models: { [modelKey]: model } })
+      model.nodes.forEach((n) => {
+        if (n.type === 'dataset' || n.type === 'constant') return
+        if (n.visual?.x !== undefined && n.visual?.y !== undefined) return
+        const pos = positions[n.label]
+        if (pos) {
+          n.visual = { ...(n.visual ?? {}), x: pos.x, y: pos.y }
+        }
+      })
+    }
+  }
+
+  return modelToSVG(clone, modelId, options)
+}
+
 // Expose for direct calling from htmlwidgets binding
 if (typeof window !== 'undefined') {
   (window as any).drawSEMInitialize = initializeWidget
-  console.log('[widget.js] Exposed window.drawSEMInitialize function')
+  ;(window as any).drawSEMExportSVG = exportModelToSVG
+  console.log('[widget.js] Exposed window.drawSEMInitialize and window.drawSEMExportSVG')
 }
