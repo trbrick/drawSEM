@@ -22,11 +22,12 @@ Suggests:
   chromote,
   testthat (>= 3.0.0)
 Config/testthat/edition: 3
-Collate: 
+Collate:
     'GraphModel-class.R'
     'GraphModel-methods.R'
     'converters.R'
     'drawSEM.R'
+    'drawSemHints-class.R'
     'utilities.R'
     'validators.R'
     'io.R'

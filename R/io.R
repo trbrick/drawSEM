@@ -351,6 +351,14 @@ setMethod(
 #'
 #' Caches the built model in the GraphModel object.
 #'
+#' Also attaches layout/provenance `drawSemHints` at `@options$drawSemHints`
+#' (see `?drawSemHints`) so a later `as.GraphModel()` on this model recovers
+#' node positions, extra constants, and the dataset label instead of falling
+#' back to auto-layout and hardcoded defaults. This survives ordinary OpenMx
+#' operations (`mxRun()`, `mxTryHard()`, `mxModel()` edits, `saveRDS()`), but
+#' `mxOption(model, key, value, reset = TRUE)` resets the whole options list
+#' and drops it; treat the result the same as a model drawSEM never built.
+#'
 #' @examples
 #' \dontrun{
 #' g <- as.GraphModel(schema, data = list(mydata = my_df))
@@ -448,10 +456,15 @@ setMethod(
       x@schema, working_data, model_id = model_id, optimize = TRUE,
       onUnsupported = onUnsupported
     )
-    
+
+    # Escrow layout/provenance drawSemHints() cannot re-derive after the round
+    # trip through OpenMx (see R/drawSemHints-class.R). An unrecognized option
+    # key; OpenMx ignores it by contract.
+    om_model@options$drawSemHints <- buildDrawSemHints(x@schema, model_id)
+
     # Cache it
     x@lastBuiltModel <- om_model
-    
+
     om_model
   }
 )
@@ -792,13 +805,43 @@ setMethod(
     }
     
     all_vars <- c(manifest_vars, latent_vars)
-    
-    # Handle data first (before creating nodes) so dataset_node is available
-    # Note: MxModel can only have a single mxData object
+
+    # Recover layout/provenance escrowed at build time (R/drawSemHints-class.R),
+    # if present and still valid for this schema version. Absent/invalid hints
+    # (e.g. a plain OpenMx model never built by drawSEM) fall back to the
+    # historical hardcoded behavior below: auto-layout, constant label "1",
+    # dataset label "data".
+    hints <- readDrawSemHints(x)
+    hint_nodes <- if (!is.null(hints)) hints@model$nodes %||% list() else list()
+    hint_paths <- if (!is.null(hints)) hints@model$paths %||% list() else list()
+
+    hint_dataset_node <- Find(function(n) isTRUE(n$type == "dataset"), hint_nodes)
+    dataset_label <- hint_dataset_node$label %||% "data"
+
+    hint_constant_labels <- vapply(
+      Filter(function(n) isTRUE(n$type == "constant"), hint_nodes),
+      function(n) as.character(n$label), character(1)
+    )
+    # For a variable's mean path, the hint's own paths are authoritative for
+    # which constant it came from -- OpenMx's M vector has no such attribution,
+    # it is just one summed number per variable. Falls back to "1" when there
+    # is no hint, or no hint path connects any constant to this variable.
+    constantLabelFor <- function(var_name) {
+      if (length(hint_constant_labels) == 0) return("1")
+      match <- Find(function(p) {
+        !is.null(p$from) && !is.null(p$to) && !isTRUE(p$type == "data") &&
+          p$from %in% hint_constant_labels && identical(p$to, var_name)
+      }, hint_paths)
+      if (!is.null(match)) as.character(match$from) else "1"
+    }
+
+    # Handle data first (before creating nodes) so dataset_node is available.
+    # Note: MxModel can only have a single mxData object.
     data_list <- list()
     data_connections <- list()
     dataset_node <- NULL
-    
+    df <- NULL
+
     if (!is.null(x$data)) {
       data_obj <- x$data
       if (!is.null(data_obj$observed)) {
@@ -807,17 +850,17 @@ setMethod(
           df <- as.data.frame(df, stringsAsFactors = FALSE, check.names = FALSE)
         }
         # Store with key name since MxModel only has one data object
-        data_list$data <- df
-        data_connections$data <- list(
+        data_list[[dataset_label]] <- df
+        data_connections[[dataset_label]] <- list(
           status = "user_bound",
           filepath = NA_character_
         )
-        
+
         # Create dataset node with embedded datasetSource
         data_as_json <- dataFrameToJSON(df)
-        
+
         dataset_node <- list(
-          label = "data",
+          label = dataset_label,
           type = "dataset",
           datasetSource = list(
             type = "embedded",
@@ -830,6 +873,12 @@ setMethod(
           )
         )
       }
+    } else if (!is.null(hint_dataset_node)) {
+      # No live mxData (e.g. a template/simulation model), but the hint
+      # remembers a dataset node existed -- restore it, sans embedded data,
+      # as a visual hint. (TASKS.md: "dataset nodes persist as visual hints
+      # regardless of what reaches M".)
+      dataset_node <- hint_dataset_node
     }
     
     # Create nodes for all variables
@@ -853,16 +902,37 @@ setMethod(
       )
     }
     
-    # Add constant node for schema representation.
-    # The schema uses label "1"; buildPathList later converts that to OpenMx's "one".
-    nodes[[length(nodes) + 1]] <- list(
-      label = "1",
-      type = "constant"
-    )
-    
-    # Add dataset node if data exists
+    # Add constant node(s) for schema representation. The schema's default
+    # constant label is "1"; buildPathList later converts that to OpenMx's
+    # "one". A hint can record additional constants (e.g. "1b") connected to
+    # specific variables -- those labels surface here via constantLabelFor(),
+    # independent of whether the live M vector still carries a nonzero value
+    # for that variable (TASKS.md: "regardless of what reaches M").
+    constant_labels <- union("1", vapply(all_vars, constantLabelFor, character(1)))
+    for (constant_label in constant_labels) {
+      nodes[[length(nodes) + 1]] <- list(label = constant_label, type = "constant")
+    }
+
+    # Add dataset node if data exists (live, or restored from a hint above)
     if (!is.null(dataset_node)) {
       nodes[[length(nodes) + 1]] <- dataset_node
+    }
+
+    # Append any hint-only constant/dataset nodes not already present: inert
+    # scaffolding with no fit impact, so -- unlike paths or variable nodes --
+    # they persist regardless of what the live model still references
+    # (TASKS.md: "Hint node list is independent of the MxModel's").
+    present_node_labels <- vapply(nodes, function(n) as.character(n$label %||% NA), character(1))
+    extra_hint_nodes <- Filter(
+      function(n) isTRUE(n$type %in% c("constant", "dataset")),
+      hint_nodes
+    )
+    for (hn in extra_hint_nodes) {
+      hn_label <- as.character(hn$label %||% NA)
+      if (!(hn_label %in% present_node_labels)) {
+        nodes[[length(nodes) + 1]] <- hn
+        present_node_labels <- c(present_node_labels, hn_label)
+      }
     }
     
     # Extract paths from A and S matrices
@@ -944,17 +1014,18 @@ setMethod(
     s_paths <- add_paths_from_matrix(s_name, 2, symmetric = TRUE)
     paths <- c(paths, s_paths)
     
-    # Create data mapping paths if dataset exists
+    # Create data mapping paths if there is live data to map (a dataset node
+    # restored purely from a hint, with no mxData, has nothing to map).
     data_paths <- NULL
-    if (!is.null(dataset_node)) {
+    if (!is.null(df)) {
       data_paths <- list()
       data_cols <- names(df)
-      
+
       # Create a path from dataset node to each manifest variable in the data
       for (var in manifest_vars) {
         if (var %in% data_cols) {
           data_path <- list(
-            from = "data",
+            from = dataset_label,
             to = var,
             type = "data",
             value = NA_real_,
@@ -998,7 +1069,7 @@ setMethod(
               opt_info <- extractOptimizationFromMatrix(m_mat, 1, j)
               
               mean_path <- list(
-                from = "1",
+                from = constantLabelFor(var_name),
                 to = var_name,
                 numberOfArrows = 1,
                 value = val,
@@ -1042,7 +1113,41 @@ setMethod(
     optimization <- list(
       fitFunction = fit_function
     )
-    
+
+    # Overlay cosmetic fields (visual position, description, tags) from the
+    # hint onto matching live nodes/paths -- content OpenMx has no way to
+    # carry, so there is nothing on the live side to conflict with. Never
+    # reinstates a path absent from the live model: unlike the constant/
+    # dataset nodes above, a path's absence may be an intentional edit made
+    # directly on the MxModel.
+    if (!is.null(hints)) {
+      hint_nodes_by_label <- setNames(
+        hint_nodes,
+        vapply(hint_nodes, function(n) as.character(n$label %||% NA), character(1))
+      )
+      nodes <- lapply(nodes, function(node) {
+        hn <- hint_nodes_by_label[[as.character(node$label %||% NA)]]
+        if (!is.null(hn)) {
+          if (!is.null(hn$visual)) node$visual <- hn$visual
+          if (!is.null(hn$description)) node$description <- hn$description
+          if (!is.null(hn$tags)) node$tags <- hn$tags
+        }
+        node
+      })
+
+      pathKey <- function(p) paste(p$from, p$to, p$numberOfArrows %||% NA, sep = "")
+      hint_paths_by_key <- setNames(hint_paths, vapply(hint_paths, pathKey, character(1)))
+      paths <- lapply(paths, function(path) {
+        hp <- hint_paths_by_key[[pathKey(path)]]
+        if (!is.null(hp)) {
+          if (!is.null(hp$visual)) path$visual <- hp$visual
+          if (!is.null(hp$description)) path$description <- hp$description
+          if (!is.null(hp$tags)) path$tags <- hp$tags
+        }
+        path
+      })
+    }
+
     # Build schema
     schema <- list(
       schemaVersion = 0,
