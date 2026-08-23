@@ -335,6 +335,20 @@ The spec describes model meaning; estimation is configured separately.
   present only when the author adds them; they make Bayesian available but do not force
   it, and their absence is not a backend default to be filled in.
 
+**MCMC settings are computational hints, not analysis configuration.** Chains,
+iterations, warmup, thinning, inits, and adapt parameters sit in the hint layer with
+start values and optimizer choice: the posterior is defined by model + data + priors
+alone, so no sampler setting changes the estimand. They are **recorded in the fit
+result** as what actually ran, not pinned in the spec. The **seed** is likewise
+recorded rather than pinned, but is never dropped — it is the one computational item
+the reporting literature mandates outright.
+
+This puts the reproducibility weight on **provenance**, not on the spec: what a reader
+needs is the software version, the seed, and per-parameter convergence diagnostics
+(R-hat, ESS, MCSE), all of which are *results*. Posterior draws are referenced
+externally, never embedded. Rationale, the reporting-guideline evidence, and the
+consequences for `fitResults` are in `DESIGN-DECISIONS.md` Open Question 9.
+
 Anything not pinned is changeable at fit time, consistent with practice (trying
 optimizers/fit functions until satisfied); provenance records what actually ran.
 Consequence: **model-portability is not result-portability** — equivalent results
@@ -390,6 +404,8 @@ deferred, not excluded.
 | Item | Status |
 |---|---|
 | **Provenance model** (what is recorded; single-model & collection level; process-provenance; lineage) | the next design discussion; deferred |
+| **Posterior-shaped fit results** (posterior summaries, credible intervals with level + type, per-parameter R-hat/ESS/MCSE, WAIC/LOO/PPP, backend version, external draw references, growth policy) | the layer question is settled (§10); the record's shape is the first concrete demand on the provenance model above. `DESIGN-DECISIONS.md` OQ 9 |
+| **Typed prior vocabulary** (closed family union; default parameterization; whether prior arguments are literals or §8 expressions) | needed for portability; the literal-vs-expression call constrains the §8 grammar, so decide with it, not after |
 | **Aggregation across a dimension** (contextual effects; a general sum-across) | first deferred extension beyond the intrinsic membership-simplex normalization |
 | **Operator nodes** (constrained, deferred subset) | reuse the grammar but compute variables; own identification/path requirements; backend-limited |
 | **Role-swap / reciprocal correspondence** (SRM dyadic reciprocity, `rel_ij ↔ rel_ji`) | a transform on a link grain, analogous to a lag-offset |

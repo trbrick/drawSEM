@@ -25,8 +25,8 @@ explicit direction.
 - The schema is intended to be a **portable, backend-agnostic model spec** —
   not just an internal format. The goal is for SEM packages (starting with
   OpenMx) to implement schema importers and exporters directly.
-- Current schema version: `schemaVersion: 1`, being renumbered to **`0`** to free
-  `1` for the target design (`SCHEMA-DESIGN.md`); see the easy-wins plan.
+- Current schema version: **`schemaVersion: 0`**; `1` is reserved for the
+  target design (`SCHEMA-DESIGN.md`).
 - Schema design should favour **readability and unambiguity**: a schema should
   be straightforward for a human to read and understand, and equally
   straightforward for an AI to generate, validate, or modify correctly. Prefer
@@ -130,11 +130,38 @@ immediately.
 
 ### Unsupported Features
 
-Features not yet implemented are not silently dropped. They are stored in
-`@metadata$unsupported` so that round-tripping is possible when support is
-added. This applies to: link functions, operator nodes, 0-arrow paths, priors
-(stored but not applied by the frequentist OpenMx converter), algebras,
-constraints, definition variables, etc.
+Features the core schema cannot yet represent are not silently dropped, but the
+mechanism differs by why they're unsupported:
+
+- **Structurally non-core** (`linkFunction` / `operator` nodes, 0-headed paths):
+  on import, `extractPendingCore()` relocates them out of the model's core
+  `nodes`/`paths` into `model$extensions$pendingCore`, verbatim, so the cleaned
+  core validates strictly and the rest of the model still loads and renders.
+  Any path incident to a relocated node is relocated with it, so the cleaned
+  core never has a dangling `from`/`to`. Each entry carries `kind`, the verbatim
+  `object`, and an `origin` (e.g. `nativeForm: "zeroHeadedPath"`).
+  `stampExporter()` additionally stamps `origin$exporter` (tool + version) on
+  every entry each time the schema is written — last-writer-wins, since the
+  serializing tool may differ from the one that originally created the entry.
+  A single warning listing every entry is emitted on both import and export
+  (`warnPendingCore()`), because pendingCore content is pure passthrough — it
+  is never re-validated against the rest of the model, so an edit elsewhere may
+  silently invalidate it.
+- **Core-but-inert** (priors): schema-valid content the OpenMx converter simply
+  does not apply, since OpenMx is frequentist-only. These stay in core
+  (`optimization.prior` / per-path `optimization.prior`) rather than being
+  relocated, with a warning at import. See Open Question 9.
+
+At conversion time, `schemaToOpenMx(onUnsupported=)` decides what happens to a
+model's `extensions$pendingCore`: `"stop"` (default) refuses, listing every
+entry; `"ignore"` builds a reduced model that omits them (with a warning),
+leaving them in the schema untouched. No backend reconstructor exists yet for
+any pendingCore kind, so an entry is never rebuilt back into the fitted model —
+only ignored or refused.
+
+This is distinct from `@metadata$unsupported`, a boolean flag set recomputed
+on every import (`collectUnsupportedFeatures()`) purely to drive an import-time
+warning; it is explicitly **not persisted** and plays no part in round-tripping.
 
 ### Parameter bounds, priors, and starting values
 
@@ -152,7 +179,8 @@ constraints, definition variables, etc.
   split of `optimization` into analysis-config vs. computational slots — and
   where `bounds` belongs — is deferred.
 - The OpenMx converter **does not apply priors** (OpenMx is frequentist);
-  they are stored for future use by blavaan and other Bayesian backends.
+  they are stored for future use by blavaan and other Bayesian backends. This is
+  safe only while priors are weakly informative; see Open Question 9.
 - Bounds are stored but not currently passed to `mxPath` in v0.1.
 
 ### Node Metadata in Schema
@@ -369,3 +397,63 @@ back; R-side layout parameters/seed on `plotGraphModel()`; save-JSON-and-reload;
 
 **Affected areas:** `R/drawSEM.R` (`plotGraphModel` editability), `R/shiny-app.R`,
 the widget adapters, `exportImage()`.
+
+---
+
+### 9. Bayesian estimation: which settings are model content
+
+**Target direction (`schemaVersion: 1`):** sampler settings are computational
+hints recorded in the fit result, not spec content; see `SCHEMA-DESIGN.md` §10.
+The task breakdown is in `ai-workflow/TASKS.md`.
+
+**The question:** Priors are already storable (`optimization.parameterTypes.*.prior`,
+per-path `optimization.prior`). What *else* does a Bayesian fit need in the
+schema, and which layer of the `SCHEMA-DESIGN.md` §10 split does each part land
+in — intrinsic model content, pinnable analysis configuration, or advisory
+computational hint?
+
+**Settled (2026-08-07).** MCMC settings are **computational hints**, recorded in
+the fit result as what actually ran rather than pinned in the spec. The **seed is
+kept** as recorded provenance. **Posterior draws are referenced externally**
+(`datasetSource`-style: location + format + md5), never embedded.
+
+**Why, given the reporting literature.** The earlier argument for pinning chains
+and iterations in the spec was that a pinned seed only reproduces anything if
+what it seeds is also exact. That holds for bit-exact re-execution, which is not
+what the field asks for:
+
+- **BARG** (Kruschke 2021, *Nature Human Behaviour*) Step 2 requires the software
+  *and version*, a convergence statistic (PSRF) **for every parameter**, and ESS
+  **for every parameter**. Step 6.H requires only that "the pseudo-random number
+  generators should be explicitly seeded." Iterations, warmup, and thinning are
+  narrative best practice, **not** checklist items.
+- **WAMBS** / WAMBS-v2 (Depaoli & van de Schoot 2017) point 3 is "Does convergence
+  remain after doubling the number of iterations?" — iterations are a knob you
+  deliberately *vary* as a diagnostic, so pinning them in the spec fights the
+  workflow.
+
+So the field's reproducibility unit is **seed + software version + per-parameter
+diagnostics**, not full sampler configuration. The weight belongs in `fitResults`,
+not in `optimization`. The seed stays because it is the one mandated computational
+item and costs ~8 bytes; it is not what makes stored fits grow (draws are, by
+roughly five orders of magnitude).
+
+**Consequences, unresolved:**
+
+- `fitResults` is point-estimate-shaped and `additionalProperties: false`, so the
+  posterior summaries and diagnostics BARG requires are not incrementally addable.
+- `backend` carries no version field, failing BARG 2.A for **all** backends today.
+- "OpenMx silently ignores priors" is safe only for weakly informative priors; an
+  identifying prior dropped silently yields a different or non-identified model.
+  Wants an `inference` pin plus the `SCHEMA-DESIGN.md` §8 capability profile.
+- `prior` is an untyped bag, so it is not portable across backends that
+  parameterize the same family differently (precision vs sd).
+
+**Sources:** [BARG](https://www.nature.com/articles/s41562-021-01177-7)
+([PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC8526359/));
+[WAMBS](https://pubmed.ncbi.nlm.nih.gov/26690773/);
+[blavaan](https://arxiv.org/pdf/1511.05604).
+
+**Affected areas:** `graph.schema.json` (`optimization`, `provenance.fitResults`),
+`core/types.ts` (`Prior`, `ExportOptions.mcmcOptions`), `R/fitting.R`,
+`R/GraphModel-methods.R` (`coef`/`vcov`/`confint` assume point estimates).

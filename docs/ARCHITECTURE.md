@@ -126,9 +126,13 @@ nodes, paths, parameter values, and data from any RAM-type model.
   `"1"` becomes `"one"` only in OpenMx)
 4. Infer manifest variables (from incoming `type: "data"` paths, or explicit
    `variableCharacteristics$manifestLatent`); all other variable nodes are latent
-5. Build `mxPath` list — skip `type: "data"` paths; flag unsupported features
-  (link functions, 0-arrow paths, priors) into `@metadata$unsupported` for
-  future round-tripping
+5. Build `mxPath` list — skip `type: "data"` paths. Non-core features already
+   relocated to `extensions$pendingCore` on import (link functions, operator
+   nodes, 0-arrow paths) are handled per `schemaToOpenMx(onUnsupported=)`:
+   `"stop"` (default) refuses with an error listing them; `"ignore"` builds a
+   reduced model that omits them, with a warning. Priors stay in core schema
+   content; the OpenMx backend is frequentist-only and silently does not apply
+   them, with a warning.
 6. Assemble `mxModel(type="RAM", ...)` and apply non-ML fit function if specified
 
 Path parameter state is carried by `freeParameter` plus `value` in the schema.
@@ -163,15 +167,14 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
 - R package: `GraphModel` S4 class, schema validation, schema → OpenMx
   conversion, `mxRun()`, `exportSchema()`, `loadGraphModel()`, `plotGraphModel()`,
   `plot.GraphModel()`, `plot.MxModel()`, `setLocation()`, `exportImage()`,
-  90+ testthat tests
+  460+ testthat tests
 - Web frontend: adapter pattern, dual-build, htmlwidgets binding, bidirectional
-  Shiny messaging (Phase 1, Tasks 1–8)
-- Web frontend: auto-layout algorithm (RAMPath), SVG renderer (Tasks 13–14)
+  Shiny messaging (model load/save, fit requests, save-to-env, fit-status updates)
+- Web frontend: auto-layout algorithm (RAMPath) with a toolbar button, SVG
+  renderer, SVG/PNG export buttons
 - Headless image export: `exportImage()` (R) via `window.drawSEMExportSVG` (widget)
 
 ### Specced, not yet implemented
-- Web frontend: R plotting integration hooks, SVG/PNG export buttons, auto-layout
-  toolbar button (Tasks 15–18)
 - lavaan and blavaan backends (v0.2+)
 - Link function nodes (ordinal/categorical variables) (v0.2+)
 - Operator nodes (log transforms, polynomials, interactions) (v0.3+)
@@ -213,6 +216,9 @@ commit so the committed widget assets stay in sync with the source.
 |-------|----------|
 | Open design questions and settled decisions | `docs/DESIGN-DECISIONS.md` |
 | OpenMx concepts AI tools commonly get wrong | `docs/OPENMX-PRIMER.md` |
+| Long-term schema vision (target `schemaVersion: 1`) | `docs/SCHEMA-VISION.md` |
+| Target schema design — relational core, composition, data layer, expressions | `docs/SCHEMA-DESIGN.md` |
+| Application-model benchmark (what must be expressible) | `docs/APPLICATION-MODEL-CATALOG.md` |
 | Current tasks and session notes | `ai-workflow/` (gitignored) |
 
 > **Note on `Noise files/`:** This gitignored directory is where AI-generated
