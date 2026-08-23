@@ -21,6 +21,20 @@ const validSchema: GraphSchema = {
   },
 }
 
+// Stubs out the anchor-click download path and returns the fake <a> element so a
+// test can read back the filename save() chose.
+function stubDownload() {
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:http://localhost/test-uuid'),
+    revokeObjectURL: vi.fn(),
+  })
+  const linkElement = { click: vi.fn(), href: '', download: '', tagName: 'A' }
+  vi.spyOn(document, 'createElement').mockReturnValue(linkElement as any)
+  vi.spyOn(document.body, 'appendChild').mockImplementation(() => linkElement as any)
+  vi.spyOn(document.body, 'removeChild').mockImplementation(() => linkElement as any)
+  return linkElement
+}
+
 describe('LocalAdapter', () => {
   let exporter: ReturnType<typeof createLocalAdapter>
   let fetchMock: any
@@ -130,30 +144,28 @@ describe('LocalAdapter', () => {
       vi.unstubAllGlobals()
     })
 
-    it('should create download with timestamp filename', async () => {
-      // Mock URL.createObjectURL
-      const blobUrl = 'blob:http://localhost/test-uuid'
-      vi.stubGlobal('URL', {
-        createObjectURL: vi.fn(() => blobUrl),
-        revokeObjectURL: vi.fn(),
-      })
-
-      const clickSpy = vi.fn()
-      const linkElement = {
-        click: clickSpy,
-        href: '',
-        download: '',
-        tagName: 'A',
-      }
-      const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue(linkElement as any)
-      vi.spyOn(document.body, 'appendChild').mockImplementation(() => linkElement as any)
-      vi.spyOn(document.body, 'removeChild').mockImplementation(() => linkElement as any)
+    it('should name the download after the model label', async () => {
+      const linkElement = stubDownload()
 
       await exporter.save(validSchema)
 
+      // modelFilename() slugifies the label; 'Test Model' -> 'test-model'
+      expect(linkElement.download).toBe('test-model.json')
+
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
+
+    it('should fall back to a dated filename when the model has no label', async () => {
+      const linkElement = stubDownload()
+
+      const unlabelled = { ...validSchema, models: { model1: { ...validSchema.models.model1 } } }
+      delete unlabelled.models.model1.label
+      await exporter.save(unlabelled)
+
       expect(linkElement.download).toMatch(/^graph-\d{4}-\d{2}-\d{2}\.json$/)
 
-      createElementSpy.mockRestore()
+      vi.restoreAllMocks()
       vi.unstubAllGlobals()
     })
 

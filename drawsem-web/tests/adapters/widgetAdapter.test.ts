@@ -27,6 +27,20 @@ const mockShiny = {
   setInputValue: vi.fn(),
 }
 
+// Stubs out the anchor-click download path and returns the fake <a> element so a
+// test can read back the filename save() chose.
+function stubDownload() {
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:http://localhost/test-uuid'),
+    revokeObjectURL: vi.fn(),
+  })
+  const linkElement = { click: vi.fn(), href: '', download: '', tagName: 'A' }
+  vi.spyOn(document, 'createElement').mockReturnValue(linkElement as any)
+  vi.spyOn(document.body, 'appendChild').mockImplementation(() => linkElement as any)
+  vi.spyOn(document.body, 'removeChild').mockImplementation(() => linkElement as any)
+  return linkElement
+}
+
 describe('WidgetAdapter', () => {
   beforeEach(() => {
     // Setup Shiny in window
@@ -136,12 +150,20 @@ describe('WidgetAdapter', () => {
   })
 
   describe('save()', () => {
-    it('should call setInputValue with graph_model and schema', async () => {
+    it('should download the schema rather than pushing it to Shiny', async () => {
       const exporter = createWidgetAdapter()
+      const linkElement = stubDownload()
 
       await exporter.save(validSchema)
 
-      expect(mockShiny.setInputValue).toHaveBeenCalledWith('graph_model', validSchema)
+      // save() means "user-initiated download to disk" in both adapters;
+      // pushing to R reactively is sync()'s job, not save()'s.
+      expect(linkElement.click).toHaveBeenCalled()
+      expect(linkElement.download).toBe('test-model.json')
+      expect(mockShiny.setInputValue).not.toHaveBeenCalled()
+
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
     })
 
     it('should throw WidgetAdapterError on invalid schema', async () => {
@@ -164,11 +186,33 @@ describe('WidgetAdapter', () => {
 
     it('should handle multiple saves correctly', async () => {
       const exporter = createWidgetAdapter()
+      const linkElement = stubDownload()
 
       await exporter.save(validSchema)
       await exporter.save(validSchema)
 
-      expect(mockShiny.setInputValue).toHaveBeenCalledTimes(2)
+      expect(linkElement.click).toHaveBeenCalledTimes(2)
+
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    })
+  })
+
+  describe('sync()', () => {
+    it('should push the schema to R as the graph_model input', () => {
+      const exporter = createWidgetAdapter()
+
+      exporter.sync?.(validSchema)
+
+      expect(mockShiny.setInputValue).toHaveBeenCalledWith('graph_model', validSchema)
+    })
+
+    it('should ignore an invalid schema', () => {
+      const exporter = createWidgetAdapter()
+
+      exporter.sync?.({ foo: 'bar' } as any)
+
+      expect(mockShiny.setInputValue).not.toHaveBeenCalled()
     })
   })
 
@@ -497,11 +541,11 @@ describe('WidgetAdapter', () => {
       exporter.onModelReceived?.(callback1)
       exporter.onModelReceived?.(callback2)
 
-      // Each onModelReceived call registers one 'update_model' handler.
-      // createWidgetAdapter also registers one 'trigger_svg_export' handler at creation.
+      // Each onModelReceived call registers one 'update_model' handler, and
+      // createWidgetAdapter registers none of its own. Image export does not go
+      // through Shiny at all -- R calls window.drawSEMExportSVG directly.
       expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledWith('update_model', expect.any(Function))
-      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledWith('trigger_svg_export', expect.any(Function))
-      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledTimes(3)
+      expect(mockShiny.addCustomMessageHandler).toHaveBeenCalledTimes(2)
     })
 
     it('should work with real schema conversion', async () => {
