@@ -1,5 +1,5 @@
-import type { GraphSchema, Model } from '../core/types'
-import type { Node, Path } from './helpers'
+import type { GraphSchema, Model, RepeatGroup } from '../core/types'
+import type { Node, Path, RuntimeRepeatGroup } from './helpers'
 
 export interface RuntimeModel {
   id: string
@@ -7,6 +7,9 @@ export interface RuntimeModel {
   nodes: Node[]
   paths: Path[]
   parameterTypes: Record<string, any>
+  // Coordinate-expansion prototype — not core schema content. Serialized to
+  // extensions.toolPrivate.drawSEM.repeatGroups; no other tool interprets it.
+  repeatGroups?: RuntimeRepeatGroup[]
 }
 
 export interface RuntimeToSchemaOptions {
@@ -76,6 +79,25 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
     })),
     ...(model.parameterTypes && Object.keys(model.parameterTypes).length > 0
       ? { optimization: { parameterTypes: model.parameterTypes } }
+      : {}),
+    ...(model.repeatGroups && model.repeatGroups.length > 0
+      ? {
+          extensions: {
+            toolPrivate: {
+              drawSEM: {
+                repeatGroups: model.repeatGroups.map((g): RepeatGroup => ({
+                  id: g.id,
+                  coordinateDimension: g.coordinateDimension,
+                  instanceCount: g.instanceCount,
+                  ...(g.dataSource ? { dataSource: g.dataSource } : {}),
+                  viewState: g.viewState,
+                  nodeLabels: g.nodeIds.map((id) => idToLabel[id] ?? id),
+                  visual: g.visual,
+                })),
+              },
+            },
+          },
+        }
       : {}),
   }
 }

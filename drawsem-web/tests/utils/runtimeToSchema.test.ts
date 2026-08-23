@@ -83,4 +83,68 @@ describe('runtimeToSchema utilities', () => {
     expect(layoutModel.paths.every((p: any) => !('parameterType' in p))).toBe(true)
     expect(layoutModel.paths.every((p: any) => !('visual' in p))).toBe(true)
   })
+
+  it('round-trips repeatGroups through extensions.toolPrivate.drawSEM', () => {
+    const source = loadExampleSchema()
+    const runtimeModel = convertDocToRuntime(source)[0]
+    const [nodeA, nodeB] = runtimeModel.nodes
+
+    const repeatGroups = [
+      {
+        id: 'rg_1',
+        coordinateDimension: 'time',
+        instanceCount: 3,
+        dataSource: null,
+        viewState: 'collapsed' as const,
+        nodeIds: [nodeA.id, nodeB.id],
+        visual: {
+          templateX: 10,
+          templateY: 20,
+          instanceWidth: 100,
+          instanceHeight: 80,
+          instanceSpacing: 40,
+          axis: 'horizontal' as const,
+        },
+      },
+    ]
+
+    const schema = modelToSchema({ ...runtimeModel, repeatGroups })
+    const schemaModel = Object.values(schema.models)[0] as any
+
+    // Not core content: must not appear as a top-level model field.
+    expect(schemaModel.repeatGroups).toBeUndefined()
+    // Escrowed under toolPrivate, keyed by tool name, with node ids resolved to labels.
+    const escrowed = schemaModel.extensions.toolPrivate.drawSEM.repeatGroups
+    expect(escrowed).toEqual([
+      {
+        id: 'rg_1',
+        coordinateDimension: 'time',
+        instanceCount: 3,
+        viewState: 'collapsed',
+        nodeLabels: [nodeA.label, nodeB.label],
+        visual: repeatGroups[0].visual,
+      },
+    ])
+
+    // Reloading resolves labels back to freshly generated runtime ids.
+    const reloaded = convertDocToRuntime(schema)[0]
+    expect(reloaded.repeatGroups).toHaveLength(1)
+    expect(reloaded.repeatGroups[0].coordinateDimension).toBe('time')
+    expect(reloaded.repeatGroups[0].instanceCount).toBe(3)
+    expect(reloaded.repeatGroups[0].visual).toEqual(repeatGroups[0].visual)
+    const reloadedLabels = reloaded.repeatGroups[0].nodeIds.map(
+      (id: string) => reloaded.nodes.find((n: any) => n.id === id)?.label
+    )
+    expect(reloadedLabels).toEqual([nodeA.label, nodeB.label])
+  })
+
+  it('omits extensions entirely when there are no repeat groups', () => {
+    const source = loadExampleSchema()
+    const runtimeModel = convertDocToRuntime(source)[0]
+
+    const schema = modelToSchema(runtimeModel)
+    const schemaModel = Object.values(schema.models)[0] as any
+
+    expect(schemaModel.extensions).toBeUndefined()
+  })
 })
