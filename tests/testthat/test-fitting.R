@@ -83,6 +83,160 @@ test_that("hashStructure() ignores visual properties", {
   expect_equal(hash1, hash2)
 })
 
+# Shared base for the path-field tests below: one fixed loading, so `value` is
+# the fixed value rather than a start value.
+fixedLoadingSchema <- function() {
+  list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest")),
+          list(label = "Factor", type = "variable", variableCharacteristics = list(manifestLatent = "latent"))
+        ),
+        paths = list(
+          list(from = "Factor", to = "x1", numberOfArrows = 1, value = 1.0)
+        ),
+        optimization = list(fitFunction = "ML", missingness = "FIML", parameterTypes = list())
+      )
+    )
+  )
+}
+
+test_that("hashStructure() detects a changed fixed path value", {
+  schema <- fixedLoadingSchema()
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  # freeParameter is absent, so `value` is the fixed loading: changing it
+  # changes the model and must make a recorded fit stale.
+  schema$models$model1$paths[[1]]$value <- 0.5
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_false(identical(hash1, hash2))
+})
+
+test_that("hashStructure() detects a changed path label", {
+  schema <- fixedLoadingSchema()
+  schema$models$model1$paths[[1]]$freeParameter <- TRUE
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  # With freeParameter TRUE rather than a string, buildPathList() falls back to
+  # `label` for the mxPath parameter name, so it can constrain paths equal.
+  schema$models$model1$paths[[1]]$label <- "lambda1"
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_false(identical(hash1, hash2))
+})
+
+test_that("hashStructure() detects changed per-path bounds and priors", {
+  schema <- fixedLoadingSchema()
+  schema$models$model1$paths[[1]]$freeParameter <- TRUE
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  schema$models$model1$paths[[1]]$optimization <- list(bounds = list(0, 10))
+  hash2 <- hashStructure(as.GraphModel(schema))
+  expect_false(identical(hash1, hash2))
+
+  schema$models$model1$paths[[1]]$optimization <- list(
+    prior = list(distribution = "normal", mean = 0, sd = 1)
+  )
+  # The OpenMx backend warns that it will not apply the prior; not under test.
+  hash3 <- suppressWarnings(hashStructure(as.GraphModel(schema)))
+  expect_false(identical(hash1, hash3))
+  expect_false(identical(hash2, hash3))
+})
+
+test_that("hashStructure() ignores per-path start values", {
+  schema <- fixedLoadingSchema()
+  schema$models$model1$paths[[1]]$freeParameter <- TRUE
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  # `start` is an advisory computational hint, not model content
+  # (SCHEMA-DESIGN.md section 10), so it must not mark a fit stale.
+  schema$models$model1$paths[[1]]$optimization <- list(start = 0.7)
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_equal(hash1, hash2)
+})
+
+test_that("hashStructure() treats a start-only optimization block as absent", {
+  # Regression: an optimization block containing only `start` must hash
+  # identically to no optimization block at all, or adding the first start
+  # hint to a bare path would itself flip the hash.
+  schema1 <- fixedLoadingSchema()
+  schema1$models$model1$paths[[1]]$freeParameter <- TRUE
+  hash1 <- hashStructure(as.GraphModel(schema1))
+
+  schema2 <- fixedLoadingSchema()
+  schema2$models$model1$paths[[1]]$freeParameter <- TRUE
+  schema2$models$model1$paths[[1]]$optimization <- list(start = 0.7)
+  hash2 <- hashStructure(as.GraphModel(schema2))
+
+  expect_equal(hash1, hash2)
+})
+
+test_that("hashStructure() ignores visual, description, and tags on paths and nodes", {
+  schema <- fixedLoadingSchema()
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  schema$models$model1$nodes[[1]]$visual <- list(x = 10, y = 20)
+  schema$models$model1$nodes[[1]]$description <- "a manifest variable"
+  schema$models$model1$nodes[[1]]$tags <- list("demo")
+  schema$models$model1$paths[[1]]$visual <- list(curvature = 0.5)
+  schema$models$model1$paths[[1]]$description <- "the loading"
+  schema$models$model1$paths[[1]]$tags <- list("core")
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_equal(hash1, hash2)
+})
+
+test_that("hashStructure() detects a changed dataset source", {
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(label = "x1", type = "variable", variableCharacteristics = list(manifestLatent = "manifest")),
+          list(
+            label = "data", type = "dataset",
+            datasetSource = list(type = "file", location = "a.csv", columnTypes = list(x1 = "number"), md5 = "aaa")
+          )
+        ),
+        paths = list(list(from = "data", to = "x1", type = "data", label = "x1")),
+        optimization = list(fitFunction = "ML", missingness = "FIML", parameterTypes = list())
+      )
+    )
+  )
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  # Swapping the underlying data file is a structural change: it is not
+  # detected via a separate dataBinding comparison, only via structureHash.
+  schema$models$model1$nodes[[2]]$datasetSource$md5 <- "bbb"
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_false(identical(hash1, hash2))
+})
+
+test_that("hashStructure() ignores global parameterType start defaults", {
+  schema <- fixedLoadingSchema()
+  schema$models$model1$optimization$parameterTypes <- list(
+    loadings = list(bounds = list(0, NULL))
+  )
+  hash1 <- hashStructure(as.GraphModel(schema))
+
+  # `start` is advisory (SCHEMA-DESIGN.md section 10) at the parameterType
+  # level too, same as per-path -- it must not affect staleness.
+  schema$models$model1$optimization$parameterTypes$loadings$start <- 0.3
+  hash2 <- hashStructure(as.GraphModel(schema))
+
+  expect_equal(hash1, hash2)
+
+  # But a changed bound is model content.
+  schema$models$model1$optimization$parameterTypes$loadings$bounds <- list(0, 10)
+  hash3 <- hashStructure(as.GraphModel(schema))
+  expect_false(identical(hash1, hash3))
+})
+
 test_that("getFitResults() returns NULL when no fits available", {
   schema <- list(
     schemaVersion = 0,

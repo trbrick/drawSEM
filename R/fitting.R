@@ -12,58 +12,82 @@ NULL
 #' @return Character digest hash, or NA if unable to hash
 #'
 #' @details
-#' Includes in hash:
-#' - Node structure (label, type, variableCharacteristics)
-#' - Path structure (from, to, numberOfArrows, freeParameter, parameterType)
-#' - Optimization parameters (fitFunction, missingness, parameterTypes)
+#' Hashes each node, path, and the model's `optimization` block as a whole,
+#' minus an explicit exclude-list, rather than an allowlist that has to be
+#' extended by hand every time a fitting-relevant key is added to the schema.
 #'
 #' Excludes:
-#' - Visual properties (positions, colors)
-#' - UI metadata
-#' - Fit results
+#' - `visual`, `description`, `tags` on nodes and paths: cosmetic/organizational,
+#'   never read by the converter
+#' - `start`, wherever it appears (`optimization.parameterTypes.*.start`,
+#'   per-path `optimization.start`): an advisory computational hint, not model
+#'   content (see `SCHEMA-DESIGN.md` section 10) — it does not change what the
+#'   model means, so it must not make a recorded fit stale
+#' - Fit results (`provenance`), which are outputs, not inputs
+#'
+#' Consequently a dataset node's `datasetSource` (file/embedded data, md5,
+#' column types) and `bindingMappings` are included: swapping a model's
+#' underlying data is a structural change even though today's OpenMx converter
+#' doesn't read `bindingMappings` itself.
 #'
 #' @keywords internal
 #' @noRd
+
+# Keys carried on nodes/paths that are cosmetic or organizational, never read
+# by the converter, and so must not affect the structural hash.
+.hashStructureExcludeKeys <- c("visual", "description", "tags")
+
+# Drops `keys` from a schema fragment (a named list), leaving every other key
+# -- known or not yet invented -- untouched. `x[!names(x) %in% keys]` is a
+# no-op for keys that were never present, so this is safe on partial objects.
+#
+# Collapses to NULL when nothing survives, rather than an empty list: an
+# `optimization` block that had only `start` must hash identically to one
+# that was never present at all, or adding a start hint to a previously-bare
+# path would itself flip the hash -- the exact failure mode this excludes.
+.hashOmit <- function(x, keys) {
+  if (is.null(x) || length(x) == 0) return(NULL)
+  filtered <- x[!(names(x) %in% keys)]
+  if (length(filtered) == 0) return(NULL)
+  filtered
+}
+
 hashStructure <- function(graphModel, model_id = NULL) {
   if (is.null(graphModel) || !is(graphModel, "GraphModel")) {
     return(NA_character_)
   }
-  
+
   # Determine model
   if (is.null(model_id)) {
     model_id <- names(graphModel@schema$models)[1]
   }
-  
+
   model <- graphModel@schema$models[[model_id]]
   if (is.null(model)) {
     return(NA_character_)
   }
-  
+
   # Extract fitting-relevant structure
   relevant_parts <- list(
-    nodes = lapply(model$nodes %||% list(), function(n) {
-      list(
-        label = n$label,
-        type = n$type,
-        variableCharacteristics = n$variableCharacteristics
-      )
-    }),
+    nodes = lapply(model$nodes %||% list(), .hashOmit, keys = .hashStructureExcludeKeys),
     paths = lapply(model$paths %||% list(), function(p) {
-      list(
-        from = p$from,
-        to = p$to,
-        numberOfArrows = p$numberOfArrows,
-        freeParameter = p$freeParameter,
-        parameterType = p$parameterType
-      )
+      p <- .hashOmit(p, .hashStructureExcludeKeys)
+      # Per-path override: `start` is advisory (see @details); prior and
+      # bounds are model content and stay.
+      if (!is.null(p$optimization)) {
+        p$optimization <- .hashOmit(p$optimization, "start")
+      }
+      p
     }),
     optimization = list(
       fitFunction = model$optimization$fitFunction,
       missingness = model$optimization$missingness,
-      parameterTypes = model$optimization$parameterTypes
+      # Same `start` exclusion as per-path optimization, applied to each
+      # semantic parameter type's defaults.
+      parameterTypes = lapply(model$optimization$parameterTypes %||% list(), .hashOmit, keys = "start")
     )
   )
-  
+
   # Serialize and hash
   json_str <- jsonlite::toJSON(relevant_parts, auto_unbox = TRUE, sort_keys = TRUE)
   digest::digest(json_str, algo = "sha256")
