@@ -457,3 +457,35 @@ roughly five orders of magnitude).
 **Affected areas:** `graph.schema.json` (`optimization`, `provenance.fitResults`),
 `core/types.ts` (`Prior`, `ExportOptions.mcmcOptions`), `R/fitting.R`,
 `R/GraphModel-methods.R` (`coef`/`vcov`/`confint` assume point estimates).
+
+---
+
+### 10. `pendingCore` scope: roadmapped concepts vs. permanently-foreign content
+
+**The question:** `extractPendingCore()` today only relocates a closed,
+enumerated list — `linkFunction`/`operator` nodes, 0-arrow paths, and paths
+incident to those — and every one of those has a documented disposition (a
+`schemaVersion` roadmap slot, or the Path Semantics note on Pearson selection).
+That's what makes `onUnsupported: "stop"` (default, refuses a fit) a sensible
+default: the content might be fit-affecting, and there's a concrete path to
+eventually supporting it instead of refusing.
+
+But the bucket's documented purpose is broader than that closed list —
+"structurally non-core content" encountered on import, full stop. If import
+robustness work later generalizes the relocator to catch *any* unparseable
+content, not just the enumerated kinds, it will start catching things with no
+plausible path to core at all — e.g. a tool-specific optimizer tolerance or a
+proprietary grouping tag from another SEM tool's export. That content isn't
+"pending" in any real sense, and defaulting to `stop`-refuse a fit over it is
+arguably always wrong, since nothing is ever going to be built to support it.
+
+**Options under consideration:** (a) leave `pendingCore` scoped to its current
+closed, roadmapped list and give permanently-foreign content its own bucket
+with its own (presumably always-`ignore`) policy; (b) keep one bucket but make
+`stop`/`ignore` a per-entry property instead of a bucket-level default, e.g.
+driven by whether an entry's `kind` is a recognized/roadmapped value; (c) leave
+as-is until import robustness work actually needs to catch unenumerated
+content — the problem doesn't bite until that generalization happens.
+
+**Affected areas:** `R/utilities.R` (`extractPendingCore`), `R/converters.R`
+(`onUnsupported` gate), `graph.schema.json` / `core/types.ts` (`ModelExtensions`).
