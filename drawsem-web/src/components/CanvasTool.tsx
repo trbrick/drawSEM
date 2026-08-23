@@ -515,6 +515,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          setRepeatGroupsByModel(Object.fromEntries(modelsOut.map((m: any) => [m.id, m.repeatGroups || []])))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -590,6 +591,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          setRepeatGroupsByModel(Object.fromEntries(modelsOut.map((m: any) => [m.id, m.repeatGroups || []])))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -777,7 +779,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   React.useEffect(() => {
     if (onModelChange && currentModel) {
       try {
-        const modelSchema = modelToSchema(currentModel)
+        const modelSchema = modelToSchema({ ...currentModel, repeatGroups })
         onModelChange(modelSchema)
       } catch (e) {
         console.error('[onModelChange] Error calling callback:', e)
@@ -1478,7 +1480,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         type: 'variable',
         width: MANIFEST_DEFAULT_W,
         height: MANIFEST_DEFAULT_H,
-        levelOfMeasurement: datasetNode.levelOfMeasurement,
       })
 
       // Data path: dataset → new variable
@@ -1519,7 +1520,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function buildCurrentSchema(): GraphSchema | null {
     if (!currentModel) return null
-    return modelToSchema(currentModel)
+    return modelToSchema({ ...currentModel, repeatGroups })
   }
 
   async function handleSaveClick() {
@@ -1654,6 +1655,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         
         // apply into runtime state
         setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+        setRepeatGroupsByModel(Object.fromEntries(modelsOut.map((m: any) => [m.id, m.repeatGroups || []])))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
           fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)

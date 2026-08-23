@@ -1,11 +1,11 @@
 import { convertToUnicode } from './converters'
 import { MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from './constants'
-import { Node, Path } from './helpers'
+import { Node, Path, RuntimeRepeatGroup } from './helpers'
 
 /**
  * Convert a single model object (from schema.models[n]) to runtime format
  */
-export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[] } {
+export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[]; repeatGroups: RuntimeRepeatGroup[] } {
   const usedIds = new Set<string>()
   const labelToId: Record<string, string> = {}
 
@@ -126,7 +126,23 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     return out
   })
 
-  return { nodes: nodesOut, paths: pathsOut }
+  // Coordinate-expansion prototype state, escrowed at extensions.toolPrivate.drawSEM
+  // (drawSEM-authored, no cross-tool meaning — see ModelExtensions in core/types.ts).
+  // Node references are labels in the schema; resolve them back to the runtime ids
+  // just assigned above. A group referencing a label no schema node declared is
+  // dropped rather than carrying a dangling runtime id.
+  const repeatGroupsIn = model.extensions?.toolPrivate?.drawSEM?.repeatGroups || []
+  const repeatGroups: RuntimeRepeatGroup[] = repeatGroupsIn.map((g: any) => ({
+    id: g.id,
+    coordinateDimension: g.coordinateDimension,
+    instanceCount: g.instanceCount,
+    dataSource: g.dataSource ?? null,
+    viewState: g.viewState,
+    nodeIds: (g.nodeLabels || []).filter((label: string) => labelToId[label]).map((label: string) => labelToId[label]),
+    visual: g.visual,
+  }))
+
+  return { nodes: nodesOut, paths: pathsOut, repeatGroups }
 }
 
 /**
@@ -134,16 +150,16 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
  * Returns array of models with id, label, nodes, paths, and parameterTypes
  * Models are provided as a named dictionary in the schema
  */
-export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }> {
+export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any>; repeatGroups: RuntimeRepeatGroup[] }> {
   const modelDict = doc.models || {}
   console.log('[RuntimeConverter] convertDocToRuntime called. Models:', Object.keys(modelDict))
   return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
     const label = model.label || modelId
     console.log('[RuntimeConverter] Processing model:', modelId, 'has', (model.nodes || []).length, 'nodes')
-    const { nodes, paths } = convertModelToRuntime(model)
+    const { nodes, paths, repeatGroups } = convertModelToRuntime(model)
     console.log('[RuntimeConverter] Model conversion complete. Output nodes:', nodes.length, 'Sample node:', nodes.length > 0 ? { id: nodes[0].id, label: nodes[0].label, x: nodes[0].x, y: nodes[0].y } : 'none')
     // Extract parameterTypes from optimization section
     const parameterTypes = model.optimization?.parameterTypes || {}
-    return { id: modelId, label, nodes, paths, parameterTypes }
+    return { id: modelId, label, nodes, paths, parameterTypes, repeatGroups }
   })
 }
