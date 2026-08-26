@@ -192,10 +192,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Compute and store a viewBox that fits the given nodes (with minimum canvas size).
   // Call this only on model load and auto-layout — NOT on interactive node additions.
-  function fitViewToNodes(nodesToFit: Array<{ x: number; y: number; width?: number; height?: number; type: string; variableCharacteristics?: { manifestLatent?: string } }>) {
+  // pathsForFit is required so latent/manifest sizing can be inferred the same way the rest
+  // of the canvas does (tag wins; else incoming path from a dataset node) rather than trusting
+  // only the explicit tag — reading component state here instead would be stale at exactly the
+  // call sites that matter (right after loading a new model, before setNodes commits).
+  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[]) {
     if (nodesToFit.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
       return
+    }
+    const isLatentForFit = (n: Node): boolean => {
+      if (n.type !== 'variable') return false
+      if (n.variableCharacteristics?.manifestLatent) {
+        return n.variableCharacteristics.manifestLatent === 'latent'
+      }
+      const hasDatasetPath = pathsForFit.some((p) => p.to === n.id && isDatasetPath(p, nodesToFit))
+      return !hasDatasetPath
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
     nodesToFit.forEach(n => {
@@ -203,7 +215,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const y = n.y || 0
       let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
       let h = n.height || (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
-      if (n.type === 'variable' && n.variableCharacteristics?.manifestLatent === 'latent') {
+      if (isLatentForFit(n)) {
         w = LATENT_RADIUS * 2
         h = LATENT_RADIUS * 2
       }
@@ -450,7 +462,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes)
+            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
           }
         }
       } catch (e) {
@@ -525,7 +537,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes)
+            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
           }
         }
       } catch (e) {
@@ -1189,7 +1201,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         return pos ? { ...n, x: pos.x, y: pos.y } : n
       })
       setNodes(newNodes)
-      fitViewToNodes(newNodes)
+      fitViewToNodes(newNodes, currentModel.paths)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setErrorMessage(`Auto-layout failed: ${msg}`)
@@ -1216,7 +1228,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
-          fitViewToNodes(modelsOut[0].nodes)
+          fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
         }
         deselectAll()
         setPathSource(null)
