@@ -34,7 +34,7 @@ Returns NA with informative warning if unavailable.
 }
 \examples{
 \dontrun{
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 vcov(g_fit)  # Variance-covariance matrix
 }
 

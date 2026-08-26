@@ -207,6 +207,32 @@ warning; it is explicitly **not persisted** and plays no part in round-tripping.
 - Supported in v0.1: ML (default), WLS, DWLS, ULS, GLS.
 - All others produce a warning and fall back to ML.
 
+### R API naming for backend-facing GraphModel operations
+
+- GraphModel-native wrappers around backend functions (fitting, data
+  simulation, ...) use a `backend` parameter — e.g. `runModel(graphModel,
+  backend = "OpenMx")`, `generateData(graphModel, backend = "OpenMx")` —
+  rather than a backend suffix in the function name (`runOpenMx()`) or
+  masking the backend's own function names (`mxRun()`, `mxGenerateData()`).
+  `backend` reuses the schema's own `fitResults.backend` enum value as the
+  parameter name and legal values (`"OpenMx"`, `"lavaan"`, `"blavaan"`,
+  `"other"`), per the project's naming-consistency convention (R/TS names
+  track the schema key they touch). Only `"OpenMx"` is implemented; the
+  other enum values are accepted as valid input but raise a "not yet
+  implemented" error, so a typo is still caught as an error rather than
+  silently misinterpreted.
+- Rejected: masking OpenMx's own `mxRun()`/`mxGenerateData()` by defining
+  drawSEM-side S3 generics that dispatch on `MxModel` (delegating to
+  OpenMx) vs. `GraphModel`. More ergonomic call syntax, but fragile (every
+  OpenMx signature change has to be tracked exactly in a `.default` passthrough)
+  and shadows another package's exported names. The codebase already had one
+  broken, unreachable attempt at this (`mxRun.GraphModel`, removed
+  2026-08-26): `OpenMx::mxRun()` is a plain function, not a generic, so
+  `mxRun(graphModel)` never dispatched to it regardless.
+- `runModel()`/`generateData()` were named `runOpenMx()` (and a
+  never-implemented `generateData()` didn't yet exist) before this
+  convention was adopted 2026-08-26.
+
 ### Data: v0.1 Constraints
 
 - One dataset node per model only.

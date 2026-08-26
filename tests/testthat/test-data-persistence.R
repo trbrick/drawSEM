@@ -42,6 +42,19 @@ test_that("dataFrameToJSON serializes data.frames correctly", {
   expect_equal(result$object[[2]]$score, 92.0)
 })
 
+test_that("dataFrameToJSON preserves the column name for a single-column data.frame", {
+  # Regression: df[i, , drop = TRUE] on a 1-column data.frame collapses to a
+  # bare unnamed scalar instead of a named row, silently dropping the column
+  # name for any model with exactly one manifest variable.
+  df <- data.frame(x = c(1.1, 2.2, 3.3))
+
+  result <- dataFrameToJSON(df)
+
+  expect_named(result$object[[1]], "x")
+  expect_equal(result$object[[1]]$x, 1.1)
+  expect_equal(result$object[[2]]$x, 2.2)
+})
+
 test_that("jsonToDataFrame deserializes with proper type coercion", {
   json_obj <- list(
     list(id = 1, name = "Alice", score = 85.5),

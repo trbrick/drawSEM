@@ -169,7 +169,7 @@ setMethod(
 #'
 #' @examples
 #' \dontrun{
-#' g_fit <- runOpenMx(g)
+#' g_fit <- runModel(g)
 #' loglik(g_fit)  # Print log-likelihood
 #' }
 #'
@@ -212,7 +212,7 @@ setMethod("loglik", "GraphModel", function(object, ...) {
 #'
 #' @examples
 #' \dontrun{
-#' g_fit <- runOpenMx(g)
+#' g_fit <- runModel(g)
 #' coef(g_fit)  # Print fitted parameter values
 #' }
 #'
@@ -260,7 +260,7 @@ setMethod("coef", "GraphModel", function(object, ...) {
 #'
 #' @examples
 #' \dontrun{
-#' g_fit <- runOpenMx(g)
+#' g_fit <- runModel(g)
 #' vcov(g_fit)  # Variance-covariance matrix
 #' }
 #'
@@ -313,7 +313,7 @@ setMethod("vcov", "GraphModel", function(object, ...) {
 #'
 #' @examples
 #' \dontrun{
-#' g_fit <- runOpenMx(g)
+#' g_fit <- runModel(g)
 #' confint(g_fit)         # 95% CI
 #' confint(g_fit, 0.99)   # 99% CI
 #' }
@@ -383,7 +383,7 @@ setMethod("confint", "GraphModel", function(object, level = 0.95, ...) {
 #'
 #' @examples
 #' \dontrun{
-#' g_fit <- runOpenMx(g)
+#' g_fit <- runModel(g)
 #' summary(g_fit)
 #' }
 #'
@@ -396,7 +396,7 @@ setMethod("summary", "GraphModel", function(object, ...) {
     cat("GraphModel Summary\n")
     cat("──────────────────\n")
     cat("No fit results available.\n")
-    cat("Use runOpenMx(model) to fit the model.\n")
+    cat("Use runModel(model) to fit the model.\n")
     return(invisible(list(
       converged = NA,
       fitValue = NA,
@@ -429,7 +429,7 @@ setMethod("summary", "GraphModel", function(object, ...) {
   if (is_stale) {
     cat("\n⚠️  WARNING: Fit results are STALE\n")
     cat("   (Model has been modified since fitting.)\n")
-    cat("   Re-run with: runOpenMx(model)\n\n")
+    cat("   Re-run with: runModel(model)\n\n")
   }
   
   # Fit value

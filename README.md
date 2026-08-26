@@ -109,7 +109,7 @@ schema <- loadSchema("mymodel.json")
 validateSchema(schema)
 
 g <- as.GraphModel(schema)
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 
 saveSchema(schema, "mymodel_v2.json")
 ```
@@ -170,7 +170,7 @@ npm run test
 Implemented now:
 - Interactive Shiny-based visual editor via `drawSEM()`
 - Schema validation, import/export, and GraphModel round-tripping
-- OpenMx conversion and fitting via `as.MxModel()` and `runOpenMx()`
+- OpenMx conversion and fitting via `as.MxModel()` and `runModel()`
 - Interactive htmlwidget and standalone web editor builds
 - Auto-layout (RAMPath algorithm) and SVG rendering
 

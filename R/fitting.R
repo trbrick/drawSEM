@@ -261,12 +261,17 @@ markFitDirty <- function(graphModel, model_id = NULL) {
 }
 
 
-#' Fit OpenMx Model from GraphModel
+#' Fit a GraphModel
 #'
 #' Wrapper around as.MxModel() + mxRun() that fits a GraphModel and
 #' stores results back in the schema.
 #'
 #' @param graphModel A GraphModel object to fit
+#' @param backend Character; which backend to fit with. Currently only
+#'   `"OpenMx"` is implemented; other values from the schema's
+#'   `fitResults.backend` enum (`"lavaan"`, `"blavaan"`, `"other"`) are
+#'   accepted as valid input but raise a "not yet implemented" error, so a
+#'   typo is caught the same way an unrecognized value would be.
 #' @param model_id Character; which model to fit (defaults to first)
 #' @param silent Logical; if TRUE, suppress mxRun() status messages
 #' @param intervals Logical; if TRUE, compute confidence intervals
@@ -282,7 +287,7 @@ markFitDirty <- function(graphModel, model_id = NULL) {
 #' (R's copy-on-modify semantics).
 #'
 #' @details
-#' Workflow:
+#' Workflow (backend = "OpenMx"):
 #' 1. Convert GraphModel → mxModel (as.MxModel)
 #' 2. Fit with mxRun(..., silent=silent, intervals=intervals, unsafe=unsafe, ...)
 #' 3. Extract fitted parameters, standard errors, fit value, etc.
@@ -293,7 +298,7 @@ markFitDirty <- function(graphModel, model_id = NULL) {
 #' @examples
 #' \dontrun{
 #' g <- as.GraphModel(schema, data = list(mydata = df))
-#' g_fit <- runOpenMx(g, silent = TRUE)
+#' g_fit <- runModel(g, silent = TRUE)
 #'
 #' # Access fit results
 #' loglik(g_fit)
@@ -302,14 +307,20 @@ markFitDirty <- function(graphModel, model_id = NULL) {
 #' }
 #'
 #' @export
-runOpenMx <- function(
+runModel <- function(
     graphModel,
+    backend = "OpenMx",
     model_id = NULL,
     silent = FALSE,
     intervals = FALSE,
     unsafe = FALSE,
     onUnsupported = c("stop", "ignore"),
     ...) {
+
+  backend <- match.arg(backend, c("OpenMx", "lavaan", "blavaan", "other"))
+  if (backend != "OpenMx") {
+    stop(sprintf("backend = '%s' is not yet implemented; only 'OpenMx' is currently supported.", backend), call. = FALSE)
+  }
 
   onUnsupported <- match.arg(onUnsupported)
 
@@ -324,7 +335,21 @@ runOpenMx <- function(
   # Step 1: Convert to mxModel
   message(sprintf("Building mxModel from schema (model_id = '%s')...", model_id))
   mx_model <- as.MxModel(graphModel, model_id = model_id, onUnsupported = onUnsupported)
-  
+
+  if (is.null(mx_model$data)) {
+    stop(
+      sprintf(
+        paste(
+          "Model '%s' has no dataset node, so it has no data to fit against",
+          "-- this is a template or simulation model, not a fittable one.",
+          "Use generateData() to simulate data from it instead."
+        ),
+        model_id
+      ),
+      call. = FALSE
+    )
+  }
+
   # Step 2: Fit with mxRun
   message("Running optimizer with mxRun()...")
   fit_result <- OpenMx::mxRun(
@@ -469,4 +494,79 @@ runOpenMx <- function(
   
   message("Fitting complete.")
   result_model
+}
+
+#' Simulate Data from a GraphModel
+#'
+#' Wrapper around as.MxModel() + mxGenerateData() that simulates data
+#' consistent with a GraphModel's structure and parameter values (fixed
+#' values, or free parameters at their start values). This is the tool for
+#' populating a data-less template/simulation model that runModel() refuses
+#' to fit.
+#'
+#' @param graphModel A GraphModel object to simulate data from
+#' @param nrows Integer; number of rows to simulate. Passed through to
+#'   mxGenerateData(); see its documentation for the default when omitted.
+#' @param backend Character; which backend to simulate with. Currently only
+#'   `"OpenMx"` is implemented; see [runModel()] for the same convention.
+#' @param returnModel Logical; if `FALSE` (default), returns the simulated
+#'   data as a data.frame -- mirroring `mxGenerateData()`'s own default. If
+#'   `TRUE`, returns a new GraphModel with the simulated data bound in as a
+#'   dataset node, ready to fit with [runModel()], instead of the raw
+#'   data.frame.
+#' @param model_id Character; which model to simulate from (defaults to first)
+#' @param onUnsupported How to handle non-core `extensions$pendingCore` features:
+#'   "stop" (default) refuses with an error listing them; "ignore" builds a
+#'   reduced model that omits them (with a warning).
+#' @param ... Additional arguments passed to mxGenerateData()
+#'
+#' @return A data.frame of simulated data (`returnModel = FALSE`), or a new
+#'   GraphModel with the simulated data bound in (`returnModel = TRUE`).
+#'   With `returnModel = TRUE`, original graphModel is unchanged (R's
+#'   copy-on-modify semantics).
+#'
+#' @examples
+#' \dontrun{
+#' g <- as.GraphModel(schema)  # no dataset node -- a template model
+#' df <- generateData(g, nrows = 200)
+#'
+#' g_with_data <- generateData(g, nrows = 200, returnModel = TRUE)
+#' g_fit <- runModel(g_with_data)
+#' }
+#'
+#' @export
+generateData <- function(
+    graphModel,
+    nrows = NULL,
+    backend = "OpenMx",
+    returnModel = FALSE,
+    model_id = NULL,
+    onUnsupported = c("stop", "ignore"),
+    ...) {
+
+  backend <- match.arg(backend, c("OpenMx", "lavaan", "blavaan", "other"))
+  if (backend != "OpenMx") {
+    stop(sprintf("backend = '%s' is not yet implemented; only 'OpenMx' is currently supported.", backend), call. = FALSE)
+  }
+
+  onUnsupported <- match.arg(onUnsupported)
+
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+
+  if (is.null(model_id)) {
+    model_id <- names(graphModel@schema$models)[1]
+  }
+
+  message(sprintf("Building mxModel from schema (model_id = '%s')...", model_id))
+  mx_model <- as.MxModel(graphModel, model_id = model_id, onUnsupported = onUnsupported)
+
+  result <- OpenMx::mxGenerateData(mx_model, nrows = nrows, returnModel = returnModel, ...)
+
+  if (isTRUE(returnModel)) {
+    return(as.GraphModel(result))
+  }
+
+  result
 }

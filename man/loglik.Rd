@@ -30,7 +30,7 @@ Use \code{getFitResults(..., includeStale = TRUE)} to access stale fits.
 }
 \examples{
 \dontrun{
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 loglik(g_fit)  # Print log-likelihood
 }
 

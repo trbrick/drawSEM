@@ -360,7 +360,7 @@ NULL
     }
     .sendFitStatus("fitting")
 
-    result <- tryCatch(runOpenMx(gm), error = function(e) e)
+    result <- tryCatch(runModel(gm), error = function(e) e)
 
     if (inherits(result, "error")) {
       .sendFitStatus("failed")
@@ -512,7 +512,7 @@ NULL
         "library(drawSEM)\n\n",
         "schema_json <- ", deparse(as.character(schema_json)), "\n",
         "gm <- as.GraphModel(schema_json)\n",
-        "result <- runOpenMx(gm)\n",
+        "result <- runModel(gm)\n",
         "summary(result)\n"
       )
       list(success = TRUE, code = code)

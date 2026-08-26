@@ -494,7 +494,7 @@ test_that("confint() returns confidence interval data frame", {
   expect_true(ci["p1", "estimate"] < ci["p1", "ubound"])
 })
 
-test_that("runOpenMx records dataBinding matching the dataset node", {
+test_that("runModel records dataBinding matching the dataset node", {
   skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
 
   df <- data.frame(x = c(1.2, 2.4, 0.8, 3.1, 1.9, 2.7))
@@ -536,7 +536,7 @@ test_that("runOpenMx records dataBinding matching the dataset node", {
   # round-tripping through JSON, which would mangle embedded column names.
   g <- as.GraphModel(schema, data = list(data = df))
 
-  fitted <- runOpenMx(g, silent = TRUE)
+  fitted <- runModel(g, silent = TRUE)
   fits <- fitted@schema$models[["model1"]]$provenance$fitResults
   entry <- fits[[length(fits)]]
 
@@ -545,4 +545,115 @@ test_that("runOpenMx records dataBinding matching the dataset node", {
   expect_equal(entry$dataBinding$datasetLabel, "data")
   expect_equal(entry$dataBinding$md5, "deadbeefcafe0001")
   expect_equal(entry$dataBinding$rowCount, nrow(df))
+})
+
+test_that("runModel errors on a data-less model, pointing at generateData", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  # No dataset node at all -- a template/simulation model.
+  schema <- list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        nodes = list(
+          list(id = "x", label = "x", type = "variable"),
+          list(id = "const", label = "1", type = "constant")
+        ),
+        paths = list(
+          list(
+            from = "x", to = "x", numberOfArrows = 2,
+            value = 1.0, freeParameter = TRUE
+          ),
+          list(
+            from = "1", to = "x", numberOfArrows = 1,
+            value = 0.0, freeParameter = TRUE
+          )
+        ),
+        optimization = list(fitFunction = "ML")
+      )
+    )
+  )
+
+  g <- as.GraphModel(schema)
+
+  expect_error(
+    runModel(g, silent = TRUE),
+    "generateData"
+  )
+})
+
+test_that("runModel errors on a recognized-but-unimplemented backend", {
+  g <- as.GraphModel(fixedLoadingSchema())
+
+  expect_error(runModel(g, backend = "lavaan"), "not yet implemented")
+})
+
+test_that("runModel errors on an unrecognized backend value", {
+  g <- as.GraphModel(fixedLoadingSchema())
+
+  expect_error(runModel(g, backend = "typo"))
+})
+
+# Fixture: a model with an explicitly manifest variable and no dataset node --
+# generateData() needs at least one manifest variable to simulate observed
+# data for, but (unlike runModel()) doesn't require live data to be bound.
+dataLessManifestSchema <- function() {
+  list(
+    schemaVersion = 0,
+    models = list(
+      model1 = list(
+        label = "m1",
+        nodes = list(
+          list(
+            id = "x", label = "x", type = "variable",
+            visual = list(x = 10, y = 20),
+            variableCharacteristics = list(manifestLatent = "manifest")
+          ),
+          list(id = "const", label = "1", type = "constant")
+        ),
+        paths = list(
+          list(from = "x", to = "x", numberOfArrows = 2, value = 1, freeParameter = TRUE),
+          list(from = "1", to = "x", numberOfArrows = 1, value = 0.5, freeParameter = TRUE)
+        ),
+        optimization = list(fitFunction = "ML")
+      )
+    )
+  )
+}
+
+test_that("generateData() returns a data.frame by default", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  g <- as.GraphModel(dataLessManifestSchema())
+  df <- generateData(g, nrows = 50)
+
+  expect_true(is.data.frame(df))
+  expect_equal(nrow(df), 50)
+  expect_true("x" %in% names(df))
+})
+
+test_that("generateData(returnModel = TRUE) returns a fittable GraphModel", {
+  skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+
+  g <- as.GraphModel(dataLessManifestSchema())
+  g2 <- generateData(g, nrows = 50, returnModel = TRUE)
+
+  expect_s4_class(g2, "GraphModel")
+  has_dataset <- any(vapply(
+    g2@schema$models[[1]]$nodes, function(n) isTRUE(n$type == "dataset"), logical(1)
+  ))
+  expect_true(has_dataset)
+
+  # Layout hints carried through the drawSemHints round trip.
+  expect_equal(g2@schema$models[[1]]$nodes[[1]]$visual$x, 10)
+
+  # And the result is actually fittable now.
+  fitted <- runModel(g2, silent = TRUE)
+  expect_true(is.list(fitted@schema$models[[1]]$provenance$fitResults))
+})
+
+test_that("generateData() errors on a recognized-but-unimplemented backend", {
+  g <- as.GraphModel(dataLessManifestSchema())
+
+  expect_error(generateData(g, backend = "blavaan"), "not yet implemented")
 })

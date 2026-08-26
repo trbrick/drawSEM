@@ -30,7 +30,7 @@ informative warning if fit is unavailable.
 }
 \examples{
 \dontrun{
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 coef(g_fit)  # Print fitted parameter values
 }
 

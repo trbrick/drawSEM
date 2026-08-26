@@ -380,11 +380,11 @@ test_that("only the model carrying pendingCore is refused", {
   )
 })
 
-test_that("runOpenMx threads onUnsupported through to the converter", {
+test_that("runModel threads onUnsupported through to the converter", {
   gm <- pendingCoreGraphModel()
   # Refuses at the build step before any optimization.
   expect_error(
-    suppressMessages(runOpenMx(gm, silent = TRUE, onUnsupported = "stop")),
+    suppressMessages(runModel(gm, silent = TRUE, onUnsupported = "stop")),
     "non-core feature"
   )
 })

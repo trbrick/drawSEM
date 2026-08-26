@@ -32,7 +32,7 @@ would require additional data not currently in schema.
 }
 \examples{
 \dontrun{
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 confint(g_fit)         # 95\% CI
 confint(g_fit, 0.99)   # 99\% CI
 }

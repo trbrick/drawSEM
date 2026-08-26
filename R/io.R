@@ -54,9 +54,12 @@ dataFrameToJSON <- function(df) {
   # Get column types
   columnTypes <- inferColumnTypes(df)
   
-  # Convert each row to a named list
+  # Convert each row to a named list. drop = FALSE is required: with
+  # drop = TRUE, a single-column data.frame collapses df[i, ] to a bare
+  # unnamed scalar instead of a named one-row data.frame, silently dropping
+  # the column name for any model with exactly one manifest variable.
   rows <- lapply(seq_len(nrow(df)), function(i) {
-    row_as_list <- as.list(df[i, , drop = TRUE])
+    row_as_list <- as.list(df[i, , drop = FALSE])
     # Ensure all values are properly unboxed
     lapply(row_as_list, function(x) if (length(x) == 1) x[[1]] else x)
   })
@@ -468,45 +471,6 @@ setMethod(
     om_model
   }
 )
-
-#' Run GraphModel with OpenMx
-#'
-#' S4 method to run a GraphModel through mxRun().
-#'
-#' @param model A GraphModel object
-#' @param ... Additional arguments passed to mxRun()
-#'
-#' @return A fitted mxModel (with class "mxModel")
-#'
-#' @details
-#' Builds the mxModel if not already built, runs it, and stores the fitted
-#' result back in the GraphModel. Returns the fitted mxModel directly.
-#'
-#' @examples
-#' \dontrun{
-#' g <- as.GraphModel(schema, data = list(mydata = my_df))
-#' fit <- mxRun(g)
-#' summary(fit)
-#' }
-#'
-#' @export
-#' @rdname mxRun
-#' S3 method for running GraphModel objects
-#' Dispatches to OpenMx for standard MxModel objects
-#' @export
-mxRun.GraphModel <- function(model, ...) {
-  # Build model if needed
-  om_model <- as.MxModel(model)
-  
-  # Run with OpenMx
-  fit <- OpenMx::mxRun(om_model, ...)
-  
-  # Store fitted model back
-  builtModel(model) <- fit
-  
-  # Return the fit object
-  fit
-}
 
 #' Export GraphModel to JSON File
 #'

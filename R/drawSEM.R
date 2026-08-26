@@ -288,8 +288,9 @@ plotGraphModel <- function(
   
   if (!showConstantPaths) {
     # Filter out paths connecting to constant nodes
+    constant_labels <- getConstantNodeLabels(display_schema$models[[1]]$nodes)
     display_schema$models[[1]]$paths <- Filter(
-      function(p) !(p$from == "1" || p$to == "1"),
+      function(p) !(p$from %in% constant_labels || p$to %in% constant_labels),
       display_schema$models[[1]]$paths
     )
   }
@@ -608,7 +609,103 @@ setLocation <- function(graphModel, nodeId, x, y) {
     graphModel@schema$graph <- list()
   }
   graphModel@schema$graph$positions <- positions_df
-  
+
+  invisible(graphModel)
+}
+
+#' Set or Clear Manifest/Latent Status of a Variable Node
+#'
+#' `manifestLatent` is normally inferred from the model's structure (manifest
+#' if the node has an incoming data path from a dataset node, latent
+#' otherwise). This function sets an explicit `variableCharacteristics$manifestLatent`
+#' tag that locks the node's classification, overriding that inference — or
+#' clears an existing lock to revert the node to inference.
+#'
+#' @param graphModel A GraphModel object
+#' @param nodeId Character; the id or label of a single variable node
+#' @param value One of `"manifest"`, `"latent"`, or `NULL`. `NULL` clears any
+#'   existing lock and reverts the node to path-based auto-inference.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @details
+#' There is no way to change manifest/latent structure on an existing
+#' `MxModel` — OpenMx exposes no API for it, `mxModel(m, manifestVars = ...)`
+#' is additive and errors on overlap, `mxModel(m, latentVars = character(0))`
+#' is a silent no-op, and direct slot assignment leaves the F matrix
+#' unrebuilt (producing a model whose `manifestVars` lies, with the same
+#' -2LL and no error). This function only edits the GraphModel's schema;
+#' regenerating the `MxModel` via `as.MxModel(as.GraphModel(m, ...))` is what
+#' actually rebuilds a consistent F matrix, dims, and variable sets.
+#'
+#' Setting `value = "manifest"` requires the node to already have an incoming
+#' data path from a dataset node (the same rule [inferManifestVariables()]
+#' uses) — promoting a node with no bound data raises a schema-level error
+#' here, rather than surfacing later as OpenMx's opaque "manifest variables
+#' ... have not been found in the observed data".
+#'
+#' @export
+setManifestLatent <- function(graphModel, nodeId, value = NULL) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+
+  if (!is.character(nodeId) || length(nodeId) != 1) {
+    stop("nodeId must be a single character string", call. = FALSE)
+  }
+
+  if (!is.null(value) && !(is.character(value) && length(value) == 1 && value %in% c("manifest", "latent"))) {
+    stop('value must be "manifest", "latent", or NULL', call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model) || is.null(first_model$nodes)) {
+    return(invisible(graphModel))
+  }
+
+  node_map <- setNames(
+    seq_along(first_model$nodes),
+    sapply(first_model$nodes, function(n) n$id %||% n$label)
+  )
+
+  node_idx <- node_map[nodeId]
+  if (is.na(node_idx)) {
+    stop(sprintf("nodeId not found in schema: %s", nodeId), call. = FALSE)
+  }
+
+  node <- first_model$nodes[[node_idx]]
+  if (!isTRUE(node$type == "variable")) {
+    stop(
+      sprintf("Node '%s' is not a variable node (type = '%s')", nodeId, node$type %||% "unknown"),
+      call. = FALSE
+    )
+  }
+
+  if (identical(value, "manifest")) {
+    manifest_labels <- inferManifestVariables(first_model$nodes, first_model$paths)
+    if (!(node$label %in% manifest_labels)) {
+      stop(
+        sprintf(
+          "Cannot set '%s' to manifest: it has no incoming data path from a dataset node. Bind data to this variable first.",
+          nodeId
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  if (is.null(value)) {
+    node$variableCharacteristics$manifestLatent <- NULL
+  } else {
+    if (is.null(node$variableCharacteristics)) {
+      node$variableCharacteristics <- list()
+    }
+    node$variableCharacteristics$manifestLatent <- value
+  }
+
+  first_model$nodes[[node_idx]] <- node
+  graphModel@schema$models[[1]] <- first_model
+
   invisible(graphModel)
 }
 

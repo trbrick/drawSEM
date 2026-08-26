@@ -38,7 +38,7 @@ Prints:
 }
 \examples{
 \dontrun{
-g_fit <- runOpenMx(g)
+g_fit <- runModel(g)
 summary(g_fit)
 }
 
