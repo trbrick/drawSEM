@@ -247,13 +247,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Compute and store a viewBox that fits the given nodes (with minimum canvas size).
   // Call this only on model load and auto-layout — NOT on interactive node additions.
-  function fitViewToNodes(nodesToFit: Array<{ x: number; y: number; width?: number; height?: number; type: string; variableCharacteristics?: { manifestLatent?: string } }>) {
-    if (nodesToFit.length === 0) {
+  // By default, dataset nodes are left out of the fit whenever the active layer isn't 'data'
+  // (i.e. in any non-data plane) so the SEM structure centers on itself instead of being
+  // zoomed out to make room for an off-to-the-side dataset. Pass excludeDataset explicitly to
+  // override that default — e.g. to force a dataset-free fit for a publication figure
+  // regardless of the current layer.
+  function fitViewToNodes(
+    nodesToFit: Array<{ x: number; y: number; width?: number; height?: number; type: string; variableCharacteristics?: { manifestLatent?: string } }>,
+    options?: { excludeDataset?: boolean }
+  ) {
+    const excludeDataset = options?.excludeDataset ?? (activeLayer !== 'data')
+    const filteredNodes = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
+    if (filteredNodes.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
       return
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    nodesToFit.forEach(n => {
+    filteredNodes.forEach(n => {
       const x = n.x || 0
       const y = n.y || 0
       let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
@@ -277,6 +287,51 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
     setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
+  }
+
+  // Move dataset nodes out to the right of the rest of the diagram, offset half a rank height
+  // above or below the row of variables they feed (whichever side the algorithm originally
+  // placed them on) rather than sitting level with that row. Used by auto-layout in views
+  // where the dataset isn't the focus — cabled, tabled, or any non-'data' layer — so data
+  // paths/cables read as a side bus instead of the algorithm's default below-center placement,
+  // which puts them in the same row as constants and tangles with mean paths.
+  function repositionDatasetsToSide(allNodes: Node[], allPaths: Path[]): Node[] {
+    const datasetNodes = allNodes.filter((n) => n.type === 'dataset')
+    const others = allNodes.filter((n) => n.type !== 'dataset')
+    if (datasetNodes.length === 0 || others.length === 0) return allNodes
+
+    const SIDE_GAP = 90
+    const STACK_GAP = 140
+    const HALF_RANK = 75 // half of autoLayout's default rankHeight (150, see utils/autoLayout.ts)
+    let maxX = -Infinity
+    others.forEach((n) => {
+      const halfW = (n.width ?? MANIFEST_DEFAULT_W) / 2
+      maxX = Math.max(maxX, n.x + halfW)
+    })
+    const sideX = maxX + SIDE_GAP
+
+    // Order datasets top-to-bottom by the (half-rank-adjusted) row they end up on, so multiple
+    // datasets stack in roughly the same order as the rows they feed.
+    const withTargetY = datasetNodes
+      .map((ds) => {
+        const targetYs = allPaths
+          .filter((p) => p.from === ds.id && isDatasetPath(p, allNodes))
+          .map((p) => others.find((n) => n.id === p.to)?.y)
+          .filter((y): y is number => y !== undefined)
+        const targetAvgY = targetYs.length > 0 ? targetYs.reduce((a, b) => a + b, 0) / targetYs.length : ds.y
+        // Keep whichever side of the target row the layout algorithm originally placed this
+        // dataset on, but land it half a rank away from that row instead of sharing it — that
+        // puts the dataset in the gap between rows rather than level with (and often visually
+        // tangled with) the constants/error nodes that share the algorithm's default row.
+        const wasAbove = ds.y < targetAvgY
+        const y = targetAvgY + (wasAbove ? -HALF_RANK : HALF_RANK)
+        return { id: ds.id, y }
+      })
+      .sort((a, b) => a.y - b.y)
+
+    const yById = new Map(withTargetY.map((w, idx) => [w.id, w.y + (idx - (withTargetY.length - 1) / 2) * STACK_GAP]))
+
+    return allNodes.map((n) => (n.type === 'dataset' ? { ...n, x: sideX, y: yById.get(n.id) ?? n.y } : n))
   }
 
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
@@ -781,7 +836,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
   // Exploratory features state
-  const [dataVizMode, setDataVizMode] = useState<'paths' | 'table'>('paths')
+  const [dataVizMode, setDataVizMode] = useState<'paths' | 'table' | 'cables'>('paths')
   const [dataTableActiveTab, setDataTableActiveTab] = useState<string | null>(null)
 
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
@@ -1611,12 +1666,29 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (!currentModel || isLayingOut) return
     setIsLayingOut(true)
     try {
-      const schema = modelToSchema(currentModel, { forAutoLayout: true })
+      // In any non-'data' plane the dataset isn't the focus, so keep it out of the layout
+      // algorithm entirely rather than letting it share a row (and split the row's centered
+      // barycenter) with constants like the mean node — dataset nodes are repositioned to the
+      // side afterward instead. Feeding the algorithm only the SEM nodes means a constant left
+      // alone in its row centers on its own targets instead of splitting that slot with a
+      // dataset we're about to move anyway.
+      const excludeDatasetsFromLayout = activeLayer !== 'data'
+      const modelForLayout = excludeDatasetsFromLayout
+        ? {
+            ...currentModel,
+            nodes: currentModel.nodes.filter((n) => n.type !== 'dataset'),
+            paths: currentModel.paths.filter((p) => !isDatasetPath(p, currentModel.nodes)),
+          }
+        : currentModel
+      const schema = modelToSchema(modelForLayout, { forAutoLayout: true })
       const positions: PositionMap = autoLayout(schema)
-      const newNodes = currentModel.nodes.map((n) => {
+      let newNodes = currentModel.nodes.map((n) => {
         const pos = positions[n.label]
         return pos ? { ...n, x: pos.x, y: pos.y } : n
       })
+      if (excludeDatasetsFromLayout) {
+        newNodes = repositionDatasetsToSide(newNodes, currentModel.paths)
+      }
       setNodes(newNodes)
       fitViewToNodes(newNodes)
     } catch (e) {
@@ -2790,6 +2862,111 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return { x: (startOut.x + endOut.x) / 2, y: (startOut.y + endOut.y) / 2 }
   }
 
+  // ---- Data Cables rendering (display-only; never touches the schema) ----
+  // Data paths are drawn like a wiring-diagram bus: all data paths leaving the same
+  // dataset node share a single trunk stub, then fan out with orthogonal, rounded-corner
+  // branches to their individual destinations.
+  type Pt = { x: number; y: number }
+  const CABLE_COLOR = '#a7adb8'
+  const CABLE_TRUNK_WIDTH = 3
+  const CABLE_BRANCH_WIDTH = 1.75
+  const CABLE_TRUNK_LEN = 28
+  const CABLE_CORNER_R = 12
+
+  function cableExitAndManifold(source: Node, towards: Pt): { exit: Pt; manifold: Pt; axis: 'x' | 'y' } {
+    const dx = towards.x - source.x
+    const dy = towards.y - source.y
+    const axis: 'x' | 'y' = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+    const sign = axis === 'x' ? (dx >= 0 ? 1 : -1) : (dy >= 0 ? 1 : -1)
+    const halfW = (source.width ?? 110) / 2
+    const halfH = (source.height ?? 48) / 2
+    const exit: Pt =
+      axis === 'x' ? { x: source.x + sign * halfW, y: source.y } : { x: source.x, y: source.y + sign * halfH }
+    const manifold: Pt =
+      axis === 'x' ? { x: exit.x + sign * CABLE_TRUNK_LEN, y: exit.y } : { x: exit.x, y: exit.y + sign * CABLE_TRUNK_LEN }
+    return { exit, manifold, axis }
+  }
+
+  // Polyline P0 -> corner -> P1 with the corner rounded off (quadratic bezier), radius clamped to leg length.
+  function roundedElbowPath(p0: Pt, corner: Pt, p1: Pt, radius: number): string {
+    const d1 = Math.hypot(corner.x - p0.x, corner.y - p0.y)
+    const d2 = Math.hypot(p1.x - corner.x, p1.y - corner.y)
+    const r = Math.min(radius, d1 / 2, d2 / 2)
+    if (r < 1 || d1 < 1e-6 || d2 < 1e-6) {
+      return `M ${p0.x} ${p0.y} L ${corner.x} ${corner.y} L ${p1.x} ${p1.y}`
+    }
+    const u1 = { x: (corner.x - p0.x) / d1, y: (corner.y - p0.y) / d1 }
+    const u2 = { x: (p1.x - corner.x) / d2, y: (p1.y - corner.y) / d2 }
+    const a = { x: corner.x - u1.x * r, y: corner.y - u1.y * r }
+    const b = { x: corner.x + u2.x * r, y: corner.y + u2.y * r }
+    return `M ${p0.x} ${p0.y} L ${a.x} ${a.y} Q ${corner.x} ${corner.y} ${b.x} ${b.y} L ${p1.x} ${p1.y}`
+  }
+
+  // Single branch: from the shared manifold point to one destination node's boundary.
+  // Rotate `point` around `center` by `angleRad`. Used to find an off-center attachment point:
+  // rotating the "coming from" direction before intersecting the boundary keeps the result
+  // exactly on the node's edge (whatever its shape) while moving it away from the node's own
+  // center-facing point, where regular SEM paths (means, error variances) usually attach.
+  function rotateAround(center: Pt, point: Pt, angleRad: number): Pt {
+    const dx = point.x - center.x
+    const dy = point.y - center.y
+    const cos = Math.cos(angleRad)
+    const sin = Math.sin(angleRad)
+    return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos }
+  }
+
+  const CABLE_ATTACH_ANGLE = 0.375 // ~21 degrees — halfway between dead-center (0) and the earlier 0.75
+
+  function cableBranchGeometry(manifold: Pt, axis: 'x' | 'y', target: Node): { d: string; labelPos: Pt } {
+    const tc = centerOf(target)
+    const aligned = axis === 'x' ? Math.abs(tc.y - manifold.y) < 0.5 : Math.abs(tc.x - manifold.x) < 0.5
+    if (aligned) {
+      const end = getBoundaryPoint(target, rotateAround(tc, manifold, CABLE_ATTACH_ANGLE))
+      return {
+        d: `M ${manifold.x} ${manifold.y} L ${end.x} ${end.y}`,
+        labelPos: { x: (manifold.x + end.x) / 2, y: (manifold.y + end.y) / 2 },
+      }
+    }
+    const corner: Pt = axis === 'x' ? { x: tc.x, y: manifold.y } : { x: manifold.x, y: tc.y }
+    const end = getBoundaryPoint(target, rotateAround(tc, corner, CABLE_ATTACH_ANGLE))
+    // Keep the final leg axis-aligned: slide the corner over to match the offset end point
+    // rather than leaving a short diagonal between an on-axis corner and an off-axis end.
+    const adjustedCorner: Pt = axis === 'x' ? { x: end.x, y: corner.y } : { x: corner.x, y: end.y }
+    return {
+      d: roundedElbowPath(manifold, adjustedCorner, end, CABLE_CORNER_R),
+      labelPos: { x: (adjustedCorner.x + end.x) / 2, y: (adjustedCorner.y + end.y) / 2 },
+    }
+  }
+
+  // Group data paths by source dataset node, computing one shared trunk exit/manifold per group
+  // (direction chosen towards the centroid of that group's destinations).
+  function buildCableGroups(
+    dataPathPairs: { from: string; to: string }[],
+    nodeOverrides?: Map<string, Node>
+  ): Map<string, { source: Node; axis: 'x' | 'y'; exit: Pt; manifold: Pt }> {
+    const lookup = (id: string) => nodeOverrides?.get(id) ?? nodes.find((n) => n.id === id)
+    const bySource = new Map<string, Node[]>()
+    dataPathPairs.forEach(({ from, to }) => {
+      const target = lookup(to)
+      if (!target) return
+      const arr = bySource.get(from) ?? []
+      arr.push(target)
+      bySource.set(from, arr)
+    })
+    const groups = new Map<string, { source: Node; axis: 'x' | 'y'; exit: Pt; manifold: Pt }>()
+    bySource.forEach((targets, from) => {
+      const source = lookup(from)
+      if (!source || targets.length === 0) return
+      const centroid = {
+        x: targets.reduce((s, n) => s + n.x, 0) / targets.length,
+        y: targets.reduce((s, n) => s + n.y, 0) / targets.length,
+      }
+      const { exit, manifold, axis } = cableExitAndManifold(source, centroid)
+      groups.set(from, { source, axis, exit, manifold })
+    })
+    return groups
+  }
+
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     const svg = svgRef.current
@@ -3161,7 +3338,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               <div>
                 <div className="text-xs font-medium text-slate-600 mb-1">Data view</div>
                 <div className="flex flex-col gap-1">
-                  {(['paths', 'table'] as const).map((opt) => (
+                  {(['paths', 'cables', 'table'] as const).map((opt) => (
                     <label key={opt} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
@@ -3181,7 +3358,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         }}
                         className="accent-sky-600"
                       />
-                      <span className="text-xs capitalize">{opt === 'paths' ? 'Paths' : 'Table'}</span>
+                      <span className="text-xs">
+                        {opt === 'paths' ? 'Paths' : opt === 'cables' ? 'Data Cables' : 'Table'}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -3906,7 +4085,31 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               {(() => {
                 const { renderNodes: rNodes, renderPaths: rPaths } = buildExpandedScene()
                 const nodeById = new Map<string, Node>(rNodes.map((n) => [n.id, n]))
-                return rPaths.map((ep) => {
+                const showCables = dataVizMode === 'cables'
+                const cableGroups = showCables
+                  ? buildCableGroups(
+                      rPaths
+                        .filter((ep) => isDatasetPath(ep.templatePath, nodes))
+                        .map((ep) => ({ from: ep.fromNodeId, to: ep.toNodeId })),
+                      nodeById
+                    )
+                  : null
+
+                const trunks = cableGroups
+                  ? Array.from(cableGroups.entries()).map(([fromId, g]) => (
+                      <path
+                        key={`cable-trunk-${fromId}`}
+                        d={`M ${g.exit.x} ${g.exit.y} L ${g.manifold.x} ${g.manifold.y}`}
+                        fill="none"
+                        stroke={CABLE_COLOR}
+                        strokeWidth={CABLE_TRUNK_WIDTH}
+                        strokeLinecap="round"
+                        pointerEvents="none"
+                      />
+                    ))
+                  : null
+
+                const branches = rPaths.map((ep) => {
                   const p = ep.templatePath
                   const renderPath = { ...p, id: ep.id, from: ep.fromNodeId, to: ep.toNodeId }
                   const isSelected = selectedType === 'path' && selectedId === p.id
@@ -3915,15 +4118,30 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
+
+                  const asCable = showCables && isDatasetPath(p, nodes)
+                  const group = asCable ? cableGroups?.get(ep.fromNodeId) : undefined
+                  const targetNode = asCable ? nodeById.get(ep.toNodeId) : undefined
+                  const cableGeom = group && targetNode ? cableBranchGeometry(group.manifold, group.axis, targetNode) : null
+
+                  const d = cableGeom ? cableGeom.d : pathD(renderPath as any, nodeById)
+                  const stroke = cableGeom
+                    ? (isSelected ? DISPLAY_COLORS.selectedStroke : CABLE_COLOR)
+                    : (isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke))
+                  const strokeWidth = cableGeom
+                    ? (isSelected ? DISPLAY_COLORS.selectedStrokeWidth : CABLE_BRANCH_WIDTH)
+                    : (isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6))
+
                   return (
                     <path
                       key={ep.id}
-                      d={pathD(renderPath as any, nodeById)}
+                      d={d}
                       fill="none"
-                      stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
-                      strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
-                      markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
-                      markerStart={renderPath.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                      stroke={stroke}
+                      strokeWidth={strokeWidth}
+                      strokeLinecap={cableGeom ? 'round' : undefined}
+                      markerEnd={cableGeom ? undefined : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                      markerStart={cableGeom ? undefined : (renderPath.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined)}
                       onClick={(e) => {
                         e.stopPropagation()
                         selectElement(p.id, 'path')
@@ -3937,6 +4155,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     />
                   )
                 })
+
+                return (
+                  <>
+                    {trunks}
+                    {branches}
+                  </>
+                )
               })()}
 
               {/* ---- ORIGINAL path rendering hidden below — replaced by expanded scene above ---- */}
@@ -3971,10 +4196,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 })}
 
               {/* path labels (using template paths so labels appear once per template, not per instance) */}
-          {paths.map((p) => {
+          {(() => {
+            const templateCableGroups = dataVizMode === 'cables'
+              ? buildCableGroups(
+                  paths.filter((sp) => isDatasetPath(sp, nodes)).map((sp) => ({ from: sp.from, to: sp.to }))
+                )
+              : null
+            return paths.map((p) => {
             const displayText = getPathDisplayText(p)
             if (!displayText) return null
-            const pos = pathLabelPos(p)
+            const asCable = dataVizMode === 'cables' && isDatasetPath(p, nodes)
+            const cableGroup = asCable ? templateCableGroups?.get(p.from) : undefined
+            const cableTarget = asCable ? nodes.find((n) => n.id === p.to) : undefined
+            const pos = cableGroup && cableTarget
+              ? cableBranchGeometry(cableGroup.manifold, cableGroup.axis, cableTarget).labelPos
+              : pathLabelPos(p)
             if (!pos) return null
             const inLayer = isPathInLayer(p)
             const opacity = getElementOpacity(inLayer)
@@ -4019,7 +4255,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 </text>
               </g>
             )
-          })}
+          })
+          })()}
 
           {/* rubber-band selection rect (make-repeat-group mode) */}
           {rubberBand && mode === 'make-repeat-group' && (
