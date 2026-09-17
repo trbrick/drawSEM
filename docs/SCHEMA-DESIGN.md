@@ -47,6 +47,15 @@ and provenance* (nouns — enough to reproduce it), never its *implementation/lo
 is the shared document they read and write. Pinning a setting (fit function, seed,
 penalty) is recording configuration — a noun — so it never crosses the line.
 
+**Guideline: same meaning, same structure.** Structural content specifies
+theoretical and statistical meaning; two specifications that mean and predict
+the same thing should be structurally identical whenever possible, regardless
+of choices made in fitting. Fitting-strategy differences belong in analysis
+configuration (§10), not in duplicated structural content. This generalizes
+the noun/verb boundary above — apply it as an aim, not a mechanical test:
+"meaning" is not always decidable from predicted-distribution equivalence
+alone.
+
 The top level is a **closed, recursive collection**: a node is either a model or a
 set of models/collections carrying relationship and production metadata, mirroring
 composition's closure. `schemaVersion: 1` uses the degenerate flat case (a set of
@@ -444,3 +453,29 @@ deferred, not excluded.
   boundary conditions, the group/class 2×2, latent membership); the floor cases
   confirmed progressive disclosure and the simulation↔analysis duality (fixed values +
   extents + N vs free parameters + data).
+
+### Appendix — lavaan / R-ecosystem feature test surface
+
+*Concrete external features mapped onto this design, catalogued 2026-08-31 as a
+future validation/test surface — not a commitment to build any of them next.*
+
+| Feature (source) | Maps to | Status |
+| --- | --- | --- |
+| `group=`, `group.equal=`, `group.partial=` (lavaan) | §5 group/class construct + §9 per-coordinate overrides | Covered by design |
+| `:=`, `==`, `<`, `>` (lavaan constraints / defined parameters) | §8 expression language | Covered by design |
+| `~*~` scaling factors (lavaan, ordinal delta parameterization) | §8 / link functions (§11) | Thin — falls in the less-specified link-function/operator-node bucket, not fully worked through |
+| `level:` blocks, `cluster=` (lavaan multilevel) | §3–7 relational core (unit of analysis, unit relationships) | Covered — this is the redesign's central case |
+| `ordered=`, thresholds `\|` (lavaan) | roadmapped `linkFunction` node (`DESIGN-DECISIONS.md` Node Types) | Stashable via `pendingCore` today; no reconstructor exists |
+| MLR/MLM/MLMV/WLSMV, robust & cluster-robust SEs, bootstrap SEs (lavaan) | `schemaVersion: 0` `optimization.fitFunction` / `fitResults` | Not covered — see `DESIGN-DECISIONS.md` Open Question 12 |
+| 2SLS | alternative point estimator alongside `fitFunction` | Not covered, but cheap — same shape as existing estimators |
+| E/M optimizer | §10 computational-hint layer | Already anticipated (§10's own IRT/marginal-ML example) |
+| `efa()` rotation | single-fit `optimization` config | Not covered, cheap — new fields, no wrapper machinery needed |
+| regsem (regularization) | §11 Tier 1 wrapper | Named "nearly free" |
+| `runMI` (multiple-imputation pooling) | §11 Tier 1 wrapper, collection-level provenance | Named "nearly free"; rides the same reserved container as regsem |
+| `sam()` (structural-after-measurement) | Tier 1-by-analogy | Undesigned but narrow — fixed decomposition implied by the graph itself, no search involved |
+| GIMME | §11 Tier 2, reserved | Named explicitly |
+| SEM trees / SEM forests | §11 Tier 2, reserved | Named explicitly |
+| **multiVar** — a specific R package (idiographic multivariate time-series/network modeling, GIMME-adjacent), not a description coined in this review | §11 Tier 2, reserved | Named explicitly |
+
+Use this table as a concrete checklist when §5/§8/§9's design is next validated
+against real syntax, and as the starting scope for Open Question 12.

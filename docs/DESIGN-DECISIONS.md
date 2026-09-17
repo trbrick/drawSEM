@@ -475,6 +475,40 @@ roughly five orders of magnitude).
 - `prior` is an untyped bag, so it is not portable across backends that
   parameterize the same family differently (precision vs sd).
 
+**Later addition (2026-08-31): the shrinkage/pooling spectrum.** Priors,
+regularization, random-effects variance components, and hard-fixed
+parameters are not four separate mechanisms — they are one continuum,
+differing only in where the shrinkage strength comes from:
+
+- **Ridge regression is the MAP estimate under independent Gaussian priors**,
+  with penalty strength λ = σ²(residual)/σ²(prior); **lasso is the MAP
+  estimate under independent Laplace priors** (Tibshirani 1996; Park &
+  Casella 2008, the Bayesian lasso).
+- **A random effect is the BLUP under the same Gaussian-shrinkage math**,
+  except the shrinkage strength — the ratio of within- to between-cluster
+  variance — is *estimated from the data* (REML/ML) rather than externally
+  tuned (Robinson 1991, "That BLUP is a good thing"). Marginal
+  (population-averaged) and full random-effects (conditional) point
+  estimates, for a linear random-intercept model, converge as that
+  estimated variance shrinks toward zero — the same limit ridge/lasso
+  approach as λ→0.
+- **Hard-fixing a parameter is this family's zero-variance boundary** — a
+  point-mass prior, i.e. infinite shrinkage strength. `freeParameter` absent
+  plus a fixed value is already this case.
+
+So `optimization.parameterTypes.*.prior` (a distribution + parameters) is
+close to the right shared representation for priors, regularization
+penalties, and random-effects variance components alike — they differ only
+in whether the shrinkage strength is asserted (a fixed prior, or hard
+fixing), externally tuned (a CV-chosen λ — see the `regsem` row of
+`SCHEMA-DESIGN.md`'s lavaan/R-ecosystem test-surface table), or jointly
+estimated (a random-effect variance component — itself model content per
+the "does this introduce a new estimated quantity" test in Open Question
+12's clustering discussion). Unifying the representation shouldn't erase the
+distinction, though: the schema is provenance-first, and *how* a shrinkage
+strength was determined is exactly the kind of fact a reader needs that the
+shared math alone doesn't carry.
+
 **Sources:** [BARG](https://www.nature.com/articles/s41562-021-01177-7)
 ([PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC8526359/));
 [WAMBS](https://pubmed.ncbi.nlm.nih.gov/26690773/);
@@ -515,3 +549,89 @@ content — the problem doesn't bite until that generalization happens.
 
 **Affected areas:** `R/utilities.R` (`extractPendingCore`), `R/converters.R`
 (`onUnsupported` gate), `graph.schema.json` / `core/types.ts` (`ModelExtensions`).
+
+---
+
+### 11. lavaan escrow point for `drawSemHints` (forward-looking; lavaan backend not yet implemented)
+
+**The question:** When lavaan support is built, where does `drawSemHints` (see
+`R/drawSemHints-class.R`) get stashed, mirroring `mxModel@options$drawSemHints`
+for OpenMx?
+
+**Answer (empirically validated 2026-08-31 against lavaan 0.6.21).** The fitted
+`lavaan` S4 object has an `@external` slot, documented by lavaan itself as
+"Empty slot to be used by add-on packages" — the lavaan-side analogue of an
+OpenMx option key OpenMx doesn't recognize. Unlike `mxModel()`, lavaan has no
+separate build-without-run step by default — `lavaan()` normally constructs
+*and* fits in one call. The equivalent of `mxModel()` (build without run) is
+`lavaan(model, data, do.fit = FALSE)`: it returns the full S4 object
+(`ParTable`, `Data`, `Model`, `external`, etc. all populated) with the
+optimizer skipped, so hints can be attached there exactly as `io.R:466` does
+for `om_model@options$drawSemHints` before `mxRun()`.
+
+Validated behavior:
+
+- Attaching `@external$drawSemHints` on a `do.fit = FALSE` build: survives.
+- A subsequent real fit (`lavaan(..., do.fit = TRUE)`) returns a **new** S4
+  object with an empty `@external` — hints are not carried over automatically
+  and must be reattached after every fit, not just once at build time.
+- `lavPredict()`, `saveRDS()`/`readRDS()` (checked with `identical()`), and
+  multigroup fits all leave `@external` intact.
+- `validObject()` and `summary()` raise no complaint about custom `@external`
+  content.
+
+**Gap, unresolved.** `update()` — lavaan's own refit/re-derive entry point —
+rebuilds the S4 object from scratch and drops `@external` on both an unfit
+and an already-fit object. Any drawSEM code path that calls `update()` would
+need to explicitly reattach hints afterward. This is the lavaan-side
+counterpart to the OpenMx caveat that `mxOption(model, key, value, reset =
+TRUE)` drops `@options` wholesale.
+
+**Affected areas:** `R/drawSemHints-class.R`, `R/io.R` (whichever future
+`as.LavaanModel()` / `runModel(backend = "lavaan")` equivalents get written).
+
+---
+
+### 12. Robust/alternative estimators and standard-error metadata (schemaVersion 0 gap)
+
+**The question:** `optimization.fitFunction` is a closed enum (`ML, WLS,
+DWLS, ULS, GLS`) and `fitResults.standardErrors`/`fitValue`/
+`degreesOfFreedom` are plain scalars/number-maps, all under
+`additionalProperties: false`. None of this has room for robust estimators
+(MLR, MLM, MLMV, WLSMV), robust or cluster-robust standard errors, or
+bootstrap standard errors — all standard lavaan/Mplus features. What's the
+extension shape?
+
+**Findings (2026-08-31), not yet designed or built:**
+
+- Most of it is cheap, additive metadata — an SE-method label, bootstrap
+  replicate count, and seed follow the same computational-hint-plus-recorded-
+  provenance pattern already settled for MCMC in Open Question 9.
+- **Test statistics need to become an array, not stay scalar fields.**
+  lavaan/Mplus routinely report a naive *and* a scaled/robust chi-square side
+  by side (e.g. `test = c("satorra.bentler", "yuan.bentler")`). A single
+  `fitValue`/`degreesOfFreedom` pair can't hold that — this wants a
+  `testStatistics: [{method, value, df, scalingCorrection}]`-shaped list, a
+  shape change to `fitResults`, not pure addition.
+- **Clustering/robust-SE strategy choice is not one config knob — see Open
+  Question 9's shrinkage-spectrum addition.** The dimension-membership key
+  (which cluster each row belongs to) is structural regardless of fitting
+  strategy. Of the three ways to handle it — full random-effects ML,
+  marginal/pooled + robust SE, fixed-effects/stratified — only the marginal
+  strategy is pure analysis configuration (same estimated quantities as the
+  ungrouped model, corrected SEs only); the other two introduce a new
+  estimated quantity (a variance component, or a genuine multi-group
+  replicate) and so require actual structural content, by the same test
+  Open Question 9 now uses for priors vs. regularization vs. random effects.
+- **Keep the point estimator and the SE/correction method orthogonal.**
+  Don't add "MLR"/"WLSMV" as new `fitFunction` values — MLR *is* ML with a
+  sandwich SE and a scaled test statistic. Cross-producing estimator ×
+  correction into the enum duplicates information and doesn't generalize
+  across backends. A separate `robustness`/correction field that composes
+  with existing `fitFunction` values is the cleaner shape.
+
+**Affected areas:** `graph.schema.json` (`optimization.fitFunction`,
+`fitResults.standardErrors`/`fitValue`/`degreesOfFreedom`), `core/types.ts`,
+the eventual lavaan converter. See also `SCHEMA-DESIGN.md`'s lavaan /
+R-ecosystem feature test-surface table (end of file) for how this sits
+alongside the other lavaan gaps.
