@@ -450,3 +450,292 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }
+
+#' Add a Constant Node to a GraphModel
+#'
+#' Adds a `constant` node (the unit vector, used for means/intercepts).
+#' Multiple constant nodes are permitted in the schema -- e.g. for layout,
+#' or to attribute different mean paths to visually distinct constants; all
+#' of them contribute to the means model. The schema's own convention is to
+#' label the first/only constant `"1"`.
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param label Character. The label for the new constant node. Must be
+#'   unique within the model. Defaults to `"1"`.
+#' @param description Character or `NULL`. An optional human-readable
+#'   description for the node.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+addConstant <- function(graphModel, label = "1", description = NULL) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (!is.character(label) || length(label) != 1 || nchar(label) == 0) {
+    stop("label must be a single non-empty character string", call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to add a constant to", call. = FALSE)
+  }
+  existing_labels <- vapply(first_model$nodes, function(n) as.character(n$label), character(1))
+  if (label %in% existing_labels) {
+    stop(sprintf("A node with label '%s' already exists", label), call. = FALSE)
+  }
+
+  new_node <- list(label = label, type = "constant")
+  if (!is.null(description)) {
+    new_node$description <- description
+  }
+
+  first_model$nodes[[length(first_model$nodes) + 1]] <- new_node
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
+#' Remove a Constant Node from a GraphModel
+#'
+#' Removing a constant also removes any mean paths incident to it, with a
+#' warning naming how many were removed (see [removeVariable()] for the
+#' same rationale).
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param label Character. The label of the constant node to remove.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+removeConstant <- function(graphModel, label) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to remove a constant from", call. = FALSE)
+  }
+  node_idx <- which(vapply(first_model$nodes, function(n) {
+    identical(n$label, label) && identical(n$type, "constant")
+  }, logical(1)))
+  if (length(node_idx) == 0) {
+    stop(sprintf("No constant node found with label '%s'", label), call. = FALSE)
+  }
+
+  incident <- vapply(
+    first_model$paths,
+    function(p) identical(p$from, label) || identical(p$to, label),
+    logical(1)
+  )
+  if (any(incident)) {
+    warning(sprintf(
+      "Removing constant '%s' also removed %d incident path(s)", label, sum(incident)
+    ), call. = FALSE)
+  }
+
+  first_model$nodes[[node_idx]] <- NULL
+  first_model$paths <- first_model$paths[!incident]
+
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
+#' Add a Dataset Node to a GraphModel, with Embedded Data
+#'
+#' Adds a `dataset` node carrying `data` embedded directly in the schema
+#' (`datasetSource$type = "embedded"`), and records `data` in the
+#' `GraphModel`'s own `@data` cache. File-based datasets
+#' (`datasetSource$type = "file"`) are not supported by this function --
+#' construct that `datasetSource` shape directly if needed.
+#'
+#' v0.1 supports only one dataset node per model; this is enforced here at
+#' add time (the schema-to-OpenMx converter also enforces it, but only at
+#' build time, which is a much later and less helpful point to discover the
+#' problem).
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param label Character. The label for the new dataset node. Must be
+#'   unique within the model.
+#' @param data A `data.frame` to embed.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+addDataset <- function(graphModel, label, data) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (!is.character(label) || length(label) != 1 || nchar(label) == 0) {
+    stop("label must be a single non-empty character string", call. = FALSE)
+  }
+  if (!is.data.frame(data)) {
+    stop("data must be a data.frame", call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to add a dataset to", call. = FALSE)
+  }
+  existing_labels <- vapply(first_model$nodes, function(n) as.character(n$label), character(1))
+  if (label %in% existing_labels) {
+    stop(sprintf("A node with label '%s' already exists", label), call. = FALSE)
+  }
+  has_dataset <- any(vapply(first_model$nodes, function(n) identical(n$type, "dataset"), logical(1)))
+  if (has_dataset) {
+    stop("This model already has a dataset node; v0.1 supports only one dataset node per model", call. = FALSE)
+  }
+
+  data_as_json <- dataFrameToJSON(data)
+  new_node <- list(
+    label = label,
+    type = "dataset",
+    datasetSource = list(
+      type = "embedded",
+      format = "json",
+      encoding = "UTF-8",
+      columnTypes = as.list(data_as_json$columnTypes),
+      object = data_as_json$object,
+      rowCount = nrow(data)
+    )
+  )
+
+  first_model$nodes[[length(first_model$nodes) + 1]] <- new_node
+  graphModel@schema$models[[1]] <- first_model
+  graphModel@data[[label]] <- data
+  graphModel@dataConnections[[label]] <- list(status = "user_bound")
+  invisible(graphModel)
+}
+
+#' Remove a Dataset Node from a GraphModel
+#'
+#' Removing a dataset node also removes its `type: "data"` paths, and the
+#' corresponding entries in `@data` and `@dataConnections`.
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param label Character. The label of the dataset node to remove.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+removeDataset <- function(graphModel, label) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to remove a dataset from", call. = FALSE)
+  }
+  node_idx <- which(vapply(first_model$nodes, function(n) {
+    identical(n$label, label) && identical(n$type, "dataset")
+  }, logical(1)))
+  if (length(node_idx) == 0) {
+    stop(sprintf("No dataset node found with label '%s'", label), call. = FALSE)
+  }
+
+  incident <- vapply(
+    first_model$paths,
+    function(p) isTRUE(p$type == "data") && (identical(p$from, label) || identical(p$to, label)),
+    logical(1)
+  )
+  if (any(incident)) {
+    warning(sprintf(
+      "Removing dataset '%s' also removed %d data path(s)", label, sum(incident)
+    ), call. = FALSE)
+  }
+
+  first_model$nodes[[node_idx]] <- NULL
+  first_model$paths <- first_model$paths[!incident]
+
+  graphModel@schema$models[[1]] <- first_model
+  graphModel@data[[label]] <- NULL
+  graphModel@dataConnections[[label]] <- NULL
+  invisible(graphModel)
+}
+
+#' Connect a Dataset Column to a Variable Node
+#'
+#' Adds a `type: "data"` path from a dataset node to a variable node, with
+#' `column` as the path's `label` (the source column name), per the
+#' schema's data-connection convention. This is what makes a variable
+#' manifest -- see the schema's manifest/latent inference rule.
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param from Character. Label of the dataset node.
+#' @param to Character. Label of the variable node.
+#' @param column Character. The source column name in the dataset.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+addDataPath <- function(graphModel, from, to, column) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (!is.character(column) || length(column) != 1 || nchar(column) == 0) {
+    stop("column must be a single non-empty character string", call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to add a data path to", call. = FALSE)
+  }
+
+  dataset_node <- Find(function(n) identical(n$label, from) && identical(n$type, "dataset"), first_model$nodes)
+  if (is.null(dataset_node)) {
+    stop(sprintf("No dataset node found with label '%s'", from), call. = FALSE)
+  }
+  variable_node <- Find(function(n) identical(n$label, to) && identical(n$type, "variable"), first_model$nodes)
+  if (is.null(variable_node)) {
+    stop(sprintf("No variable node found with label '%s'", to), call. = FALSE)
+  }
+
+  column_types <- dataset_node$datasetSource$columnTypes
+  if (!is.null(column_types) && !column %in% names(column_types)) {
+    stop(sprintf(
+      "Column '%s' not found in dataset '%s'. Available columns: %s",
+      column, from, paste(names(column_types), collapse = ", ")
+    ), call. = FALSE)
+  }
+
+  duplicate <- Find(function(p) {
+    isTRUE(p$type == "data") && identical(p$from, from) && identical(p$to, to)
+  }, first_model$paths)
+  if (!is.null(duplicate)) {
+    stop(sprintf("A data path from '%s' to '%s' already exists", from, to), call. = FALSE)
+  }
+
+  new_path <- list(from = from, to = to, type = "data", label = column)
+  first_model$paths[[length(first_model$paths) + 1]] <- new_path
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
+#' Remove a Data Path from a GraphModel
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param from Character. Label of the dataset node.
+#' @param to Character. Label of the variable node.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+removeDataPath <- function(graphModel, from, to) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to remove a data path from", call. = FALSE)
+  }
+
+  idx <- which(vapply(first_model$paths, function(p) {
+    isTRUE(p$type == "data") && identical(p$from, from) && identical(p$to, to)
+  }, logical(1)))
+  if (length(idx) == 0) {
+    stop(sprintf("No data path found from '%s' to '%s'", from, to), call. = FALSE)
+  }
+
+  first_model$paths[[idx]] <- NULL
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
