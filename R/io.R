@@ -1099,7 +1099,17 @@ setMethod(
         node
       })
 
-      pathKey <- function(p) paste(p$from, p$to, p$numberOfArrows %||% NA, sep = "")
+      # A numberOfArrows == 2 (covariance/variance) path has no inherent
+      # direction, so from/to order is not part of its identity -- sort the
+      # endpoints before keying so a hint escrowed as (A,B) still matches a
+      # live path reconstructed as (B,A). numberOfArrows == 1 (directed) and
+      # type == "data" paths keep order-sensitive keys, since direction (or
+      # absence of numberOfArrows entirely) is meaningful there.
+      pathKey <- function(p) {
+        arrows <- p$numberOfArrows %||% NA
+        endpoints <- if (isTRUE(arrows == 2)) sort(c(p$from, p$to)) else c(p$from, p$to)
+        paste(c(endpoints, arrows), collapse = "")
+      }
       hint_paths_by_key <- setNames(hint_paths, vapply(hint_paths, pathKey, character(1)))
       paths <- lapply(paths, function(path) {
         hp <- hint_paths_by_key[[pathKey(path)]]

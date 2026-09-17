@@ -222,6 +222,36 @@ test_that("round trip through OpenMx restores visual positions and the dataset l
   expect_equal(var_path$visual, list(curvature = 0.5))
 })
 
+test_that("round trip through OpenMx restores a cross-variable covariance hint regardless of live from/to order", {
+  # Regression test for the pathKey() symmetry fix (R/io.R): a numberOfArrows
+  # == 2 path has no inherent direction, but OpenMx's S-matrix reconstruction
+  # (add_paths_from_matrix(), io.R) walks the upper triangle by matrix index
+  # and emits from = col_names[j], to = row_names[i] for i <= j -- which can
+  # come out in the opposite order from however the hint originally stored
+  # it. The lookup here is deliberately order-agnostic (setequal) so this
+  # test passes regardless of which order OpenMx happens to reconstruct;
+  # what it guards is that the *visual hint* survives either way, which is
+  # exactly what pathKey()'s un-sorted from/to key used to break silently.
+  set.seed(1)
+  df <- data.frame(x = rnorm(50), y = rnorm(50))
+  schema <- hintRoundTripSchema(dataset_label = "surveyData")
+  schema$models$m1$paths[[length(schema$models$m1$paths) + 1]] <- list(
+    from = "x", to = "y", numberOfArrows = 2, freeParameter = TRUE, value = 0.3,
+    visual = list(curvature = 0.75)
+  )
+  gm <- as.GraphModel(schema, data = list(surveyData = df))
+
+  om <- as.MxModel(gm)
+  gm2 <- as.GraphModel(om)
+
+  cov_path <- Find(function(p) {
+    isTRUE(p$numberOfArrows == 2) && setequal(c(p$from, p$to), c("x", "y"))
+  }, gm2$schema$models$m1$paths)
+
+  expect_false(is.null(cov_path))
+  expect_equal(cov_path$visual, list(curvature = 0.75))
+})
+
 test_that("round trip through OpenMx attributes each mean path to its own constant", {
   set.seed(1)
   df <- data.frame(x = rnorm(50), y = rnorm(50))
