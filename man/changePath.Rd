@@ -40,3 +40,20 @@ redirecting one is \code{\link[=removePath]{removePath()}} + \code{\link[=addPat
 Errors if no such path exists, rather than silently creating one -- see
 \code{\link[=addPath]{addPath()}} for that.
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataPath]{addDataPath()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addPath]{addPath()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeConstant]{removeConstant()}},
+\code{\link[=removeDataPath]{removeDataPath()}},
+\code{\link[=removeDataset]{removeDataset()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

@@ -1,16 +1,49 @@
-#' GraphModel Verb DSL: Read-Only Accessors and Structural Verbs
+#' GraphModel Verb DSL: Index of Verbs and Accessors
 #'
 #' Functions for building and editing a `GraphModel`'s schema directly from
 #' R. These are the drawSEM-native counterpart to authoring a model in
 #' OpenMx or lavaan syntax -- everything here operates on and returns a
 #' `GraphModel`, following the schema's own field names.
 #'
-#' All functions in this file operate on the schema's first (and, for now,
+#' All functions listed here operate on the schema's first (and, for now,
 #' only) model. Multi-model addressing is intentionally out of scope for
-#' this pass.
+#' this slice.
+#'
+#' @section Read-only accessors:
+#' [nodes()] and [paths()] list every node/path matching a filter, always
+#' as a list (possibly empty), never a single object that might be
+#' ambiguous. `paths()` treats a `numberOfArrows == 2` (covariance) path's
+#' `from`/`to` as an unordered pair, since such a path has no inherent
+#' direction.
+#'
+#' @section Variable nodes:
+#' [addVariable()], [removeVariable()].
+#'
+#' @section Constant nodes:
+#' [addConstant()], [removeConstant()].
+#'
+#' @section Dataset nodes and data connections:
+#' [addDataset()] (embedded `data.frame` only), [removeDataset()],
+#' [addDataPath()], [removeDataPath()].
+#'
+#' @section Structural paths:
+#' [addPath()], [removePath()], [changePath()] (`freeParameter`/`value`
+#' only -- cannot change arrow count), [convertPath()] (the only way to
+#' convert a path between directed and covariance form; deliberately a
+#' separate verb rather than an argument on `changePath()`, since
+#' `numberOfArrows` is also part of a path's lookup identity).
+#'
+#' @section Design notes:
+#' Every `add*()` verb errors if the target already exists; every
+#' `change*()`/`remove*()`/`convertPath()` verb errors if it does not --
+#' there is no upsert. See the individual function docs for the specific
+#' errors each one can raise.
+#'
+#' @seealso [setLocation()] and [setManifestLatent()] for the other
+#'   `GraphModel`-mutating functions in the package (not part of this verb
+#'   family, but the same copy-on-modify style).
 #'
 #' @name GraphModel-verbs
-#' @docType methods
 NULL
 
 # Determine whether a path matches a from/to/numberOfArrows filter, treating
@@ -101,6 +134,7 @@ NULL
 #' nodes(gm, type = "variable")    # every variable node
 #' }
 #'
+#' @family GraphModel verbs
 #' @export
 nodes <- function(graphModel, label = NULL, type = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -141,6 +175,7 @@ nodes <- function(graphModel, label = NULL, type = NULL) {
 #' paths(gm, from = "F1", to = "F2", numberOfArrows = 2)
 #' }
 #'
+#' @family GraphModel verbs
 #' @export
 paths <- function(graphModel, from = NULL, to = NULL, numberOfArrows = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -172,6 +207,7 @@ paths <- function(graphModel, from = NULL, to = NULL, numberOfArrows = NULL) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 addVariable <- function(graphModel, label, manifestLatent = NULL, description = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -217,6 +253,7 @@ addVariable <- function(graphModel, label, manifestLatent = NULL, description = 
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 removeVariable <- function(graphModel, label) {
   if (!is(graphModel, "GraphModel")) {
@@ -272,6 +309,7 @@ removeVariable <- function(graphModel, label) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 addPath <- function(graphModel, from, to, numberOfArrows,
                      freeParameter = NULL, value = NULL) {
@@ -318,6 +356,7 @@ addPath <- function(graphModel, from, to, numberOfArrows,
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 removePath <- function(graphModel, from, to, numberOfArrows = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -357,6 +396,7 @@ removePath <- function(graphModel, from, to, numberOfArrows = NULL) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 changePath <- function(graphModel, from, to, numberOfArrows = NULL,
                         freeParameter = NULL, value = NULL) {
@@ -407,6 +447,7 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 convertPath <- function(graphModel, from, to, numberOfArrows) {
   if (!is(graphModel, "GraphModel")) {
@@ -467,6 +508,7 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 addConstant <- function(graphModel, label = "1", description = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -506,6 +548,7 @@ addConstant <- function(graphModel, label = "1", description = NULL) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 removeConstant <- function(graphModel, label) {
   if (!is(graphModel, "GraphModel")) {
@@ -560,6 +603,7 @@ removeConstant <- function(graphModel, label) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 addDataset <- function(graphModel, label, data) {
   if (!is(graphModel, "GraphModel")) {
@@ -616,6 +660,7 @@ addDataset <- function(graphModel, label, data) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 removeDataset <- function(graphModel, label) {
   if (!is(graphModel, "GraphModel")) {
@@ -666,6 +711,7 @@ removeDataset <- function(graphModel, label) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 addDataPath <- function(graphModel, from, to, column) {
   if (!is(graphModel, "GraphModel")) {
@@ -718,6 +764,7 @@ addDataPath <- function(graphModel, from, to, column) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
+#' @family GraphModel verbs
 #' @export
 removeDataPath <- function(graphModel, from, to) {
   if (!is(graphModel, "GraphModel")) {

@@ -38,3 +38,20 @@ the same \code{from}, \code{to}, and \code{numberOfArrows} -- there is no upsert
 use \code{\link[=changePath]{changePath()}} to modify an existing path's \code{freeParameter}/\code{value},
 or \code{\link[=convertPath]{convertPath()}} to change its arrow count.
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataPath]{addDataPath()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=changePath]{changePath()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeConstant]{removeConstant()}},
+\code{\link[=removeDataPath]{removeDataPath()}},
+\code{\link[=removeDataset]{removeDataset()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

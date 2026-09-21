@@ -19,3 +19,20 @@ Removing a constant also removes any mean paths incident to it, with a
 warning naming how many were removed (see \code{\link[=removeVariable]{removeVariable()}} for the
 same rationale).
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataPath]{addDataPath()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addPath]{addPath()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=changePath]{changePath()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeDataPath]{removeDataPath()}},
+\code{\link[=removeDataset]{removeDataset()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

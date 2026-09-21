@@ -18,3 +18,20 @@ The modified \code{graphModel} object (invisibly).
 Removing a dataset node also removes its \code{type: "data"} paths, and the
 corresponding entries in \verb{@data} and \verb{@dataConnections}.
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataPath]{addDataPath()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addPath]{addPath()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=changePath]{changePath()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeConstant]{removeConstant()}},
+\code{\link[=removeDataPath]{removeDataPath()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

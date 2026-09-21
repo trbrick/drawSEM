@@ -24,3 +24,20 @@ Adds a \code{type: "data"} path from a dataset node to a variable node, with
 schema's data-connection convention. This is what makes a variable
 manifest -- see the schema's manifest/latent inference rule.
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addPath]{addPath()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=changePath]{changePath()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeConstant]{removeConstant()}},
+\code{\link[=removeDataPath]{removeDataPath()}},
+\code{\link[=removeDataset]{removeDataset()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

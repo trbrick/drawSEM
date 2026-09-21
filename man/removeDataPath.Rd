@@ -19,3 +19,20 @@ The modified \code{graphModel} object (invisibly).
 \description{
 Remove a Data Path from a GraphModel
 }
+\seealso{
+Other GraphModel verbs:
+\code{\link[=addConstant]{addConstant()}},
+\code{\link[=addDataPath]{addDataPath()}},
+\code{\link[=addDataset]{addDataset()}},
+\code{\link[=addPath]{addPath()}},
+\code{\link[=addVariable]{addVariable()}},
+\code{\link[=changePath]{changePath()}},
+\code{\link[=convertPath]{convertPath()}},
+\code{\link[=nodes]{nodes()}},
+\code{\link[=paths]{paths()}},
+\code{\link[=removeConstant]{removeConstant()}},
+\code{\link[=removeDataset]{removeDataset()}},
+\code{\link[=removePath]{removePath()}},
+\code{\link[=removeVariable]{removeVariable()}}
+}
+\concept{GraphModel verbs}

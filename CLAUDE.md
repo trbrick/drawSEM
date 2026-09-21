@@ -9,6 +9,7 @@
 - Keep commit messages concise. No emojis.
 - Propose a course of action and confirm before making large changes.
 - On multi-step tasks, check in after each step rather than completing everything silently.
+- Documentation may be updated freely to reflect the current state of the code/tools (e.g. a new function's docs, an updated file list). Do not update vision, design rationale, or open-question content in `docs/` without an explicit ask, and do not resolve open design questions while doing so.
 
 ## Authoritative reference docs — read these before working on their topic
 
@@ -108,3 +109,5 @@ Focus on `drawsem-web/src/`. The adapter pattern is the key abstraction — `Can
 
 **R / Shiny work (Positron or RStudio):**
 Focus on `R/`. Read `docs/OPENMX-PRIMER.md` before any OpenMx work. The six-phase conversion in `converters.R` (`schemaToOpenMx()`) is the critical path — changes there require careful attention to manifest/latent inference and the constant-node label translation.
+
+`R/verbs.R` holds the GraphModel verb DSL for building/editing a model directly from R: `addVariable`/`removeVariable`, `addConstant`/`removeConstant`, `addDataset`/`removeDataset`, `addDataPath`/`removeDataPath`, `addPath`/`removePath`/`changePath`/`convertPath`, and the read-only `nodes()`/`paths()` accessors (always return a list, never a single ambiguous match). Single-model only (operates on the schema's first model, like `setLocation()`) — see `?GraphModel-verbs` for the full index.
