@@ -127,6 +127,32 @@ Because connection points, bindings, and data contracts are explicit, tools can
 reliably generate templates, combine modules, check compatibility before connecting,
 and adapt to data changes — not just render what a human typed.
 
+### 9. It is visually verifiable, as far as a picture can carry it.
+
+The path diagram is where a human reviews a model: in base RAM it *is* a picture of
+the model-implied moment structure, so a trained eye can read off what the model
+predicts and spot theoretical or technical errors at a glance. Because a model
+operationalizes a theory through its predictions, the diagram must surface the
+theoretical implications of the model as well as its predictions. In simple models
+the two nearly coincide; as models grow, a construct can matter to the theory out of
+proportion to its effect on the predicted moments, and the diagram must not bury
+it. The schema preserves these properties wherever possible. Every construct should
+have a visual form that shows its structure, its effect on the model's predictions,
+and what it commits the theory to. Where no drawing can carry
+an element's full meaning (matrix algebra, off-path parameters, some expressions),
+the diagram must still show *that* it is there and *where* it acts — nothing that
+changes what the model predicts may be invisible.
+
+Visible is not the same as cluttered. Inspection includes interacting with the
+surface — expanding, filtering, switching views, inspecting details — so not
+everything must be on screen at once. The target: simple models display simply;
+complexities that matter to understanding what a model does are visible by default;
+a view that answers a given question about the model is quick to find; and problems
+in complex models stand out rather than hide in the detail.
+
+The diagram is how models are built, composed, and checked. The schema is designed
+to serve visual authoring, visual composition, and visual verification alike.
+
 ---
 
 ## What a reader should be able to do
@@ -134,6 +160,8 @@ and adapt to data changes — not just render what a human typed.
 Given a schema and its referenced data, any human, tool, or AI should be able to:
 
 - understand the model without running any software;
+- see the model's structure, predicted relationships, and theoretical implications
+  in its diagram, and spot errors by inspecting it;
 - reproduce the analysis exactly;
 - retarget it to a different backend and get equivalent results (when the analysis
   configuration is pinned — see "Working assumptions");
@@ -151,6 +179,13 @@ Given a schema and its referenced data, any human, tool, or AI should be able to
 > composed and bound to data, what was estimated, and what the results mean**? If a
 > software idiom has leaked into the core, or a connection or binding can only be
 > understood by knowing the tool that wrote it, the design has failed the vision.
+>
+> And could that researcher **build the model by drawing it**, and — looking at its
+> diagram, interacting with it as needed — **see what the model predicts and what it
+> implies for the theory, and spot its theoretical or technical errors**? If
+> something that changes the model's predictions or its theoretical commitments
+> leaves no mark on the diagram, or a simple model cannot be drawn simply, the design
+> has failed the vision.
 
 ---
 
