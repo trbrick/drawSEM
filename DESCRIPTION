@@ -9,6 +9,8 @@ Description: Interactive visual tool for building structural equation models (SE
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
+Depends:
+  R (>= 4.1.0)
 Imports:
   methods,
   htmlwidgets,
@@ -35,4 +37,5 @@ Collate:
     'schema.R'
     'shiny-app.R'
     'verbs.R'
+    'codegen.R'
 Config/roxygen2/version: 8.0.0
