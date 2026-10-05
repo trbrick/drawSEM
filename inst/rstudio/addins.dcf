@@ -1,0 +1,4 @@
+Name: Edit GraphModel visually
+Description: Open the drawSEM editor on the model under the cursor (or a blank one) and insert the resulting edit as R code.
+Binding: drawSEMAddin
+Interactive: true

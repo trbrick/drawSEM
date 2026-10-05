@@ -20,6 +20,7 @@ Imports:
   shiny (>= 1.7.0),
   OpenMx (>= 2.21)
 Suggests:
+  rstudioapi,
   rsvg,
   chromote,
   testthat (>= 3.0.0)
@@ -27,15 +28,16 @@ Config/testthat/edition: 3
 Collate:
     'GraphModel-class.R'
     'GraphModel-methods.R'
-    'converters.R'
-    'drawSEM.R'
-    'drawSemHints-class.R'
+    'codegen.R'
     'utilities.R'
+    'converters.R'
     'validators.R'
     'io.R'
     'fitting.R'
-    'schema.R'
+    'drawSEM.R'
     'shiny-app.R'
+    'addin.R'
+    'drawSemHints-class.R'
+    'schema.R'
     'verbs.R'
-    'codegen.R'
 Config/roxygen2/version: 8.0.0
