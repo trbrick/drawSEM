@@ -4,35 +4,26 @@
 \alias{removeConstant}
 \title{Remove a Constant Node from a GraphModel}
 \usage{
-removeConstant(graphModel, label)
+removeConstant(graphModel, label, mergeInto = FALSE)
 }
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
 
 \item{label}{Character. The label of the constant node to remove.}
+
+\item{mergeInto}{\code{FALSE} (default -- delete incident paths), or a single
+character string naming another existing constant node to reassign
+them to instead.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-Removing a constant also removes any mean paths incident to it, with a
-warning naming how many were removed (see \code{\link[=removeVariable]{removeVariable()}} for the
-same rationale).
+By default, removing a constant also removes any mean paths incident to
+it, with a warning naming how many were removed (see \code{\link[=removeVariable]{removeVariable()}}
+for the same rationale). Setting \code{mergeInto} to another constant's label
+reassigns those incident paths to the named constant instead of deleting
+them -- safe to do, since any constant node represents the same "1";
+reassigning which one a mean path's \code{from} points to doesn't change what
+gets estimated, only bookkeeping.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

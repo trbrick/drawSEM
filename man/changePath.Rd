@@ -2,15 +2,18 @@
 % Please edit documentation in R/verbs.R
 \name{changePath}
 \alias{changePath}
-\title{Change an Existing Path's Free-Parameter Status or Value}
+\title{Change an Existing Path's Free-Parameter Status, Value, or Tags}
 \usage{
 changePath(
   graphModel,
   from,
   to,
   numberOfArrows = NULL,
-  freeParameter = NULL,
-  value = NULL
+  freeParameter = NA,
+  value = NA,
+  addTags = NULL,
+  removeTags = NULL,
+  strict = FALSE
 )
 }
 \arguments{
@@ -23,10 +26,19 @@ changePath(
 \item{numberOfArrows}{Integer, \code{1} or \code{2}, or \code{NULL}. Required when
 \code{from}/\code{to} alone would match more than one path.}
 
-\item{freeParameter}{\code{NULL}, logical, or character. The new
-free-parameter status (see \code{\link[=addPath]{addPath()}}); only applied if supplied.}
+\item{freeParameter}{\code{NA} (unchanged, default), \code{FALSE} (clear -- fixed),
+\code{TRUE} (free, anonymous), or a non-empty string (free, named). An empty
+string is rejected.}
 
-\item{value}{Numeric or \code{NULL}. The new value; only applied if supplied.}
+\item{value}{\code{NA} (unchanged, default) or a number (set).}
+
+\item{addTags}{Character vector or \code{NULL}. Tags to ensure are present.}
+
+\item{removeTags}{Character vector or \code{NULL}. Tags to ensure are absent.}
+
+\item{strict}{Logical, default \code{FALSE}. If \code{TRUE}, \code{addTags}/\code{removeTags}
+error when a tag is already present/absent instead of silently doing
+nothing for that tag.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
@@ -38,22 +50,13 @@ cannot change a path's arrow count (see \code{\link[=convertPath]{convertPath()}
 endpoints (a path has no identity independent of what it connects, so
 redirecting one is \code{\link[=removePath]{removePath()}} + \code{\link[=addPath]{addPath()}}, not a property edit).
 Errors if no such path exists, rather than silently creating one -- see
-\code{\link[=addPath]{addPath()}} for that.
+\code{\link[=addPath]{addPath()}} for that. Cannot change a \code{type: "data"} path -- use
+\code{\link[=disconnectData]{disconnectData()}}/\code{\link[=connectData]{connectData()}}/\code{\link[=reconnectData]{reconnectData()}} for those.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
+\details{
+\code{freeParameter} and \code{value} each follow the convention: \code{NA} (default)
+leaves the field unchanged, \code{FALSE} clears it (\code{freeParameter} only --
+\code{value} has no \code{FALSE}/clear form, since the schema's own default of 1.0
+makes "absent" and "explicitly 1.0" equivalent), any other legal value
+sets it.
 }
-\concept{GraphModel verbs}

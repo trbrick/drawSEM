@@ -1,58 +1,58 @@
-#' GraphModel Verb DSL: Index of Verbs and Accessors
-#'
-#' Functions for building and editing a `GraphModel`'s schema directly from
-#' R. These are the drawSEM-native counterpart to authoring a model in
-#' OpenMx or lavaan syntax -- everything here operates on and returns a
-#' `GraphModel`, following the schema's own field names.
-#'
-#' All functions listed here operate on the schema's first (and, for now,
-#' only) model. Multi-model addressing is intentionally out of scope for
-#' this slice.
-#'
-#' @section Read-only accessors:
-#' [nodes()] and [paths()] list every node/path matching a filter, always
-#' as a list (possibly empty), never a single object that might be
-#' ambiguous. `paths()` treats a `numberOfArrows == 2` (covariance) path's
-#' `from`/`to` as an unordered pair, since such a path has no inherent
-#' direction.
-#'
-#' @section Variable nodes:
-#' [addVariable()], [removeVariable()].
-#'
-#' @section Constant nodes:
-#' [addConstant()], [removeConstant()].
-#'
-#' @section Dataset nodes and data connections:
-#' [addDataset()] (embedded `data.frame` only), [removeDataset()],
-#' [addDataPath()], [removeDataPath()].
-#'
-#' @section Structural paths:
-#' [addPath()], [removePath()], [changePath()] (`freeParameter`/`value`
-#' only -- cannot change arrow count), [convertPath()] (the only way to
-#' convert a path between directed and covariance form; deliberately a
-#' separate verb rather than an argument on `changePath()`, since
-#' `numberOfArrows` is also part of a path's lookup identity).
-#'
-#' @section Design notes:
-#' Every `add*()` verb errors if the target already exists; every
-#' `change*()`/`remove*()`/`convertPath()` verb errors if it does not --
-#' there is no upsert. See the individual function docs for the specific
-#' errors each one can raise.
-#'
-#' @seealso [setLocation()] and [setManifestLatent()] for the other
-#'   `GraphModel`-mutating functions in the package (not part of this verb
-#'   family, but the same copy-on-modify style).
-#'
-#' @name GraphModel-verbs
-NULL
+# GraphModel verb DSL -- functions for building and editing a GraphModel's
+# schema directly from R. See ai-workflow/TASKS.md ("GraphModel verb DSL --
+# full redesign") for the settled design this implements. No file-level doc
+# topic here deliberately -- an earlier `?GraphModel-verbs` index topic was
+# retired as hard to discover and not worth maintaining; see the per-function
+# docs and (eventually) the package-level index instead.
+
+# TRUE if `x` is the "unchanged" sentinel for a change*() "new value"
+# argument: a single NA. Applies only to change*() arguments whose role is
+# "the new value of an existing field", where FALSE separately means "clear
+# this field" -- not to add*() verbs' optional fields (no prior state to
+# protect, NULL is fine there) or to lookup/filter arguments (no "clear"
+# concept applies to a filter).
+.isUnchanged <- function(x) length(x) == 1 && is.na(x)
+
+# Apply addTags/removeTags to an existing tags vector, honoring `strict`.
+# Shared by changePath()/changeVariable()/changeData(). Returns NULL (not
+# character(0)) when the result is empty, so absence stays meaningful the
+# same way it does for freeParameter/description elsewhere in this file.
+.applyTagChanges <- function(currentTags, addTags, removeTags, strict, subjectLabel) {
+  currentTags <- currentTags %||% character(0)
+  if (!is.null(addTags)) {
+    if (strict) {
+      dup <- intersect(addTags, currentTags)
+      if (length(dup) > 0) {
+        stop(sprintf(
+          "%s already tagged: %s. Use strict = FALSE to ignore.",
+          subjectLabel, paste(dup, collapse = ", ")
+        ), call. = FALSE)
+      }
+    }
+    currentTags <- union(currentTags, addTags)
+  }
+  if (!is.null(removeTags)) {
+    if (strict) {
+      missing <- setdiff(removeTags, currentTags)
+      if (length(missing) > 0) {
+        stop(sprintf(
+          "%s not tagged: %s. Use strict = FALSE to ignore.",
+          subjectLabel, paste(missing, collapse = ", ")
+        ), call. = FALSE)
+      }
+    }
+    currentTags <- setdiff(currentTags, removeTags)
+  }
+  if (length(currentTags) == 0) NULL else currentTags
+}
 
 # Determine whether a path matches a from/to/numberOfArrows filter, treating
 # from/to as an unordered pair when numberOfArrows == 2 (a covariance path
 # has no inherent direction) and order-sensitive otherwise. Internal helper
-# shared by paths(), addPath(), removePath(), changePath(), and
-# convertPath() so the symmetry rule lives in exactly one place -- mirrors
-# the fix applied to pathKey() in R/io.R, which has the same rule but is a
-# separate, private closure there (drawSemHints round-trip vs. this DSL).
+# shared by paths(), and (via .findPathIndices()) the mutation verbs -- so
+# the symmetry rule lives in exactly one place. Mirrors the fix applied to
+# pathKey() in R/io.R, which has the same rule but is a separate, private
+# closure there (drawSemHints round-trip vs. this DSL).
 .pathMatchesFilter <- function(p, from = NULL, to = NULL, numberOfArrows = NULL) {
   # Numeric equality (==), not identical(): numberOfArrows may be stored as
   # integer (addPath()/convertPath() coerce via as.integer()) or double (a
@@ -81,21 +81,40 @@ NULL
   (is.null(from) || identical(p$from, from)) && (is.null(to) || identical(p$to, to))
 }
 
-# Indices of every path in `paths` matching the given filter. Internal
-# helper shared by the mutation verbs (which must additionally assert on
-# the count) and paths() (which does not).
+# Indices of every STRUCTURAL path in `pathList` matching the given filter.
+# Internal helper used only by the structural path verbs (addPath,
+# removePath, changePath, convertPath) -- never by paths(), which must still
+# surface non-structural (e.g. type: "data") paths when browsing. Excludes
+# any entry lacking numberOfArrows, rather than checking `type != "data"`
+# specifically, so it generalizes to any future non-structural path kind
+# (operator operands, link functions) without a new exclusion each time.
 .findPathIndices <- function(pathList, from = NULL, to = NULL, numberOfArrows = NULL) {
-  which(vapply(
-    pathList, .pathMatchesFilter, logical(1),
-    from = from, to = to, numberOfArrows = numberOfArrows
-  ))
+  which(vapply(pathList, function(p) {
+    !is.null(p$numberOfArrows) && .pathMatchesFilter(p, from = from, to = to, numberOfArrows = numberOfArrows)
+  }, logical(1)))
 }
 
-# Ambiguity/absence error text shared by removePath(), changePath(), and
-# convertPath() so the three verbs report identically-shaped problems the
-# same way.
-.pathLookupError <- function(idx, from, to, numberOfArrows, verb) {
+# TRUE if a non-structural (no numberOfArrows) path exists between from/to --
+# used to give a specific, redirecting error instead of a generic "not
+# found" when someone tries to touch a data connection through the
+# structural path verbs.
+.dataPathEndpointsExist <- function(pathList, from, to) {
+  any(vapply(pathList, function(p) {
+    is.null(p$numberOfArrows) && identical(p$from, from) && identical(p$to, to)
+  }, logical(1)))
+}
+
+# Absence/ambiguity error shared by removePath() and changePath(). Checks
+# for a same-endpoints data connection first, to redirect rather than give a
+# generic "not found" when that's what actually happened.
+.pathLookupError <- function(pathList, idx, from, to, numberOfArrows) {
   if (length(idx) == 0) {
+    if (.dataPathEndpointsExist(pathList, from, to)) {
+      stop(sprintf(
+        "'%s' to '%s' is a data connection, not a structural path -- use connectData()/disconnectData()/reconnectData() instead.",
+        from, to
+      ), call. = FALSE)
+    }
     stop(sprintf(
       "No path found between '%s' and '%s'%s.",
       from, to,
@@ -134,7 +153,6 @@ NULL
 #' nodes(gm, type = "variable")    # every variable node
 #' }
 #'
-#' @family GraphModel verbs
 #' @export
 nodes <- function(graphModel, label = NULL, type = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -159,7 +177,8 @@ nodes <- function(graphModel, label = NULL, type = NULL) {
 #' treating `from`/`to` as an unordered pair, since such a path has no
 #' inherent direction; `numberOfArrows == 1` (directed) paths are matched
 #' order-sensitively, so `from = "A", to = "B"` never matches a `B -> A`
-#' path.
+#' path. Unlike the structural path verbs, this surfaces every path
+#' including non-structural (e.g. `type: "data"`) ones.
 #'
 #' @param graphModel A `GraphModel` object.
 #' @param from Character or `NULL`. Filter by endpoint label.
@@ -175,7 +194,6 @@ nodes <- function(graphModel, label = NULL, type = NULL) {
 #' paths(gm, from = "F1", to = "F2", numberOfArrows = 2)
 #' }
 #'
-#' @family GraphModel verbs
 #' @export
 paths <- function(graphModel, from = NULL, to = NULL, numberOfArrows = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -204,12 +222,12 @@ paths <- function(graphModel, from = NULL, to = NULL, numberOfArrows = NULL) {
 #'   leave it inferred from structure.
 #' @param description Character or `NULL`. An optional human-readable
 #'   description for the node.
+#' @param tags Character vector or `NULL`. Optional tags for the node.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-addVariable <- function(graphModel, label, manifestLatent = NULL, description = NULL) {
+addVariable <- function(graphModel, label, manifestLatent = NULL, description = NULL, tags = NULL) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
@@ -218,6 +236,9 @@ addVariable <- function(graphModel, label, manifestLatent = NULL, description = 
   }
   if (!is.null(manifestLatent) && !manifestLatent %in% c("manifest", "latent")) {
     stop('manifestLatent must be "manifest", "latent", or NULL', call. = FALSE)
+  }
+  if (!is.null(tags) && !is.character(tags)) {
+    stop("tags must be a character vector or NULL", call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
@@ -236,6 +257,9 @@ addVariable <- function(graphModel, label, manifestLatent = NULL, description = 
   if (!is.null(description)) {
     new_node$description <- description
   }
+  if (!is.null(tags)) {
+    new_node$tags <- tags
+  }
 
   first_model$nodes[[length(first_model$nodes) + 1]] <- new_node
   graphModel@schema$models[[1]] <- first_model
@@ -253,7 +277,6 @@ addVariable <- function(graphModel, label, manifestLatent = NULL, description = 
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
 removeVariable <- function(graphModel, label) {
   if (!is(graphModel, "GraphModel")) {
@@ -267,9 +290,11 @@ removeVariable <- function(graphModel, label) {
   if (is.null(first_model)) {
     stop("graphModel has no models to remove a variable from", call. = FALSE)
   }
-  node_idx <- which(vapply(first_model$nodes, function(n) identical(n$label, label), logical(1)))
+  node_idx <- which(vapply(first_model$nodes, function(n) {
+    identical(n$label, label) && identical(n$type, "variable")
+  }, logical(1)))
   if (length(node_idx) == 0) {
-    stop(sprintf("No node found with label '%s'", label), call. = FALSE)
+    stop(sprintf("No variable node found with label '%s'", label), call. = FALSE)
   }
 
   incident <- vapply(
@@ -290,6 +315,74 @@ removeVariable <- function(graphModel, label) {
   invisible(graphModel)
 }
 
+#' Change an Existing Variable Node
+#'
+#' `manifestLatent` and `description` each follow the convention: `NA`
+#' (default) leaves the field unchanged, `FALSE` clears it, any other legal
+#' value sets it. `manifestLatent` delegates to the existing
+#' [setManifestLatent()] (its validation -- promoting to manifest requires an
+#' existing incoming data path -- is not reimplemented here).
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param label Character. The label of the variable node to change.
+#' @param manifestLatent `NA` (unchanged, default), `FALSE` (clear the lock,
+#'   revert to inference), or `"manifest"`/`"latent"` (set).
+#' @param description `NA` (unchanged, default), `FALSE` (clear), or a
+#'   character string (set).
+#' @param addTags Character vector or `NULL`. Tags to ensure are present.
+#' @param removeTags Character vector or `NULL`. Tags to ensure are absent.
+#' @param strict Logical, default `FALSE`. If `TRUE`, `addTags`/`removeTags`
+#'   error when a tag is already present/absent instead of silently doing
+#'   nothing for that tag.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+changeVariable <- function(graphModel, label, manifestLatent = NA, description = NA,
+                            addTags = NULL, removeTags = NULL, strict = FALSE) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (.isUnchanged(manifestLatent) && .isUnchanged(description) &&
+        is.null(addTags) && is.null(removeTags)) {
+    stop("changeVariable() requires at least one of manifestLatent, description, addTags, or removeTags to change", call. = FALSE)
+  }
+
+  if (!.isUnchanged(manifestLatent)) {
+    if (isFALSE(manifestLatent)) {
+      graphModel <- setManifestLatent(graphModel, label, value = NULL)
+    } else {
+      if (!isTRUE(manifestLatent %in% c("manifest", "latent"))) {
+        stop('manifestLatent must be "manifest", "latent", FALSE, or NA', call. = FALSE)
+      }
+      graphModel <- setManifestLatent(graphModel, label, value = manifestLatent)
+    }
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to change a variable in", call. = FALSE)
+  }
+  node_idx <- which(vapply(first_model$nodes, function(n) {
+    identical(n$label, label) && identical(n$type, "variable")
+  }, logical(1)))
+  if (length(node_idx) == 0) {
+    stop(sprintf("No variable node found with label '%s'", label), call. = FALSE)
+  }
+  node <- first_model$nodes[[node_idx]]
+
+  if (!.isUnchanged(description)) {
+    node$description <- if (isFALSE(description)) NULL else description
+  }
+  if (!is.null(addTags) || !is.null(removeTags)) {
+    node$tags <- .applyTagChanges(node$tags, addTags, removeTags, strict, sprintf("Variable '%s'", label))
+  }
+
+  first_model$nodes[[node_idx]] <- node
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
 #' Add a Structural Path to a GraphModel
 #'
 #' Adds a new path between two nodes. Errors if a path already exists with
@@ -302,17 +395,18 @@ removeVariable <- function(graphModel, label) {
 #' @param to Character. Label of the target node.
 #' @param numberOfArrows Integer, `1` or `2`. `1` = directed path
 #'   (regression/loading/mean); `2` = covariance or variance.
-#' @param freeParameter `NULL`, logical, or character. `NULL`/absent = fixed;
-#'   `TRUE` = free, anonymous; a non-empty string = free and named (implies
-#'   an equality constraint if the same name is reused elsewhere).
+#' @param freeParameter `NULL`/`FALSE` (fixed, the default), `TRUE` (free,
+#'   anonymous), or a non-empty string (free and named -- implies an
+#'   equality constraint if the same name is reused elsewhere). An empty
+#'   string is rejected.
 #' @param value Numeric or `NULL`. The path's fixed or starting value.
+#' @param tags Character vector or `NULL`. Optional tags for the path.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
 addPath <- function(graphModel, from, to, numberOfArrows,
-                     freeParameter = NULL, value = NULL) {
+                     freeParameter = NULL, value = NULL, tags = NULL) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
@@ -321,6 +415,12 @@ addPath <- function(graphModel, from, to, numberOfArrows,
   }
   if (!isTRUE(numberOfArrows %in% c(1, 2))) {
     stop("numberOfArrows must be 1 or 2", call. = FALSE)
+  }
+  if (!is.null(freeParameter) && !isFALSE(freeParameter) && identical(freeParameter, "")) {
+    stop('freeParameter must be TRUE, FALSE, NULL, or a non-empty string; use FALSE or NULL to leave it fixed', call. = FALSE)
+  }
+  if (!is.null(tags) && !is.character(tags)) {
+    stop("tags must be a character vector or NULL", call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
@@ -337,8 +437,9 @@ addPath <- function(graphModel, from, to, numberOfArrows,
   }
 
   new_path <- list(from = from, to = to, numberOfArrows = as.integer(numberOfArrows))
-  if (!is.null(freeParameter)) new_path$freeParameter <- freeParameter
+  if (!is.null(freeParameter) && !isFALSE(freeParameter)) new_path$freeParameter <- freeParameter
   if (!is.null(value)) new_path$value <- value
+  if (!is.null(tags)) new_path$tags <- tags
 
   first_model$paths[[length(first_model$paths) + 1]] <- new_path
   graphModel@schema$models[[1]] <- first_model
@@ -346,6 +447,8 @@ addPath <- function(graphModel, from, to, numberOfArrows,
 }
 
 #' Remove a Structural Path from a GraphModel
+#'
+#' Cannot remove a `type: "data"` path -- use [disconnectData()] for that.
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param from Character. Label of the source/endpoint node.
@@ -356,7 +459,6 @@ addPath <- function(graphModel, from, to, numberOfArrows,
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
 removePath <- function(graphModel, from, to, numberOfArrows = NULL) {
   if (!is(graphModel, "GraphModel")) {
@@ -368,14 +470,14 @@ removePath <- function(graphModel, from, to, numberOfArrows = NULL) {
   }
 
   idx <- .findPathIndices(first_model$paths, from = from, to = to, numberOfArrows = numberOfArrows)
-  .pathLookupError(idx, from, to, numberOfArrows, "removePath")
+  .pathLookupError(first_model$paths, idx, from, to, numberOfArrows)
 
   first_model$paths[[idx]] <- NULL
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }
 
-#' Change an Existing Path's Free-Parameter Status or Value
+#' Change an Existing Path's Free-Parameter Status, Value, or Tags
 #'
 #' `from`, `to`, and `numberOfArrows` identify the existing path to change
 #' and are never themselves modified by this function -- `changePath()`
@@ -383,28 +485,48 @@ removePath <- function(graphModel, from, to, numberOfArrows = NULL) {
 #' endpoints (a path has no identity independent of what it connects, so
 #' redirecting one is [removePath()] + [addPath()], not a property edit).
 #' Errors if no such path exists, rather than silently creating one -- see
-#' [addPath()] for that.
+#' [addPath()] for that. Cannot change a `type: "data"` path -- use
+#' [disconnectData()]/[connectData()]/[reconnectData()] for those.
+#'
+#' `freeParameter` and `value` each follow the convention: `NA` (default)
+#' leaves the field unchanged, `FALSE` clears it (`freeParameter` only --
+#' `value` has no `FALSE`/clear form, since the schema's own default of 1.0
+#' makes "absent" and "explicitly 1.0" equivalent), any other legal value
+#' sets it.
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param from Character. Label of the source/endpoint node.
 #' @param to Character. Label of the target/endpoint node.
 #' @param numberOfArrows Integer, `1` or `2`, or `NULL`. Required when
 #'   `from`/`to` alone would match more than one path.
-#' @param freeParameter `NULL`, logical, or character. The new
-#'   free-parameter status (see [addPath()]); only applied if supplied.
-#' @param value Numeric or `NULL`. The new value; only applied if supplied.
+#' @param freeParameter `NA` (unchanged, default), `FALSE` (clear -- fixed),
+#'   `TRUE` (free, anonymous), or a non-empty string (free, named). An empty
+#'   string is rejected.
+#' @param value `NA` (unchanged, default) or a number (set).
+#' @param addTags Character vector or `NULL`. Tags to ensure are present.
+#' @param removeTags Character vector or `NULL`. Tags to ensure are absent.
+#' @param strict Logical, default `FALSE`. If `TRUE`, `addTags`/`removeTags`
+#'   error when a tag is already present/absent instead of silently doing
+#'   nothing for that tag.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
 changePath <- function(graphModel, from, to, numberOfArrows = NULL,
-                        freeParameter = NULL, value = NULL) {
+                        freeParameter = NA, value = NA,
+                        addTags = NULL, removeTags = NULL, strict = FALSE) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
-  if (is.null(freeParameter) && is.null(value)) {
-    stop("changePath() requires at least one of freeParameter or value to change", call. = FALSE)
+  if (.isUnchanged(freeParameter) && .isUnchanged(value) &&
+        is.null(addTags) && is.null(removeTags)) {
+    stop("changePath() requires at least one of freeParameter, value, addTags, or removeTags to change", call. = FALSE)
+  }
+  if (!.isUnchanged(freeParameter) && !isFALSE(freeParameter) && identical(freeParameter, "")) {
+    stop('freeParameter must be TRUE, FALSE, NA, or a non-empty string; use FALSE to fix the parameter, or TRUE for an anonymous free one', call. = FALSE)
+  }
+  if (!.isUnchanged(value) && !is.numeric(value)) {
+    stop("value must be numeric or NA", call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
@@ -413,11 +535,18 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
   }
 
   idx <- .findPathIndices(first_model$paths, from = from, to = to, numberOfArrows = numberOfArrows)
-  .pathLookupError(idx, from, to, numberOfArrows, "changePath")
+  .pathLookupError(first_model$paths, idx, from, to, numberOfArrows)
 
   path <- first_model$paths[[idx]]
-  if (!is.null(freeParameter)) path$freeParameter <- freeParameter
-  if (!is.null(value)) path$value <- value
+  if (!.isUnchanged(freeParameter)) {
+    path$freeParameter <- if (isFALSE(freeParameter)) NULL else freeParameter
+  }
+  if (!.isUnchanged(value)) {
+    path$value <- value
+  }
+  if (!is.null(addTags) || !is.null(removeTags)) {
+    path$tags <- .applyTagChanges(path$tags, addTags, removeTags, strict, sprintf("Path '%s' -> '%s'", from, to))
+  }
   first_model$paths[[idx]] <- path
 
   graphModel@schema$models[[1]] <- first_model
@@ -437,7 +566,8 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
 #' `t2->t1`) both exist, since those are two distinct paths with two
 #' distinct `(from, to)` identities, not one ambiguous pair. A covariance
 #' path is inherently unique between two given nodes, so nothing further is
-#' needed to disambiguate that direction either.
+#' needed to disambiguate that direction either. Does not apply to
+#' `type: "data"` paths, which have no arrows to convert.
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param from Character. Label of the source node -- the source of the
@@ -447,7 +577,6 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
 convertPath <- function(graphModel, from, to, numberOfArrows) {
   if (!is(graphModel, "GraphModel")) {
@@ -465,6 +594,12 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
   source_arrows <- if (numberOfArrows == 1) 2 else 1
   idx <- .findPathIndices(first_model$paths, from = from, to = to, numberOfArrows = source_arrows)
   if (length(idx) == 0) {
+    if (.dataPathEndpointsExist(first_model$paths, from, to)) {
+      stop(sprintf(
+        "'%s' to '%s' is a data connection, not a structural path -- convertPath() does not apply.",
+        from, to
+      ), call. = FALSE)
+    }
     stop(sprintf(
       "No numberOfArrows = %d path found between '%s' and '%s' to convert.",
       source_arrows, from, to
@@ -505,17 +640,20 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
 #'   unique within the model. Defaults to `"1"`.
 #' @param description Character or `NULL`. An optional human-readable
 #'   description for the node.
+#' @param tags Character vector or `NULL`. Optional tags for the node.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-addConstant <- function(graphModel, label = "1", description = NULL) {
+addConstant <- function(graphModel, label = "1", description = NULL, tags = NULL) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
   if (!is.character(label) || length(label) != 1 || nchar(label) == 0) {
     stop("label must be a single non-empty character string", call. = FALSE)
+  }
+  if (!is.null(tags) && !is.character(tags)) {
+    stop("tags must be a character vector or NULL", call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
@@ -531,6 +669,9 @@ addConstant <- function(graphModel, label = "1", description = NULL) {
   if (!is.null(description)) {
     new_node$description <- description
   }
+  if (!is.null(tags)) {
+    new_node$tags <- tags
+  }
 
   first_model$nodes[[length(first_model$nodes) + 1]] <- new_node
   graphModel@schema$models[[1]] <- first_model
@@ -539,18 +680,24 @@ addConstant <- function(graphModel, label = "1", description = NULL) {
 
 #' Remove a Constant Node from a GraphModel
 #'
-#' Removing a constant also removes any mean paths incident to it, with a
-#' warning naming how many were removed (see [removeVariable()] for the
-#' same rationale).
+#' By default, removing a constant also removes any mean paths incident to
+#' it, with a warning naming how many were removed (see [removeVariable()]
+#' for the same rationale). Setting `mergeInto` to another constant's label
+#' reassigns those incident paths to the named constant instead of deleting
+#' them -- safe to do, since any constant node represents the same "1";
+#' reassigning which one a mean path's `from` points to doesn't change what
+#' gets estimated, only bookkeeping.
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param label Character. The label of the constant node to remove.
+#' @param mergeInto `FALSE` (default -- delete incident paths), or a single
+#'   character string naming another existing constant node to reassign
+#'   them to instead.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-removeConstant <- function(graphModel, label) {
+removeConstant <- function(graphModel, label, mergeInto = FALSE) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
@@ -570,50 +717,69 @@ removeConstant <- function(graphModel, label) {
     function(p) identical(p$from, label) || identical(p$to, label),
     logical(1)
   )
-  if (any(incident)) {
-    warning(sprintf(
-      "Removing constant '%s' also removed %d incident path(s)", label, sum(incident)
-    ), call. = FALSE)
+
+  if (isFALSE(mergeInto)) {
+    if (any(incident)) {
+      warning(sprintf(
+        "Removing constant '%s' also removed %d incident path(s)", label, sum(incident)
+      ), call. = FALSE)
+    }
+    first_model$paths <- first_model$paths[!incident]
+  } else {
+    if (!is.character(mergeInto) || length(mergeInto) != 1) {
+      stop("mergeInto must be FALSE or a single character string naming another constant node", call. = FALSE)
+    }
+    if (identical(mergeInto, label)) {
+      stop("mergeInto cannot be the same constant being removed", call. = FALSE)
+    }
+    target_node <- Find(function(n) identical(n$label, mergeInto) && identical(n$type, "constant"), first_model$nodes)
+    if (is.null(target_node)) {
+      stop(sprintf("No constant node found with label '%s' to merge into", mergeInto), call. = FALSE)
+    }
+    first_model$paths <- lapply(first_model$paths, function(p) {
+      if (identical(p$from, label)) p$from <- mergeInto
+      if (identical(p$to, label)) p$to <- mergeInto
+      p
+    })
   }
 
   first_model$nodes[[node_idx]] <- NULL
-  first_model$paths <- first_model$paths[!incident]
-
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }
 
-#' Add a Dataset Node to a GraphModel, with Embedded Data
+#' Add a Dataset Node to a GraphModel
 #'
-#' Adds a `dataset` node carrying `data` embedded directly in the schema
-#' (`datasetSource$type = "embedded"`), and records `data` in the
-#' `GraphModel`'s own `@data` cache. File-based datasets
-#' (`datasetSource$type = "file"`) are not supported by this function --
-#' construct that `datasetSource` shape directly if needed.
-#'
-#' v0.1 supports only one dataset node per model; this is enforced here at
-#' add time (the schema-to-OpenMx converter also enforces it, but only at
+#' `source` dispatches on type: a `data.frame` is embedded directly in the
+#' schema (`datasetSource$type = "embedded"`) and recorded in the
+#' `GraphModel`'s own `@data` cache; a single file path string creates a
+#' file-linked dataset node (`datasetSource$type = "file"`) *without*
+#' reading it -- auto-embedding a linked file is deliberately not supported
+#' here (use [changeData()] to embed it explicitly later, which does read
+#' it). v0.1 supports only one dataset node per model; this is enforced here
+#' at add time (the schema-to-OpenMx converter also enforces it, but only at
 #' build time, which is a much later and less helpful point to discover the
 #' problem).
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param label Character. The label for the new dataset node. Must be
 #'   unique within the model.
-#' @param data A `data.frame` to embed.
+#' @param source A `data.frame` to embed, or a single file path string to
+#'   link without reading.
+#' @param tags Character vector or `NULL`. Optional tags for the node.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-addDataset <- function(graphModel, label, data) {
+addData <- function(graphModel, label, source, tags = NULL) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
   if (!is.character(label) || length(label) != 1 || nchar(label) == 0) {
     stop("label must be a single non-empty character string", call. = FALSE)
   }
-  if (!is.data.frame(data)) {
-    stop("data must be a data.frame", call. = FALSE)
+  if (!is.null(tags) && !is.character(tags)) {
+    stop("tags must be a character vector or NULL", call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
@@ -629,23 +795,35 @@ addDataset <- function(graphModel, label, data) {
     stop("This model already has a dataset node; v0.1 supports only one dataset node per model", call. = FALSE)
   }
 
-  data_as_json <- dataFrameToJSON(data)
-  new_node <- list(
-    label = label,
-    type = "dataset",
-    datasetSource = list(
-      type = "embedded",
-      format = "json",
-      encoding = "UTF-8",
+  if (is.data.frame(source)) {
+    data_as_json <- dataFrameToJSON(source)
+    dataset_source <- list(
+      type = "embedded", format = "json", encoding = "UTF-8",
       columnTypes = as.list(data_as_json$columnTypes),
       object = data_as_json$object,
-      rowCount = nrow(data)
+      rowCount = nrow(source)
     )
-  )
+  } else if (is.character(source) && length(source) == 1) {
+    ext <- tolower(tools::file_ext(source))
+    format <- if (nchar(ext) > 0) ext else "csv"
+    dataset_source <- list(
+      type = "file", format = format, location = source,
+      columnTypes = list()
+    )
+  } else {
+    stop("source must be a data.frame or a single file path string", call. = FALSE)
+  }
+
+  new_node <- list(label = label, type = "dataset", datasetSource = dataset_source)
+  if (!is.null(tags)) {
+    new_node$tags <- tags
+  }
 
   first_model$nodes[[length(first_model$nodes) + 1]] <- new_node
   graphModel@schema$models[[1]] <- first_model
-  graphModel@data[[label]] <- data
+  if (is.data.frame(source)) {
+    graphModel@data[[label]] <- source
+  }
   graphModel@dataConnections[[label]] <- list(status = "user_bound")
   invisible(graphModel)
 }
@@ -660,9 +838,8 @@ addDataset <- function(graphModel, label, data) {
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-removeDataset <- function(graphModel, label) {
+removeData <- function(graphModel, label) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
@@ -684,7 +861,7 @@ removeDataset <- function(graphModel, label) {
   )
   if (any(incident)) {
     warning(sprintf(
-      "Removing dataset '%s' also removed %d data path(s)", label, sum(incident)
+      "Removing dataset '%s' also removed %d data connection(s)", label, sum(incident)
     ), call. = FALSE)
   }
 
@@ -697,92 +874,293 @@ removeDataset <- function(graphModel, label) {
   invisible(graphModel)
 }
 
-#' Connect a Dataset Column to a Variable Node
+#' Convert a Dataset Node Between Embedded and File-Linked Form
 #'
-#' Adds a `type: "data"` path from a dataset node to a variable node, with
-#' `column` as the path's `label` (the source column name), per the
-#' schema's data-connection convention. This is what makes a variable
-#' manifest -- see the schema's manifest/latent inference rule.
+#' The only way to change a dataset's storage representation. `location`
+#' deliberately has no "always required" shape: converting *to* `"embedded"`
+#' never accepts `location` at all (it always reads from whatever the
+#' dataset's existing `location` already is -- there is exactly one file
+#' involved, so there's nothing to specify and nothing that could collide);
+#' converting *to* `"file"` requires `location` (the write target -- there's
+#' no pre-existing file to conflict with). This asymmetry is deliberate: an
+#' earlier design that always required a `source`/`location` argument in
+#' both directions had a real collision risk (if the given path didn't match
+#' the dataset's current location, it was unclear whether that was an error,
+#' a silent swap, or silently ignored) -- requiring it only where there is
+#' a genuine new question avoids that ambiguity entirely. Only CSV is
+#' currently supported for the actual file read/write; other formats need
+#' to be constructed directly.
+#'
+#' Changing *which* file/data a dataset uses is a different operation --
+#' [removeData()] + [addData()] with the new source, not this function.
 #'
 #' @param graphModel A `GraphModel` object to modify.
-#' @param from Character. Label of the dataset node.
-#' @param to Character. Label of the variable node.
-#' @param column Character. The source column name in the dataset.
+#' @param label Character. The label of the dataset node to convert.
+#' @param connectionType `"embedded"` or `"file"`. The target representation.
+#' @param location Character or `NULL`. Required (and used as the write
+#'   target) when `connectionType = "file"`; must be `NULL` when
+#'   `connectionType = "embedded"`.
+#' @param format Character, default `"csv"`. Recorded on the dataset node
+#'   when converting to `"file"`.
+#' @param overwrite Logical, default `FALSE`. If `FALSE`, errors rather than
+#'   overwriting an existing file at `location`.
+#' @param addTags Character vector or `NULL`. Tags to ensure are present.
+#' @param removeTags Character vector or `NULL`. Tags to ensure are absent.
+#' @param strict Logical, default `FALSE`. If `TRUE`, `addTags`/`removeTags`
+#'   error when a tag is already present/absent instead of silently doing
+#'   nothing for that tag.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-addDataPath <- function(graphModel, from, to, column) {
+changeData <- function(graphModel, label, connectionType, location = NULL,
+                        format = "csv", overwrite = FALSE,
+                        addTags = NULL, removeTags = NULL, strict = FALSE) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
-  if (!is.character(column) || length(column) != 1 || nchar(column) == 0) {
-    stop("column must be a single non-empty character string", call. = FALSE)
+  if (!isTRUE(connectionType %in% c("embedded", "file"))) {
+    stop('connectionType must be "embedded" or "file"', call. = FALSE)
   }
 
   first_model <- graphModel@schema$models[[1]]
   if (is.null(first_model)) {
-    stop("graphModel has no models to add a data path to", call. = FALSE)
+    stop("graphModel has no models to change a dataset in", call. = FALSE)
+  }
+  node_idx <- which(vapply(first_model$nodes, function(n) {
+    identical(n$label, label) && identical(n$type, "dataset")
+  }, logical(1)))
+  if (length(node_idx) == 0) {
+    stop(sprintf("No dataset node found with label '%s'", label), call. = FALSE)
+  }
+  node <- first_model$nodes[[node_idx]]
+  current_type <- node$datasetSource$type %||% NA
+
+  if (identical(connectionType, "embedded")) {
+    if (!is.null(location)) {
+      stop('location must not be supplied when connectionType = "embedded" -- embedding always reads from the dataset\'s existing location', call. = FALSE)
+    }
+    if (identical(current_type, "embedded")) {
+      stop(sprintf("Dataset '%s' is already embedded; nothing to convert", label), call. = FALSE)
+    }
+    existing_location <- node$datasetSource$location
+    if (is.null(existing_location)) {
+      stop(sprintf("Dataset '%s' has no location to read from", label), call. = FALSE)
+    }
+    df <- utils::read.csv(existing_location, stringsAsFactors = FALSE)
+    data_as_json <- dataFrameToJSON(df)
+    node$datasetSource <- list(
+      type = "embedded", format = "json", encoding = "UTF-8",
+      columnTypes = as.list(data_as_json$columnTypes),
+      object = data_as_json$object,
+      rowCount = nrow(df)
+    )
+    graphModel@data[[label]] <- df
+  } else {
+    if (is.null(location)) {
+      stop('location is required when connectionType = "file"', call. = FALSE)
+    }
+    if (identical(current_type, "file")) {
+      stop(sprintf("Dataset '%s' is already file-based; nothing to convert", label), call. = FALSE)
+    }
+    if (file.exists(location) && !overwrite) {
+      stop(sprintf("File already exists at '%s'; use overwrite = TRUE to replace it", location), call. = FALSE)
+    }
+    df <- graphModel@data[[label]]
+    if (is.null(df)) {
+      stop(sprintf("No embedded data found for dataset '%s'", label), call. = FALSE)
+    }
+    utils::write.csv(df, location, row.names = FALSE)
+    node$datasetSource <- list(
+      type = "file", format = format, location = location,
+      columnTypes = node$datasetSource$columnTypes %||% list(),
+      md5 = tools::md5sum(location)[[1]]
+    )
+    graphModel@data[[label]] <- NULL
   }
 
-  dataset_node <- Find(function(n) identical(n$label, from) && identical(n$type, "dataset"), first_model$nodes)
-  if (is.null(dataset_node)) {
-    stop(sprintf("No dataset node found with label '%s'", from), call. = FALSE)
-  }
-  variable_node <- Find(function(n) identical(n$label, to) && identical(n$type, "variable"), first_model$nodes)
-  if (is.null(variable_node)) {
-    stop(sprintf("No variable node found with label '%s'", to), call. = FALSE)
+  if (!is.null(addTags) || !is.null(removeTags)) {
+    node$tags <- .applyTagChanges(node$tags, addTags, removeTags, strict, sprintf("Dataset '%s'", label))
   }
 
-  column_types <- dataset_node$datasetSource$columnTypes
-  if (!is.null(column_types) && !column %in% names(column_types)) {
-    stop(sprintf(
-      "Column '%s' not found in dataset '%s'. Available columns: %s",
-      column, from, paste(names(column_types), collapse = ", ")
-    ), call. = FALSE)
-  }
-
-  duplicate <- Find(function(p) {
-    isTRUE(p$type == "data") && identical(p$from, from) && identical(p$to, to)
-  }, first_model$paths)
-  if (!is.null(duplicate)) {
-    stop(sprintf("A data path from '%s' to '%s' already exists", from, to), call. = FALSE)
-  }
-
-  new_path <- list(from = from, to = to, type = "data", label = column)
-  first_model$paths[[length(first_model$paths) + 1]] <- new_path
+  first_model$nodes[[node_idx]] <- node
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }
 
-#' Remove a Data Path from a GraphModel
+#' Connect Dataset Columns to Variable Nodes
+#'
+#' Adds `type: "data"` paths from a dataset node to one or more variable
+#' nodes, with `column` as each path's `label` (the source column name), per
+#' the schema's data-connection convention. This is what makes a variable
+#' manifest -- see the schema's manifest/latent inference rule. Vectorized
+#' over `variable`/`column`; `column = NA` (default) auto-fills from
+#' `variable` element-wise, so `connectData(gm, "survey", "cog1")` connects
+#' the `cog1` variable to a same-named column. If `column` is supplied
+#' explicitly, it must have the same length as `variable` -- no recycling,
+#' to avoid silently mispairing a mismatched-length vector.
 #'
 #' @param graphModel A `GraphModel` object to modify.
-#' @param from Character. Label of the dataset node.
-#' @param to Character. Label of the variable node.
+#' @param data Character. Label of the dataset node.
+#' @param variable Character vector. Label(s) of the variable node(s).
+#' @param column Character vector or `NA` (default -- auto-fills from
+#'   `variable`). The source column name(s) in the dataset.
 #'
 #' @return The modified `graphModel` object (invisibly).
 #'
-#' @family GraphModel verbs
 #' @export
-removeDataPath <- function(graphModel, from, to) {
+connectData <- function(graphModel, data, variable, column = NA) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (!is.character(data) || length(data) != 1) {
+    stop("data must be a single character string", call. = FALSE)
+  }
+  if (!is.character(variable) || length(variable) == 0) {
+    stop("variable must be a character vector", call. = FALSE)
+  }
+  if (length(column) == 1 && is.na(column)) {
+    column <- variable
+  }
+  if (length(column) != length(variable)) {
+    stop(sprintf(
+      "variable (length %d) and column (length %d) must have the same length",
+      length(variable), length(column)
+    ), call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to add a data connection to", call. = FALSE)
+  }
+  dataset_node <- Find(function(n) identical(n$label, data) && identical(n$type, "dataset"), first_model$nodes)
+  if (is.null(dataset_node)) {
+    stop(sprintf("No dataset node found with label '%s'", data), call. = FALSE)
+  }
+  column_types <- dataset_node$datasetSource$columnTypes
+
+  for (i in seq_along(variable)) {
+    v <- variable[[i]]
+    col <- column[[i]]
+
+    variable_node <- Find(function(n) identical(n$label, v) && identical(n$type, "variable"), first_model$nodes)
+    if (is.null(variable_node)) {
+      stop(sprintf("No variable node found with label '%s'", v), call. = FALSE)
+    }
+    if (!is.null(column_types) && length(column_types) > 0 && !col %in% names(column_types)) {
+      stop(sprintf(
+        "Column '%s' not found in dataset '%s'. Available columns: %s",
+        col, data, paste(names(column_types), collapse = ", ")
+      ), call. = FALSE)
+    }
+    duplicate <- Find(function(p) {
+      isTRUE(p$type == "data") && identical(p$from, data) && identical(p$to, v)
+    }, first_model$paths)
+    if (!is.null(duplicate)) {
+      stop(sprintf("A data connection from '%s' to '%s' already exists", data, v), call. = FALSE)
+    }
+
+    new_path <- list(from = data, to = v, type = "data", label = col)
+    first_model$paths[[length(first_model$paths) + 1]] <- new_path
+  }
+
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
+#' Disconnect Dataset Columns from Variable Nodes
+#'
+#' Vectorized over `variable`.
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param data Character. Label of the dataset node.
+#' @param variable Character vector. Label(s) of the variable node(s).
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+disconnectData <- function(graphModel, data, variable) {
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
   first_model <- graphModel@schema$models[[1]]
   if (is.null(first_model)) {
-    stop("graphModel has no models to remove a data path from", call. = FALSE)
+    stop("graphModel has no models to remove a data connection from", call. = FALSE)
   }
 
-  idx <- which(vapply(first_model$paths, function(p) {
-    isTRUE(p$type == "data") && identical(p$from, from) && identical(p$to, to)
-  }, logical(1)))
-  if (length(idx) == 0) {
-    stop(sprintf("No data path found from '%s' to '%s'", from, to), call. = FALSE)
+  for (v in variable) {
+    idx <- which(vapply(first_model$paths, function(p) {
+      isTRUE(p$type == "data") && identical(p$from, data) && identical(p$to, v)
+    }, logical(1)))
+    if (length(idx) == 0) {
+      stop(sprintf("No data connection found from '%s' to '%s'", data, v), call. = FALSE)
+    }
+    first_model$paths[[idx]] <- NULL
   }
 
-  first_model$paths[[idx]] <- NULL
+  graphModel@schema$models[[1]] <- first_model
+  invisible(graphModel)
+}
+
+#' Change Which Column an Existing Data Connection Uses
+#'
+#' `column` is required -- there is no "leave unchanged" case for an
+#' operation whose entire purpose is changing the column. Vectorized over
+#' `variable`/`column`, same length requirement as [connectData()]. Errors
+#' if the connection doesn't already exist.
+#'
+#' @param graphModel A `GraphModel` object to modify.
+#' @param data Character. Label of the dataset node.
+#' @param variable Character vector. Label(s) of the variable node(s).
+#' @param column Character vector. The new source column name(s). Must be
+#'   the same length as `variable`.
+#'
+#' @return The modified `graphModel` object (invisibly).
+#'
+#' @export
+reconnectData <- function(graphModel, data, variable, column) {
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel object", call. = FALSE)
+  }
+  if (length(column) != length(variable)) {
+    stop(sprintf(
+      "variable (length %d) and column (length %d) must have the same length",
+      length(variable), length(column)
+    ), call. = FALSE)
+  }
+
+  first_model <- graphModel@schema$models[[1]]
+  if (is.null(first_model)) {
+    stop("graphModel has no models to reconnect data in", call. = FALSE)
+  }
+  dataset_node <- Find(function(n) identical(n$label, data) && identical(n$type, "dataset"), first_model$nodes)
+  if (is.null(dataset_node)) {
+    stop(sprintf("No dataset node found with label '%s'", data), call. = FALSE)
+  }
+  column_types <- dataset_node$datasetSource$columnTypes
+
+  for (i in seq_along(variable)) {
+    v <- variable[[i]]
+    col <- column[[i]]
+
+    idx <- which(vapply(first_model$paths, function(p) {
+      isTRUE(p$type == "data") && identical(p$from, data) && identical(p$to, v)
+    }, logical(1)))
+    if (length(idx) == 0) {
+      stop(sprintf("No data connection found from '%s' to '%s'. Use connectData() to create one.", data, v), call. = FALSE)
+    }
+    if (!is.null(column_types) && length(column_types) > 0 && !col %in% names(column_types)) {
+      stop(sprintf(
+        "Column '%s' not found in dataset '%s'. Available columns: %s",
+        col, data, paste(names(column_types), collapse = ", ")
+      ), call. = FALSE)
+    }
+
+    path <- first_model$paths[[idx]]
+    path$label <- col
+    first_model$paths[[idx]] <- path
+  }
+
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }

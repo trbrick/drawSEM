@@ -10,7 +10,8 @@ addPath(
   to,
   numberOfArrows,
   freeParameter = NULL,
-  value = NULL
+  value = NULL,
+  tags = NULL
 )
 }
 \arguments{
@@ -23,11 +24,14 @@ addPath(
 \item{numberOfArrows}{Integer, \code{1} or \code{2}. \code{1} = directed path
 (regression/loading/mean); \code{2} = covariance or variance.}
 
-\item{freeParameter}{\code{NULL}, logical, or character. \code{NULL}/absent = fixed;
-\code{TRUE} = free, anonymous; a non-empty string = free and named (implies
-an equality constraint if the same name is reused elsewhere).}
+\item{freeParameter}{\code{NULL}/\code{FALSE} (fixed, the default), \code{TRUE} (free,
+anonymous), or a non-empty string (free and named -- implies an
+equality constraint if the same name is reused elsewhere). An empty
+string is rejected.}
 
 \item{value}{Numeric or \code{NULL}. The path's fixed or starting value.}
+
+\item{tags}{Character vector or \code{NULL}. Optional tags for the path.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
@@ -38,20 +42,3 @@ the same \code{from}, \code{to}, and \code{numberOfArrows} -- there is no upsert
 use \code{\link[=changePath]{changePath()}} to modify an existing path's \code{freeParameter}/\code{value},
 or \code{\link[=convertPath]{convertPath()}} to change its arrow count.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

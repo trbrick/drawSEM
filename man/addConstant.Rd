@@ -4,7 +4,7 @@
 \alias{addConstant}
 \title{Add a Constant Node to a GraphModel}
 \usage{
-addConstant(graphModel, label = "1", description = NULL)
+addConstant(graphModel, label = "1", description = NULL, tags = NULL)
 }
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
@@ -14,6 +14,8 @@ unique within the model. Defaults to \code{"1"}.}
 
 \item{description}{Character or \code{NULL}. An optional human-readable
 description for the node.}
+
+\item{tags}{Character vector or \code{NULL}. Optional tags for the node.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
@@ -25,20 +27,3 @@ or to attribute different mean paths to visually distinct constants; all
 of them contribute to the means model. The schema's own convention is to
 label the first/only constant \code{"1"}.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

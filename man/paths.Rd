@@ -26,7 +26,8 @@ bare object). \code{numberOfArrows == 2} (covariance) paths are matched
 treating \code{from}/\code{to} as an unordered pair, since such a path has no
 inherent direction; \code{numberOfArrows == 1} (directed) paths are matched
 order-sensitively, so \verb{from = "A", to = "B"} never matches a \code{B -> A}
-path.
+path. Unlike the structural path verbs, this surfaces every path
+including non-structural (e.g. \code{type: "data"}) ones.
 }
 \examples{
 \dontrun{
@@ -36,20 +37,3 @@ paths(gm, from = "F1", to = "F2", numberOfArrows = 2)
 }
 
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

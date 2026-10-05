@@ -21,22 +21,5 @@ and a covariance path exist between the same two nodes).}
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-Remove a Structural Path from a GraphModel
+Cannot remove a \code{type: "data"} path -- use \code{\link[=disconnectData]{disconnectData()}} for that.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

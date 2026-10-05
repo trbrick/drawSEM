@@ -132,7 +132,61 @@ test_that("removeVariable() removes the node and cascades incident paths with a 
 
 test_that("removeVariable() errors if the node does not exist", {
   gm <- as.GraphModel(verbFixtureSchema())
-  expect_error(removeVariable(gm, "nonexistent"), "No node found")
+  expect_error(removeVariable(gm, "nonexistent"), "No variable node found")
+})
+
+test_that("removeVariable() will not remove a non-variable node sharing the label (E.2)", {
+  schema <- verbFixtureSchema()
+  schema$models$m1$nodes[[length(schema$models$m1$nodes) + 1]] <- list(label = "d1", type = "dataset")
+  gm <- as.GraphModel(schema)
+  expect_error(removeVariable(gm, "d1"), "No variable node found")
+  expect_false(is.null(nodeByLabel(gm, "d1")))
+})
+
+test_that("addVariable() accepts tags", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- addVariable(gm, "F3", tags = c("exogenous", "wave1"))
+  expect_equal(nodeByLabel(gm2, "F3")$tags, c("exogenous", "wave1"))
+})
+
+# ---- changeVariable() -------------------------------------------------------
+
+test_that("changeVariable() sets manifestLatent via setManifestLatent()'s existing validation", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changeVariable(gm, "F1", manifestLatent = "latent")
+  expect_equal(nodeByLabel(gm2, "F1")$variableCharacteristics$manifestLatent, "latent")
+})
+
+test_that("changeVariable() FALSE clears manifestLatent (reverts to inference)", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changeVariable(gm, "F1", manifestLatent = "latent")
+  gm3 <- changeVariable(gm2, "F1", manifestLatent = FALSE)
+  expect_null(nodeByLabel(gm3, "F1")$variableCharacteristics$manifestLatent)
+})
+
+test_that("changeVariable() NA (default) leaves manifestLatent unchanged", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changeVariable(gm, "F1", manifestLatent = "latent")
+  gm3 <- changeVariable(gm2, "F1", description = "a note")
+  expect_equal(nodeByLabel(gm3, "F1")$variableCharacteristics$manifestLatent, "latent")
+  expect_equal(nodeByLabel(gm3, "F1")$description, "a note")
+})
+
+test_that("changeVariable() FALSE clears description", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changeVariable(gm, "F1", description = "a note")
+  gm3 <- changeVariable(gm2, "F1", description = FALSE)
+  expect_null(nodeByLabel(gm3, "F1")$description)
+})
+
+test_that("changeVariable() errors if nothing to change is supplied", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  expect_error(changeVariable(gm, "F1"), "requires at least one of")
+})
+
+test_that("changeVariable() errors if the variable does not exist", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  expect_error(changeVariable(gm, "nonexistent", description = "x"), "No variable node found")
 })
 
 # ---- addPath() --------------------------------------------------------------
@@ -201,12 +255,103 @@ test_that("changePath() errors if the path does not exist", {
   )
 })
 
-test_that("changePath() errors if neither freeParameter nor value is supplied", {
+test_that("changePath() errors if nothing to change is supplied", {
   gm <- as.GraphModel(verbFixtureSchema())
   expect_error(
     changePath(gm, from = "F1", to = "x1", numberOfArrows = 1),
-    "requires at least one of freeParameter or value"
+    "requires at least one of"
   )
+})
+
+test_that("changePath() FALSE clears freeParameter (fixes the path)", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, freeParameter = FALSE)
+  changed <- pathByEndpoints(gm2, "F1", "x1", 1L)
+  expect_null(changed$freeParameter)
+})
+
+test_that("changePath() errors on freeParameter = ''", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  expect_error(
+    changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, freeParameter = ""),
+    "non-empty string"
+  )
+})
+
+test_that("changePath() NA (default) leaves freeParameter/value unchanged", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, value = 2)
+  changed <- pathByEndpoints(gm2, "F1", "x1", 1L)
+  expect_true(changed$freeParameter)
+  expect_equal(changed$value, 2)
+})
+
+test_that("changePath() value must be numeric or NA", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  expect_error(
+    changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, value = "oops"),
+    "value must be numeric or NA"
+  )
+})
+
+test_that("changePath() addTags/removeTags are idempotent by default (strict = FALSE)", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, addTags = "invariant")
+  gm3 <- changePath(gm2, from = "F1", to = "x1", numberOfArrows = 1, addTags = "invariant")
+  expect_equal(pathByEndpoints(gm3, "F1", "x1", 1L)$tags, "invariant")
+
+  gm4 <- changePath(gm3, from = "F1", to = "x1", numberOfArrows = 1, removeTags = "nonexistent")
+  expect_equal(pathByEndpoints(gm4, "F1", "x1", 1L)$tags, "invariant")
+})
+
+test_that("changePath() addTags/removeTags error under strict = TRUE when a no-op would occur", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, addTags = "invariant")
+  expect_error(
+    changePath(gm2, from = "F1", to = "x1", numberOfArrows = 1, addTags = "invariant", strict = TRUE),
+    "already tagged"
+  )
+  expect_error(
+    changePath(gm, from = "F1", to = "x1", numberOfArrows = 1, removeTags = "nonexistent", strict = TRUE),
+    "not tagged"
+  )
+})
+
+# ---- E.1: structural path verbs must not touch type: "data" paths ---------
+
+dataPathFixtureSchema <- function() {
+  schema <- verbFixtureSchema()
+  schema$models$m1$nodes[[length(schema$models$m1$nodes) + 1]] <- list(label = "d1", type = "dataset")
+  schema$models$m1$paths[[length(schema$models$m1$paths) + 1]] <- list(from = "d1", to = "x1", type = "data", label = "x1_col")
+  schema
+}
+
+test_that("removePath() refuses to remove a data connection, with a redirecting error", {
+  gm <- as.GraphModel(dataPathFixtureSchema())
+  expect_error(removePath(gm, from = "d1", to = "x1"), "data connection")
+  expect_length(paths(gm, from = "d1", to = "x1"), 1)
+})
+
+test_that("changePath() refuses to change a data connection", {
+  gm <- as.GraphModel(dataPathFixtureSchema())
+  expect_error(
+    changePath(gm, from = "d1", to = "x1", freeParameter = TRUE),
+    "data connection"
+  )
+})
+
+test_that("convertPath() refuses to convert a data connection", {
+  gm <- as.GraphModel(dataPathFixtureSchema())
+  expect_error(
+    convertPath(gm, from = "d1", to = "x1", numberOfArrows = 1),
+    "data connection"
+  )
+})
+
+test_that("addPath() does not treat an existing data connection as a duplicate", {
+  gm <- as.GraphModel(dataPathFixtureSchema())
+  gm2 <- addPath(gm, from = "d1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
+  expect_length(paths(gm2, from = "d1", to = "x1"), 2)
 })
 
 # ---- convertPath() ----------------------------------------------------------

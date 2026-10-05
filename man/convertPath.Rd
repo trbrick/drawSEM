@@ -31,22 +31,6 @@ identify exactly one path even when a reciprocal pair (\code{t1->t2} and
 \code{t2->t1}) both exist, since those are two distinct paths with two
 distinct \verb{(from, to)} identities, not one ambiguous pair. A covariance
 path is inherently unique between two given nodes, so nothing further is
-needed to disambiguate that direction either.
+needed to disambiguate that direction either. Does not apply to
+\code{type: "data"} paths, which have no arrows to convert.
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=addVariable]{addVariable()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}

@@ -138,3 +138,54 @@ setMethod(
     .Object
   }
 )
+
+#' Create a New, Empty GraphModel
+#'
+#' Constructs a new `GraphModel` with a minimal valid schema containing a
+#' single, empty model -- no nodes, no paths. This is the bare-constructor
+#' half of the `data.frame()` / `as.data.frame()` idiom: [as.GraphModel()]
+#' coerces an existing schema (list, JSON string, file path, or `MxModel`)
+#' into a `GraphModel`; `GraphModel()` builds one from nothing, ready to be
+#' populated with the verb functions (`addVariable()`, `addPath()`, etc.).
+#'
+#' @param label Character or `NULL`. A label for the default model. If
+#'   `NULL` (default), the model is left unlabeled.
+#'
+#' @return A new `GraphModel` object with a minimal valid schema
+#'   (`schemaVersion = 0`, one model with no nodes and no paths).
+#'
+#' @seealso [as.GraphModel()] for coercing an existing schema into a
+#'   `GraphModel`.
+#'
+#' @examples
+#' gm <- GraphModel()
+#' schema(gm)
+#'
+#' gm2 <- GraphModel(label = "mymodel")
+#'
+#' @export
+GraphModel <- function(label = NULL) {
+  if (!is.null(label) &&
+      (!is.character(label) || length(label) != 1 || nchar(label) == 0)) {
+    stop("label must be a single non-empty character string or NULL", call. = FALSE)
+  }
+
+  model <- list(nodes = list(), paths = list())
+  if (!is.null(label)) {
+    model$label <- label
+  }
+
+  schema <- list(
+    schemaVersion = 0,
+    models = list(model1 = model)
+  )
+
+  new(
+    "GraphModel",
+    schema = schema,
+    data = list(),
+    metadata = list(),
+    lastBuiltModel = NULL,
+    dataConnections = list()
+  )
+}

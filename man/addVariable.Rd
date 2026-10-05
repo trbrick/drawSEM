@@ -4,7 +4,13 @@
 \alias{addVariable}
 \title{Add a Variable Node to a GraphModel}
 \usage{
-addVariable(graphModel, label, manifestLatent = NULL, description = NULL)
+addVariable(
+  graphModel,
+  label,
+  manifestLatent = NULL,
+  description = NULL,
+  tags = NULL
+)
 }
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
@@ -18,6 +24,8 @@ leave it inferred from structure.}
 
 \item{description}{Character or \code{NULL}. An optional human-readable
 description for the node.}
+
+\item{tags}{Character vector or \code{NULL}. Optional tags for the node.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
@@ -27,20 +35,3 @@ Adds a new \code{variable} node. Manifest/latent status is inferred from data
 connections unless explicitly overridden via \code{manifestLatent}, matching
 the schema's usual inference rule (see \code{\link[=setManifestLatent]{setManifestLatent()}}).
 }
-\seealso{
-Other GraphModel verbs:
-\code{\link[=addConstant]{addConstant()}},
-\code{\link[=addDataPath]{addDataPath()}},
-\code{\link[=addDataset]{addDataset()}},
-\code{\link[=addPath]{addPath()}},
-\code{\link[=changePath]{changePath()}},
-\code{\link[=convertPath]{convertPath()}},
-\code{\link[=nodes]{nodes()}},
-\code{\link[=paths]{paths()}},
-\code{\link[=removeConstant]{removeConstant()}},
-\code{\link[=removeDataPath]{removeDataPath()}},
-\code{\link[=removeDataset]{removeDataset()}},
-\code{\link[=removePath]{removePath()}},
-\code{\link[=removeVariable]{removeVariable()}}
-}
-\concept{GraphModel verbs}
