@@ -1,4 +1,4 @@
-Name: Edit GraphModel visually
-Description: Open the drawSEM editor on the model under the cursor (or a blank one) and insert the resulting edit as R code.
+Name: Lay out GraphModel visually
+Description: Open the layout-only drawSEM editor on the model under the cursor and insert the new node positions as a setLocation() call.
 Binding: drawSEMAddin
 Interactive: true

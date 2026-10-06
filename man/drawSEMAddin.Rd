@@ -2,47 +2,37 @@
 % Please edit documentation in R/addin.R
 \name{drawSEMAddin}
 \alias{drawSEMAddin}
-\title{Edit a model visually from the editor (RStudio addin) -- experimental}
+\title{Lay out a model visually from the editor (RStudio addin) -- experimental}
 \usage{
 drawSEMAddin()
 }
 \value{
-Invisibly, the kind of code inserted: \code{"patch"}, \code{"new"},
-\code{"convert"}, \code{"json"}, or \code{"none"}.
+Invisibly, the kind of code inserted: \code{"patch"} or \code{"none"}.
 }
 \description{
-\strong{Experimental.} The interface, the shape of the inserted code, and the
-handling of \code{MxModel}s may change.
+\strong{Experimental.} The interface and the shape of the inserted code may
+change.
 
-Opens the drawSEM editor in a dialog. If the cursor is on (or you have
-selected) the name of a \code{GraphModel} or \code{MxModel} in your global
-environment, the editor opens that model; otherwise it starts blank. When
-you click \strong{Done}, the edit is written into your script as R code on the
-line after the cursor. Nothing is inserted if you made no changes or closed
-the dialog without clicking Done. To open a specific model without placing
-the cursor, use \code{\link[=drawSEMEdit]{drawSEMEdit()}}.
+Opens the drawSEM editor in a dialog on the \code{GraphModel} or \code{MxModel} whose
+name is under the cursor (or selected) in your script; it is an error if
+there is none. The editor is \strong{layout-only}: you can move nodes and run
+Auto Layout, but not change the model's structure. When you click \strong{Done},
+the new node positions are written into your script as a
+\code{drawSEM::setLocation()} call on the line after the cursor, assigned back to
+the model. Nothing is inserted if no node moved or the dialog was closed
+without Done. To open a specific model without placing the cursor, use
+\code{\link[=drawSEMEdit]{drawSEMEdit()}}.
 }
 \details{
-What is inserted depends on the model and the edit:
-\itemize{
-\item \strong{GraphModel:} \verb{drawSEM::} verb calls (\code{addPath()}, \code{changePath()},
-\code{setLocation()}, ...) piped from the model and assigned back to it. If the
-change can't be expressed with verbs, the whole model is re-embedded as
-JSON, with a warning.
-\item \strong{MxModel, layout-only edit:} a \code{setLocation()} call on the \code{MxModel},
-which updates only its stored layout, so a fitted model \strong{keeps its fit}.
-\item \strong{MxModel, any other edit:} the model is rebuilt with
-\verb{as.MxModel(as.GraphModel(model) |> <verbs>)} and assigned back over the
-original. This \strong{discards any fit} and anything the schema doesn't carry
-(e.g. custom algebras); the inserted comment says so.
-\item \strong{Blank start:} a from-scratch \verb{drawSEM::GraphModel() |> ...} chain under
-a new name.
-}
+\code{setLocation()} on an \code{MxModel} updates only its stored layout, so a fitted
+model \strong{keeps its fit}. A model with no stored positions is auto-laid out
+when the editor opens; clicking Done then writes that layout, even if you
+moved nothing.
 
 Registered in \code{inst/rstudio/addins.dcf}; find it under Tools > Addins, and
 assign a keyboard shortcut in Tools > Modify Keyboard Shortcuts.
 }
 \seealso{
-\code{\link[=drawSEMEdit]{drawSEMEdit()}}, \code{\link[=drawSEM]{drawSEM()}} for the same editor without script
+\code{\link[=drawSEMEdit]{drawSEMEdit()}}, \code{\link[=drawSEM]{drawSEM()}} for the full editor without script
 integration.
 }

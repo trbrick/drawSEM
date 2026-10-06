@@ -29,56 +29,67 @@ test_that(".addinInsertSpec inserts on the line after, or at doc end", {
   expect_equal(sel$row, 3L)
 })
 
-test_that("existing model: edit is inserted as a patch chain at the captured spot", {
+test_that("existing model: a move is inserted as a setLocation() chain at the captured spot", {
   env <- new.env(); env$mm <- addinBase()
   ctx <- mkCtx(c("library(drawSEM)", "mm", "summary(1)"), 2, 1)
   got <- NULL
   tier <- .runEditAddin(
     ctx,
-    launch = function(gm, ...) { expect_identical(gm, env$mm); addVariable(gm, "C") },
+    launch = function(gm, ...) { expect_identical(gm, env$mm); setLocation(gm, "A", 10.4, -20) },
     insert = function(text, row, column, id) got <<- list(text = text, row = row, column = column, id = id),
     env = env
   )
   expect_equal(tier, "patch")
   expect_equal(got$row, 3L); expect_equal(got$id, "doc1")
-  expect_match(got$text, "# Edited with drawSEM\nmm <- mm |>", fixed = FALSE)
-  expect_match(got$text, "addVariable", fixed = TRUE)
+  expect_match(got$text, "# Edited with drawSEM (layout)\nmm <- mm |>", fixed = TRUE)
+  expect_match(got$text, 'drawSEM::setLocation(nodeId = "A", x = 10, y = -20)', fixed = TRUE)
 })
 
-test_that("no target: starts blank and builds from scratch under a fresh name", {
-  env <- new.env(); env$model <- 1   # 'model' taken
+test_that("a model without positions inserts the auto-layout for every node on Done", {
+  env <- new.env(); env$mm <- addinBase()
   got <- NULL
-  tier <- .runEditAddin(
-    mkCtx("", 1, 1),
-    launch = function(gm, ...) { expect_equal(length(nodes(gm)), 0); addVariable(gm, "Z") },
-    insert = function(text, row, column, id) got <<- text,
-    env = env
-  )
-  expect_equal(tier, "new")
-  expect_match(got, "model2 <- drawSEM::GraphModel() |>", fixed = TRUE)
+  tier <- .runEditAddin(mkCtx("mm", 1, 1),
+    launch = function(gm, ...) setLocation(gm, c("A", "B"), c(0, 100), c(0, 0)),
+    insert = function(text, ...) got <<- text, env = env)
+  expect_equal(tier, "patch")
+  expect_match(got, 'nodeId = c("A", "B")', fixed = TRUE)
 })
 
-test_that("cancel and no-change insert nothing", {
+test_that("no target: refuses with 'put the cursor on a model'", {
+  env <- new.env(); env$model <- 1
+  launched <- FALSE
+  expect_error(
+    .runEditAddin(mkCtx("", 1, 1), launch = function(...) launched <<- TRUE,
+                  insert = function(...) NULL, env = env),
+    "put the cursor on a model")
+  expect_error(
+    .runEditAddin(mkCtx("model", 1, 1), launch = function(...) launched <<- TRUE,
+                  insert = function(...) NULL, env = env),
+    "not a GraphModel or MxModel")
+  expect_false(launched)
+})
+
+test_that("cancel and no-move insert nothing", {
   env <- new.env(); env$mm <- addinBase()
   ctx <- mkCtx("mm", 1, 1)
   inserted <- FALSE
   ins <- function(...) inserted <<- TRUE
   expect_message(t1 <- .runEditAddin(ctx, function(gm, ...) NULL, ins, env), "closed without Done")
-  expect_message(t2 <- .runEditAddin(ctx, function(gm, ...) gm, ins, env), "no changes")
+  expect_message(t2 <- .runEditAddin(ctx, function(gm, ...) gm, ins, env), "no layout changes")
   expect_equal(c(t1, t2), c("none", "none"))
   expect_false(inserted)
 })
 
-test_that("JSON fallback warns and inserts a commented re-embed", {
+test_that("a structural change from the editor warns and writes only positions", {
   env <- new.env(); env$mm <- addinBase()
   got <- NULL
   expect_warning(
     .runEditAddin(mkCtx("mm", 1, 1),
-      launch = function(gm, ...) { gm@schema$models[[1]]$paths[[1]]$parameterType <- "loading"; gm },
+      launch = function(gm, ...) setLocation(addVariable(gm, "C"), "A", 5, 5),
       insert = function(text, ...) got <<- text, env = env),
-    "could not be written as verb calls")
-  expect_match(got, "^\\n# drawSEM: whole model re-embedded as JSON")
-  expect_match(got, "mm <- drawSEM::as.GraphModel(", fixed = TRUE)
+    "changed the model's structure")
+  expect_false(grepl("addVariable", got, fixed = TRUE))
+  expect_match(got, "setLocation", fixed = TRUE)
 })
 
 # ---- MxModel origin ---------------------------------------------------------
@@ -124,17 +135,6 @@ test_that("MxModel layout-only edit is a setLocation() on the MxModel and keeps 
   expect_gt(length(r$env$mm@output), 0)
 })
 
-test_that("MxModel structural edit rebuilds via as.MxModel and warns the fit is discarded", {
-  r <- runMx(function(gm, ...) addVariable(gm, "z"))
-  expect_equal(r$tier, "convert")
-  expect_match(r$text, "mm <- drawSEM::as.MxModel(", fixed = TRUE)
-  expect_match(r$text, "drawSEM::as.GraphModel(mm) |>", fixed = TRUE)
-  expect_match(r$text, "Fit results are discarded", fixed = TRUE)
-  eval(parse(text = r$text), envir = r$env)
-  expect_s4_class(r$env$mm, "MxModel")
-  expect_equal(length(r$env$mm@output), 0)
-})
-
 test_that("drawSEMEdit() rejects expressions and non-models before touching the editor", {
   expect_error(drawSEMEdit(GraphModel()), "variable name")
   notModel <- 1
@@ -147,7 +147,7 @@ test_that("when the launcher calls onDone (inside the gadget), insertion happens
   .runEditAddin(
     mkCtx("mm", 1, 1),
     launch = function(gm, onDone) {
-      edited <- addVariable(gm, "C")
+      edited <- setLocation(gm, "A", 1, 2)
       onDone(edited)             # Done handler runs the insert...
       edited                     # ...and the gadget then also returns the model
     },

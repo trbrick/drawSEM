@@ -1,5 +1,7 @@
-# Round-trip tests for .generateEditCode(): the generated code must reproduce
-# the edited model when evaluated against the original.
+# Tests for the addin's edit-code generation. .visualEditCode() is what the
+# (layout-only) addin uses; .generateEditCode() is parked (codegen-parked.R) and
+# stays under test so it keeps working against the current verbs. Both must
+# produce code that reproduces the edit when evaluated against the original.
 
 evalCode <- function(code, model, varName = "model") {
   env <- new.env(parent = globalenv())
@@ -231,4 +233,64 @@ test_that("the widget-stamp table matches the widget's default constants", {
   expect_equal(const("DATASET_DEFAULT_W"),  st$nodeWidth)
   expect_equal(const("MANIFEST_DEFAULT_H"), st$nodeHeight)
   expect_equal(const("DATASET_DEFAULT_H"),  st$nodeHeight)
+})
+
+# ---- .visualEditCode() (the layout-only addin) --------------------------------
+
+test_that("visual: no move -> none; sub-unit jitter is not a move", {
+  g <- base_gm()
+  expect_equal(.visualEditCode(g, g)$tier, "none")
+  expect_equal(.visualEditCode(g, setLocation(g, "F", 100.3, -0.4))$tier, "none")
+})
+
+test_that("visual: moves become one rounded setLocation() that reproduces the positions", {
+  g <- base_gm()
+  after <- setLocation(g, c("F", "X2"), c(150.6, 210), c(-30, 100))
+  r <- .visualEditCode(g, after)
+  expect_equal(r$tier, "patch")
+  expect_false(r$structureChanged)
+  expect_equal(length(r$calls), 1)
+  expect_equal(r$calls[[1]]$args, list(nodeId = c("F", "X2"), x = c(151, 210), y = c(-30, 100)))
+  out <- evalCode(r$code, g)
+  pos <- function(m) vapply(m@schema$models[[1]]$nodes, function(n) c(n$visual$x, n$visual$y), numeric(2))
+  expect_equal(pos(out), round(pos(after)))
+})
+
+test_that("visual: every node of a positionless model is set", {
+  g <- GraphModel() |> addVariable("A") |> addVariable("B") |> addConstant()
+  r <- .visualEditCode(g, setLocation(g, c("A", "B", "1"), c(0, 80, 40), c(0, 0, 90)))
+  expect_equal(r$calls[[1]]$args$nodeId, c("A", "B", "1"))
+})
+
+test_that("visual: non-visual differences are never emitted; structural ones are flagged", {
+  g <- base_gm()
+  # field-level widget losses/stamps (not structure): ignored, not flagged
+  stamped <- g
+  stamped@schema$models[[1]]$nodes[[2]]$visual$width <- 60
+  stamped@schema$models[[1]]$paths[[3]]$value <- 1
+  stamped@schema$models[[1]]$meta <- NULL
+  r <- .visualEditCode(g, stamped)
+  expect_equal(r$tier, "none"); expect_false(r$structureChanged)
+  # structural: flagged, still positions only
+  r2 <- .visualEditCode(g, setLocation(addVariable(g, "Z"), "F", 0, 0))
+  expect_true(r2$structureChanged)
+  expect_equal(r2$calls[[1]]$args$nodeId, "F")
+})
+
+test_that("visual: setLocation() on a fitted MxModel keeps the fit", {
+  skip_if_not_installed("OpenMx")
+  set.seed(2)
+  d <- data.frame(x = rnorm(40)); d$y <- d$x + rnorm(40)
+  gm <- GraphModel() |> addVariable("x") |> addVariable("y") |> addConstant() |>
+    addData("data", d) |> connectData("data", c("x", "y")) |>
+    addPath("x", "y", 1, freeParameter = TRUE, value = 0.3) |>
+    addPath("x", "x", 2, freeParameter = TRUE, value = 1) |>
+    addPath("y", "y", 2, freeParameter = TRUE, value = 1) |>
+    addPath("1", "x", 1, freeParameter = TRUE, value = 0) |>
+    addPath("1", "y", 1, freeParameter = TRUE, value = 0)
+  mx <- builtModel(suppressMessages(runModel(gm)))
+  before <- as.GraphModel(mx)
+  r <- .visualEditCode(before, setLocation(before, "x", 5, 6), varName = "model")
+  out <- evalCode(r$code, mx)
+  expect_identical(out@output, mx@output)
 })

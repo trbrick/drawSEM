@@ -88,7 +88,8 @@ NULL
 
 #' Build the drawSEM Shiny server
 #' @noRd
-.drawSEM_server <- function(input, output, session, initialGM, onDone = NULL) {
+.drawSEM_server <- function(input, output, session, initialGM, onDone = NULL,
+                            editMode = "full") {
   currentModel             <- shiny::reactiveVal(initialGM)
   fitStatus                <- shiny::reactiveVal("unfitted")
   svgData                  <- shiny::reactiveVal(NULL)
@@ -206,7 +207,7 @@ NULL
   # ── Widget (rendered once with initial model) ──────────────────────────
   output$sem_widget_ui <- shiny::renderUI({
     schema <- if (!is.null(initialGM)) initialGM@schema else NULL
-    semWidget(initialModel = schema, width = "100%", height = "100%")
+    semWidget(initialModel = schema, width = "100%", height = "100%", editMode = editMode)
   })
 
   # ── Model updates from JS ──────────────────────────────────────────────
@@ -659,11 +660,13 @@ drawSEM <- function(
 
 # Run the editor gadget on a resolved GraphModel. `onDone(gm)`, if given, is
 # called inside the Done handler before the gadget stops (see above).
-.runDrawSEMGadget <- function(gm, viewer, onDone = NULL, ...) {
+# `editMode = "layout"` restricts the editor to visual changes (the addin).
+.runDrawSEMGadget <- function(gm, viewer, onDone = NULL, editMode = "full", ...) {
   ui <- .drawSEM_ui()
 
   server <- function(input, output, session) {
-    .drawSEM_server(input, output, session, initialGM = gm, onDone = onDone)
+    .drawSEM_server(input, output, session, initialGM = gm, onDone = onDone,
+                    editMode = editMode)
   }
 
   app <- shiny::shinyApp(ui = ui, server = server)

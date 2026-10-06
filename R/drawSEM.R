@@ -10,6 +10,8 @@
 #' @param outputId Optional. For Shiny apps, the output ID.
 #' @param width Widget width (default: "100%").
 #' @param height Widget height (default: "600px").
+#' @param editMode `"full"` (default) for full editing, or `"layout"` to allow
+#'   only visual changes (node positions); used by the RStudio addin.
 #'
 #' @return An htmlwidget that renders the graph editor.
 #'
@@ -19,8 +21,10 @@ semWidget <- function(
   initialModel = NULL,
   outputId = NULL,
   width = "100%",
-  height = "600px"
+  height = "600px",
+  editMode = c("full", "layout")
 ) {
+  editMode <- match.arg(editMode)
   # Validate initialModel if provided
   if (!is.null(initialModel)) {
     if (is.character(initialModel)) {
@@ -45,7 +49,8 @@ semWidget <- function(
   # Create htmlwidget
   x_data <- list(
     initialModel = initialModel,
-    outputId = outputId
+    outputId = outputId,
+    editMode = editMode
   )
   # Enable auto_unbox for proper JSON serialization of scalar values
   attr(x_data, 'TOJSON_ARGS') <- list(auto_unbox = TRUE)

@@ -2,7 +2,7 @@
 % Please edit documentation in R/addin.R
 \name{drawSEMEdit}
 \alias{drawSEMEdit}
-\title{Edit a specific model visually and write the edit into your script -- experimental}
+\title{Lay out a specific model visually and write the layout into your script -- experimental}
 \usage{
 drawSEMEdit(model)
 }
@@ -11,19 +11,18 @@ drawSEMEdit(model)
 generated code assigns back to that name).}
 }
 \value{
-Invisibly, the kind of code inserted: \code{"patch"}, \code{"convert"},
-\code{"json"}, or \code{"none"}.
+Invisibly, the kind of code inserted: \code{"patch"} or \code{"none"}.
 }
 \description{
 \strong{Experimental.} Like the \code{\link[=drawSEMAddin]{drawSEMAddin()}} addin, but you name the model
 instead of placing the cursor on it, so it can be called from the console or
 a script.
 
-Opens the editor on \code{model}. On \strong{Done}, the edit is inserted into the
-active source editor on the line after the cursor, as code that updates the
-variable you passed (see \code{\link[=drawSEMAddin]{drawSEMAddin()}} for what code is generated for each
-kind of model and edit). Nothing is inserted if nothing changed or the dialog
-was closed without Done.
+Opens the layout-only editor on \code{model}. On \strong{Done}, the new node positions
+are inserted into the active source editor on the line after the cursor, as
+a \code{setLocation()} call that updates the variable you passed (see
+\code{\link[=drawSEMAddin]{drawSEMAddin()}}). Nothing is inserted if no node moved or the dialog was
+closed without Done.
 }
 \examples{
 \dontrun{

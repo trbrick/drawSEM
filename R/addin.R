@@ -47,14 +47,6 @@ NULL
   }
 }
 
-# First of model, model2, model3... not already bound in `env`.
-.freshModelName <- function(env, base = "model") {
-  if (!exists(base, envir = env, inherits = TRUE)) return(base)
-  i <- 2L
-  while (exists(paste0(base, i), envir = env, inherits = TRUE)) i <- i + 1L
-  paste0(base, i)
-}
-
 # Model classes the editor can open, and how to turn each into a GraphModel.
 # Adding a backend (e.g. lavaan, once as.GraphModel() supports it) is one row.
 .addinOrigins <- list(
@@ -78,34 +70,21 @@ NULL
          class(get(name, envir = env, inherits = TRUE))[1], ")")
 }
 
-# Comment line placed above inserted code, by kind of code.
-.addinHeader <- function(res, origin, fitted) {
-  switch(res$tier,
-    json = paste0("# drawSEM: whole model re-embedded as JSON (", res$reason, ")\n"),
-    convert = paste0(
-      "# drawSEM: structural edit; MxModel rebuilt via GraphModel. ",
-      if (fitted) "Fit results are discarded -- refit with mxRun(). " else "",
-      "Content the schema does not carry (e.g. custom algebras) is not preserved.\n"),
-    "# Edited with drawSEM\n")
-}
-
 # Shared flow once the model to edit is known. `src` is the object to edit
-# (GraphModel or MxModel) or NULL for a blank new model; `varName` is the name
-# the generated code assigns to. `launch(gm, onDone)` runs the editor,
-# calling `onDone(gm)` on Done if it can, and returns a GraphModel or NULL; `insert(text, row, column, id)` writes into the script.
-# Returns the tier of generated code ("none" if nothing was inserted).
+# (GraphModel or MxModel); `varName` is the name the generated code assigns to.
+# `launch(gm, onDone)` runs the layout-only editor, calling `onDone(gm)` on Done
+# if it can, and returns a GraphModel or NULL; `insert(text, row, column, id)`
+# writes into the script. Returns the tier of generated code ("patch", or
+# "none" if nothing was inserted).
 .runEdit <- function(ctx, src, varName, launch, insert) {
-  isNew  <- is.null(src)
-  origin <- if (isNew) "GraphModel" else .addinOriginOf(src)
-  before <- if (isNew) GraphModel() else .addinOrigins[[origin]](src)
-  fitted <- identical(origin, "MxModel") && length(src@output) > 0
+  before <- .addinOrigins[[.addinOriginOf(src)]](src)
 
   handled <- FALSE
   tier <- "none"
   finish <- function(after) {
     if (handled) return(invisible(tier))
     handled <<- TRUE
-    tier <<- .finishEdit(ctx, before, after, varName, isNew, origin, fitted, insert)
+    tier <<- .finishEdit(ctx, before, after, varName, insert)
     invisible(tier)
   }
   # Normally finish() runs inside the gadget's Done handler, so it does not
@@ -118,28 +97,28 @@ NULL
 }
 
 # Generate and insert the code for a finished edit; returns the tier.
-.finishEdit <- function(ctx, before, after, varName, isNew, origin, fitted, insert) {
+.finishEdit <- function(ctx, before, after, varName, insert) {
   if (!methods::is(after, "GraphModel")) {
     message("drawSEM: editor closed without Done; nothing inserted.")
     return("none")
   }
 
   res <- tryCatch(
-    .generateEditCode(before, after, varName = varName, isNew = isNew, origin = origin),
+    .visualEditCode(before, after, varName = varName),
     error = function(e) {
       stop("drawSEM: could not generate code for the edit: ", conditionMessage(e), call. = FALSE)
     })
+  if (isTRUE(res$structureChanged)) {
+    warning("drawSEM: the editor changed the model's structure, which the addin does not ",
+            "support; only node positions were written. Please report this.", call. = FALSE)
+  }
   if (identical(res$tier, "none")) {
-    message("drawSEM: no changes; nothing inserted.")
+    message("drawSEM: no layout changes; nothing inserted.")
     return("none")
   }
-  if (identical(res$tier, "json")) {
-    warning("drawSEM: this edit could not be written as verb calls (", res$reason,
-            "); inserting the whole model as JSON instead.", call. = FALSE)
-  }
   spec <- .addinInsertSpec(ctx)
-  text <- paste0(spec$prefix, .addinHeader(res, origin, fitted), res$code)
-  message("drawSEM: inserting ", res$tier, " code at line ", spec$row, ".")
+  text <- paste0(spec$prefix, "# Edited with drawSEM (layout)\n", res$code)
+  message("drawSEM: inserting layout code at line ", spec$row, ".")
   tryCatch(
     insert(text, spec$row, spec$column, ctx$id),
     error = function(e) {
@@ -152,7 +131,8 @@ NULL
 }
 
 # The addin flow: resolve the model from the editor context (cursor/selection
-# names a GraphModel or MxModel in `env`; otherwise start blank), then edit.
+# names a GraphModel or MxModel in `env`), then edit. No model -> error: the
+# addin is layout-only, so there is nothing to build from a blank start.
 # `ctx` must have been captured by the caller before any gadget launched.
 .runEditAddin <- function(ctx, launch, insert, env = globalenv()) {
   name <- .addinTarget(ctx)
@@ -163,15 +143,14 @@ NULL
     message("drawSEM: editing existing ", .addinOriginOf(obj), " '", name, "'.")
     .runEdit(ctx, obj, name, launch, insert)
   } else {
-    message("drawSEM: ", .addinWhyNot(name, env), "; starting a blank model.")
-    .runEdit(ctx, NULL, .freshModelName(env), launch, insert)
+    stop("drawSEM: put the cursor on a model (", .addinWhyNot(name, env), ").", call. = FALSE)
   }
 }
 
 # Real-world plumbing shared by the two exported entry points.
 .rstudioLaunch <- function(gm, onDone = NULL) {
   .runDrawSEMGadget(gm, viewer = shiny::dialogViewer("drawSEM", width = 1200, height = 800),
-                    onDone = onDone)
+                    onDone = onDone, editMode = "layout")
 }
 .rstudioInsert <- function(text, row, column, id) {
   rstudioapi::insertText(rstudioapi::document_position(row, column), text, id = id)
@@ -190,41 +169,33 @@ NULL
   ctx
 }
 
-#' Edit a model visually from the editor (RStudio addin) -- experimental
+#' Lay out a model visually from the editor (RStudio addin) -- experimental
 #'
 #' @description
-#' **Experimental.** The interface, the shape of the inserted code, and the
-#' handling of `MxModel`s may change.
+#' **Experimental.** The interface and the shape of the inserted code may
+#' change.
 #'
-#' Opens the drawSEM editor in a dialog. If the cursor is on (or you have
-#' selected) the name of a `GraphModel` or `MxModel` in your global
-#' environment, the editor opens that model; otherwise it starts blank. When
-#' you click **Done**, the edit is written into your script as R code on the
-#' line after the cursor. Nothing is inserted if you made no changes or closed
-#' the dialog without clicking Done. To open a specific model without placing
-#' the cursor, use [drawSEMEdit()].
+#' Opens the drawSEM editor in a dialog on the `GraphModel` or `MxModel` whose
+#' name is under the cursor (or selected) in your script; it is an error if
+#' there is none. The editor is **layout-only**: you can move nodes and run
+#' Auto Layout, but not change the model's structure. When you click **Done**,
+#' the new node positions are written into your script as a
+#' `drawSEM::setLocation()` call on the line after the cursor, assigned back to
+#' the model. Nothing is inserted if no node moved or the dialog was closed
+#' without Done. To open a specific model without placing the cursor, use
+#' [drawSEMEdit()].
 #'
 #' @details
-#' What is inserted depends on the model and the edit:
-#' * **GraphModel:** `drawSEM::` verb calls (`addPath()`, `changePath()`,
-#'   `setLocation()`, ...) piped from the model and assigned back to it. If the
-#'   change can't be expressed with verbs, the whole model is re-embedded as
-#'   JSON, with a warning.
-#' * **MxModel, layout-only edit:** a `setLocation()` call on the `MxModel`,
-#'   which updates only its stored layout, so a fitted model **keeps its fit**.
-#' * **MxModel, any other edit:** the model is rebuilt with
-#'   `as.MxModel(as.GraphModel(model) |> <verbs>)` and assigned back over the
-#'   original. This **discards any fit** and anything the schema doesn't carry
-#'   (e.g. custom algebras); the inserted comment says so.
-#' * **Blank start:** a from-scratch `drawSEM::GraphModel() |> ...` chain under
-#'   a new name.
+#' `setLocation()` on an `MxModel` updates only its stored layout, so a fitted
+#' model **keeps its fit**. A model with no stored positions is auto-laid out
+#' when the editor opens; clicking Done then writes that layout, even if you
+#' moved nothing.
 #'
 #' Registered in `inst/rstudio/addins.dcf`; find it under Tools > Addins, and
 #' assign a keyboard shortcut in Tools > Modify Keyboard Shortcuts.
 #'
-#' @return Invisibly, the kind of code inserted: `"patch"`, `"new"`,
-#'   `"convert"`, `"json"`, or `"none"`.
-#' @seealso [drawSEMEdit()], [drawSEM()] for the same editor without script
+#' @return Invisibly, the kind of code inserted: `"patch"` or `"none"`.
+#' @seealso [drawSEMEdit()], [drawSEM()] for the full editor without script
 #'   integration.
 #' @export
 drawSEMAddin <- function() {
@@ -232,24 +203,23 @@ drawSEMAddin <- function() {
   .runEditAddin(ctx, launch = .rstudioLaunch, insert = .rstudioInsert)
 }
 
-#' Edit a specific model visually and write the edit into your script -- experimental
+#' Lay out a specific model visually and write the layout into your script -- experimental
 #'
 #' @description
 #' **Experimental.** Like the [drawSEMAddin()] addin, but you name the model
 #' instead of placing the cursor on it, so it can be called from the console or
 #' a script.
 #'
-#' Opens the editor on `model`. On **Done**, the edit is inserted into the
-#' active source editor on the line after the cursor, as code that updates the
-#' variable you passed (see [drawSEMAddin()] for what code is generated for each
-#' kind of model and edit). Nothing is inserted if nothing changed or the dialog
-#' was closed without Done.
+#' Opens the layout-only editor on `model`. On **Done**, the new node positions
+#' are inserted into the active source editor on the line after the cursor, as
+#' a `setLocation()` call that updates the variable you passed (see
+#' [drawSEMAddin()]). Nothing is inserted if no node moved or the dialog was
+#' closed without Done.
 #'
 #' @param model A `GraphModel` or `MxModel`, passed as a variable name (the
 #'   generated code assigns back to that name).
 #'
-#' @return Invisibly, the kind of code inserted: `"patch"`, `"convert"`,
-#'   `"json"`, or `"none"`.
+#' @return Invisibly, the kind of code inserted: `"patch"` or `"none"`.
 #' @examples
 #' \dontrun{
 #' drawSEMEdit(mymodel)

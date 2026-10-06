@@ -37,6 +37,7 @@ Collate:
     'drawSEM.R'
     'shiny-app.R'
     'addin.R'
+    'codegen-parked.R'
     'drawSemHints-class.R'
     'schema.R'
     'verbs.R'
