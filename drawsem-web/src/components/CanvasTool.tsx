@@ -13,6 +13,7 @@ import { computeMD5 } from '../utils/integrity'
 import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
+import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 
 type NodeType = 'variable' | 'constant' | 'dataset'
 
@@ -120,14 +121,44 @@ interface CanvasToolProps {
   initialSchema?: GraphSchema
   onModelChange?: (schema: GraphSchema) => void
   viewMode?: 'widget' | 'shiny' | 'full'
+  /**
+   * 'full' (default): normal editing. 'layout': only visual changes (node
+   * positions, path loop side / midpoint, display options) are possible;
+   * structural UI is hidden and the model setter drops structural changes.
+   */
+  editMode?: 'full' | 'layout'
 }
 
-export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full' }: CanvasToolProps): JSX.Element {
+type RuntimeModel = { id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }
+
+export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full', editMode = 'full' }: CanvasToolProps): JSX.Element {
+  const isLayoutOnly = editMode === 'layout'
   const adapter = useAdapter()
   const adapterOptional = useAdapterOptional()
   const { exportToSvg, downloadSvg } = useSvgExport()
   // Multi-model state
-  const [models, setModels] = useState<Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }>>([])
+  // `loadModels` replaces the whole model list unguarded and is used ONLY by the
+  // paths that load a model handed to the editor (initialSchema /
+  // drawSEMConfig.initialModel, and models pushed from R). Every other state
+  // change goes through `setModels`, which in layout-only mode passes the
+  // proposed state through `restrictModelsToLayoutChanges` so that only visual
+  // fields can change, however the change was triggered.
+  const [models, loadModels] = useState<RuntimeModel[]>([])
+  const setModels = (updater: React.SetStateAction<RuntimeModel[]>) => {
+    if (!isLayoutOnly) {
+      loadModels(updater)
+      return
+    }
+    loadModels((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      const rejections: string[] = []
+      const restricted = restrictModelsToLayoutChanges(prev, next, rejections)
+      if (rejections.length > 0 && (import.meta as any).env?.DEV) {
+        console.warn('[drawSEM layout-only] Dropped structural change(s):', rejections)
+      }
+      return restricted
+    })
+  }
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
   
   // Convenience accessors for current model
@@ -459,7 +490,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             }
           }
 
-          setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -534,7 +565,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })
           }
 
-          setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -877,6 +908,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Helper: toggle variable manifestLatent characteristic on double-click
   const toggleVariableCharacteristic = (nodeId: string) => {
+    if (isLayoutOnly) return
     const node = nodes.find((n) => n.id === nodeId)
     if (!node || node.type !== 'variable') return
     
@@ -982,6 +1014,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function deleteSelected() {
+    if (isLayoutOnly) return
     if (selectedType === 'node' && selectedId) {
       setNodes((s) => s.filter((n) => n.id !== selectedId))
       // Also remove any paths connected to this node
@@ -995,6 +1028,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
   function cyclePath(pathId: string) {
+    if (isLayoutOnly) return
     const p = paths.find((x) => x.id === pathId)
     if (!p) return
     // Disallow cycling on self-loops (must stay two-headed)
@@ -1053,6 +1087,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Handle Delete / Backspace key to remove selected node or path
   // 'Delete' = forward-delete; 'Backspace' = the physical delete key on macOS
   React.useEffect(() => {
+    if (isLayoutOnly) return
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't fire while the user is typing in an input/textarea
@@ -1064,7 +1099,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, selectedType])
+  }, [selectedId, selectedType, isLayoutOnly])
 
   // Handle Ctrl+L / Cmd+L keyboard shortcut for auto-layout
   React.useEffect(() => {
@@ -1082,10 +1117,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
   function handleImportClick() {
+    if (isLayoutOnly) return
     fileInputRef.current?.click()
   }
 
   function handleCsvImportClick() {
+    if (isLayoutOnly) return
     csvFileInputRef.current?.click()
   }
 
@@ -1212,6 +1249,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    if (isLayoutOnly) return
     const f = e.target.files && e.target.files[0]
     if (!f) return
     try {
@@ -1280,6 +1318,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onCsvSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    if (isLayoutOnly) return
     const f = e.target.files && e.target.files[0]
     if (!f) return
     setImportErrors(null)
@@ -1498,7 +1537,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
 
     // if we were creating a path, try to finalize it
-    if (pathSource && hoverNodeRef.current) {
+    if (pathSource && hoverNodeRef.current && !isLayoutOnly) {
       const src = pathSource
       const dst = hoverNodeRef.current
       const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
@@ -1566,7 +1605,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     
     // Only proceed if clicking directly on SVG background
     const p = clientToSvg(e)
-    if (mode === 'add-variable' || mode === 'add-constant') {
+    if ((mode === 'add-variable' || mode === 'add-constant') && !isLayoutOnly) {
       const type: NodeType = mode === 'add-variable' ? 'variable' : 'constant'
       const n: Node = { id: uid('n_'), x: p.x, y: p.y, label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type }
       if (type === 'variable') {
@@ -1598,6 +1637,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // Only act on direct background double-clicks (not child elements, not during path drawing)
     if (e.target !== svgRef.current) return
     if (pathSource) return
+    if (isLayoutOnly) return
     const p = clientToSvg(e)
     const n: Node = {
       id: uid('n_'),
@@ -1629,6 +1669,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function handleColumnDrop(columnName: string, dropX: number, dropY: number) {
+    if (isLayoutOnly) return
     if (!selectedNode || selectedNode.type !== 'dataset') return
 
     // Keep columnName as the simple label for matching/export purposes
@@ -1706,7 +1747,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     hoverNodeRef.current = n.id
 
     // Right-click in select mode: start a one-headed path drag without changing mode
-    if (e.button === 2 && mode === 'select') {
+    if (e.button === 2 && mode === 'select' && !isLayoutOnly) {
       e.preventDefault()
       const c = centerOf(n)
       selectElement(n.id, 'node')
@@ -1717,7 +1758,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
 
     // start path-drag if in path mode
-    if (mode === 'add-one-path' || mode === 'add-two-path') {
+    if ((mode === 'add-one-path' || mode === 'add-two-path') && !isLayoutOnly) {
       const c = centerOf(n)
       setPathSource(n.id)
       setTempLine({ x1: c.x, y1: c.y, x2: c.x, y2: c.y })
@@ -1744,7 +1785,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
 
     // if we were creating a path, try to finalize it
-    if (pathSource && hoverNodeRef.current) {
+    if (pathSource && hoverNodeRef.current && !isLayoutOnly) {
       const src = pathSource
       const dst = hoverNodeRef.current
       const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
@@ -2207,6 +2248,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
+    if (isLayoutOnly) return
     const svg = svgRef.current
     if (!svg) return
     const pt = svg.createSVGPoint()
@@ -2244,6 +2286,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       <header className="border-b bg-white">
         {/* Model title */}
         <div className="px-3 pt-2 pb-1">
+          {isLayoutOnly ? (
+          <div
+            className="text-lg font-semibold text-slate-800 px-1 border border-transparent"
+            title="Layout-only mode: the model name cannot be changed here"
+          >
+            {currentModel?.label || <span className="text-slate-400">Untitled Model</span>}
+          </div>
+          ) : (
           <input
             type="text"
             value={currentModel?.label ?? ''}
@@ -2264,11 +2314,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               }
             }}
           />
+          )}
         </div>
         {/* Tools row */}
         <div className="flex items-center gap-3 px-3 pb-2">
           <div className="text-sm font-medium">Tools:</div>
           <div className="flex gap-2">
+            {!isLayoutOnly && (
+            <>
             <button
               title="Add Variable (square or circle)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-variable' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
@@ -2321,6 +2374,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             >
               ↔
             </button>
+            </>
+            )}
             <button
               title={`Auto-layout (${navigator.platform.startsWith('Mac') ? 'Cmd' : 'Ctrl'}+L)`}
               className={`py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100 ${isLayingOut ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -2332,6 +2387,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             <div className="border-l mx-2"></div>
             {viewMode !== 'shiny' && (
               <>
+                {!isLayoutOnly && (
                 <button
                   title="Load a model from a JSON file"
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
@@ -2339,6 +2395,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 >
                   Load Model
                 </button>
+                )}
                 <button
                   title="Save model to a JSON file"
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
@@ -2374,6 +2431,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     </div>
                   )}
                 </div>
+                {!isLayoutOnly && (
                 <button
                   title="Clear the canvas"
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-red-50 hover:text-red-600"
@@ -2386,6 +2444,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 >
                   Clear
                 </button>
+                )}
               </>
             )}
             <div className="border-l mx-2"></div>
@@ -2416,6 +2475,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         {/* Shiny action row — separate row keeps it out of the tools flex layout */}
         {viewMode === 'shiny' && (
           <div className="flex items-center gap-2 px-3 pb-2 border-t pt-2">
+            {!isLayoutOnly && (
             <button
               title="Load a model JSON file via R"
               className="py-1 px-3 rounded text-sm bg-white border hover:bg-sky-100"
@@ -2423,6 +2483,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             >
               Load Model
             </button>
+            )}
             {/* Save dropdown: JSON download or save to R environment */}
             <div className="relative inline-flex">
               {showSaveMenu && (
@@ -2466,6 +2527,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             >
               Export
             </button>
+            {!isLayoutOnly && (
+            <>
             <button
               title="Clear the canvas"
               className="py-1 px-3 rounded text-sm bg-white border hover:bg-red-50 hover:text-red-600"
@@ -2493,6 +2556,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               }} />
               {({ unfitted: 'Not fitted', fitting: 'Fitting…', converged: 'Converged', failed: 'Failed', stale: 'Stale' } as Record<string, string>)[fitStatus] ?? fitStatus}
             </span>
+            </>
+            )}
+            {isLayoutOnly && (
+              <span className="text-xs text-slate-500 select-none" title="Only positions and other visual properties can be changed">
+                Layout-only editing
+              </span>
+            )}
             <div className="flex-1" />
             <button
               title="Close editor and return model to R"
@@ -2578,7 +2648,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         )}
 
       <div className="flex-1 p-4 relative overflow-hidden">
-        {viewMode !== 'shiny' && (
+        {viewMode !== 'shiny' && !isLayoutOnly && (
           <>
             <input
               ref={fileInputRef}
@@ -2616,6 +2686,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     </div>
                     <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
                       <span>Manifest/Latent:</span>
+                      {isLayoutOnly ? (
+                        <span className="font-medium">{selectedNode.variableCharacteristics?.manifestLatent ?? 'auto (inferred)'}</span>
+                      ) : (
                       <select
                         value={selectedNode.variableCharacteristics?.manifestLatent || 'auto'}
                         onChange={(e) => {
@@ -2640,6 +2713,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         <option value="manifest">Manifest</option>
                         <option value="latent">Latent</option>
                       </select>
+                      )}
                     </div>
                   </>
                 )}
@@ -2658,6 +2732,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       <div className="text-sm font-semibold">Path: {selectedPath.displayName || selectedPath.label || selectedPath.id}</div>
                       <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
                         <span>Type:</span>
+                        {isLayoutOnly ? (
+                          <span className="font-medium">{currentDirection === 'twoSided' ? '↔ Two-headed' : currentDirection === 'reversed' ? '← Reversed' : '→ One-headed'}</span>
+                        ) : (
                         <select
                           value={currentDirection}
                           disabled={!canCycle}
@@ -2677,12 +2754,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           <option value="forward">→ One-headed</option>
                           <option value="reversed">← Reversed</option>
                         </select>
+                        )}
                       </div>
                     </>
                   )
                 })()}
               </div>
               <div className="flex items-center gap-2">
+                {!isLayoutOnly && (
                 <button
                   title="Delete (Backspace)"
                   className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
@@ -2695,6 +2774,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     <path d="M9 6V4h6v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
+                )}
                 <button
                   title="Close popup"
                   className="p-1 rounded hover:bg-slate-100"
@@ -2763,12 +2843,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           return (
                             <tr
                               key={i}
-                              draggable
-                              onDragStart={() => setDraggedColumnName(c.name)}
+                              draggable={!isLayoutOnly}
+                              onDragStart={() => { if (!isLayoutOnly) setDraggedColumnName(c.name) }}
                               onDragEnd={() => setDraggedColumnName(null)}
                               onMouseEnter={() => setHoveredColumnName(c.name)}
                               onMouseLeave={() => setHoveredColumnName(null)}
-                              className="odd:bg-white even:bg-slate-50 cursor-move hover:bg-blue-100"
+                              className={`odd:bg-white even:bg-slate-50 hover:bg-blue-100 ${isLayoutOnly ? '' : 'cursor-move'}`}
                             >
                               <td className="py-1">{c.name}</td>
                               <td className="py-1">{c.count}</td>
@@ -2805,6 +2885,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               <div className="text-xs space-y-2 border-t pt-3">
                 <div>
                   <span className="font-medium">Label:</span>
+                  {isLayoutOnly ? (
+                    <span className="ml-2">{selectedNode.label}</span>
+                  ) : (
                   <input
                     type="text"
                     value={selectedNode.label}
@@ -2816,6 +2899,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     }}
                     className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
                   />
+                  )}
                 </div>
                 <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
                 {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
@@ -2831,6 +2915,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <div className="space-y-2">
                   <div><span className="font-medium">From:</span> {selectedPath.from}</div>
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+                  {isLayoutOnly ? (
+                  <>
+                  <div><span className="font-medium">Label:</span> {selectedPath.label || <span className="text-slate-400">(none)</span>}</div>
+                  {!isDatasetPath(selectedPath, nodes) && (
+                  <>
+                  <div><span className="font-medium">Value:</span> {selectedPath.value !== null && selectedPath.value !== undefined ? (selectedPath.value as number).toFixed(6).replace(/\.?0+$/, '') : '--'}</div>
+                  <div>
+                    <span className="font-medium">Free/Fixed:</span>{' '}
+                    {selectedPath.freeParameter !== undefined
+                      ? (typeof selectedPath.freeParameter === 'string' ? `free (${selectedPath.freeParameter})` : 'free')
+                      : 'fixed'}
+                  </div>
+                  </>
+                  )}
+                  </>
+                  ) : (
+                  <>
                   <div>
                     <span className="font-medium">Label:</span>
                     <input
@@ -2913,6 +3014,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     )}
                   </div>
                   )}
+                  </>
+                  )}
                 </div>
 
                 {/* Dataset mapping info panel - shown for dataset paths */}
@@ -2944,6 +3047,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     {/* Parameter Type selector - always visible */}
                     <div>
                       <span className="font-medium">Parameter Type:</span>
+                      {isLayoutOnly ? (
+                        <span className="ml-2">{selectedPath.parameterType || '-- None --'}</span>
+                      ) : (
                       <select
                         value={selectedPath.parameterType || ''}
                         onChange={(e) => updatePathParameterType(selectedPath.id, e.target.value || undefined)}
@@ -2954,6 +3060,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           <option key={type} value={type}>{type}</option>
                         ))}
                       </select>
+                      )}
                     </div>
 
                     {/* Detailed optimization controls - collapsible */}
@@ -2989,7 +3096,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           )
                         })()}
 
-                        {/* Overrides section */}
+                        {/* Overrides section (editable; hidden in layout-only mode) */}
+                        {!isLayoutOnly && (
+                        <>
                         <div className="text-slate-600 italic text-[10px] mt-2">Path-specific overrides:</div>
                         <div className="pl-2 space-y-2">
                           <div>
@@ -3037,6 +3146,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                             />
                           </div>
                         </div>
+                        </>
+                        )}
                       </div>
                     )}
                   </div>

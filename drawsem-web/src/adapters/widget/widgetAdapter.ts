@@ -38,6 +38,7 @@ declare global {
 interface DrawSEMConfig {
   initialModel?: GraphSchema
   messageTimeout?: number  // milliseconds, default 30000
+  editMode?: 'full' | 'layout'  // 'layout' = only visual changes allowed (set by R semWidget(editMode=))
 }
 
 declare global {

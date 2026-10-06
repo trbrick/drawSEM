@@ -5,9 +5,10 @@ import type { GraphSchema } from './core/types'
 
 interface AppProps {
   viewMode?: 'widget' | 'shiny' | 'full'
+  editMode?: 'full' | 'layout'
 }
 
-export default function App({ viewMode = 'full' }: AppProps): JSX.Element {
+export default function App({ viewMode = 'full', editMode = 'full' }: AppProps): JSX.Element {
   const adapter = useAdapter()
 
   // In Shiny mode, sync every model edit back to R via adapter.sync().
@@ -22,7 +23,7 @@ export default function App({ viewMode = 'full' }: AppProps): JSX.Element {
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900">
       <main className="flex-1 overflow-hidden flex flex-col">
         <div className="flex-1 bg-white overflow-hidden flex flex-col">
-          <CanvasTool viewMode={viewMode} onModelChange={handleModelChange} />
+          <CanvasTool viewMode={viewMode} editMode={editMode} onModelChange={handleModelChange} />
         </div>
       </main>
     </div>
