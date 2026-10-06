@@ -51,12 +51,13 @@ describe('CanvasTool editMode', () => {
     expect(screen.queryByTitle('Model name — click to edit')).not.toBeNull()
   })
 
-  it("hides structural tools in 'layout' mode but keeps auto-layout and export", async () => {
+  it("hides structural tools, save and export in 'layout' mode but keeps auto-layout", async () => {
     renderCanvas('layout')
     for (const t of STRUCTURAL_TITLES) expect(screen.queryByTitle(t)).toBeNull()
     expect(screen.queryByTitle('Model name — click to edit')).toBeNull()
     expect(screen.queryByTitle(/Auto-layout/)).not.toBeNull()
-    expect(screen.queryByTitle('Export graph image')).not.toBeNull()
+    expect(screen.queryByTitle('Export graph image')).toBeNull()
+    expect(screen.queryByTitle('Save model to a JSON file')).toBeNull()
     expect(screen.queryByText('Path Labels:')).not.toBeNull()
   })
 

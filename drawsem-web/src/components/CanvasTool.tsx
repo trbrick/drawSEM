@@ -267,8 +267,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
   }
 
-  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('all')
-  const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('transparent')
+  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
+  const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationWarnings, setValidationWarnings] = useState<string[]>([])
 
@@ -2396,6 +2396,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   Load Model
                 </button>
                 )}
+                {!isLayoutOnly && (
+                <>
                 <button
                   title="Save model to a JSON file"
                   className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
@@ -2431,6 +2433,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     </div>
                   )}
                 </div>
+                </>
+                )}
                 {!isLayoutOnly && (
                 <button
                   title="Clear the canvas"
@@ -2484,6 +2488,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               Load Model
             </button>
             )}
+            {!isLayoutOnly && (
+            <>
             {/* Save dropdown: JSON download or save to R environment */}
             <div className="relative inline-flex">
               {showSaveMenu && (
@@ -2527,6 +2533,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             >
               Export
             </button>
+            </>
+            )}
             {!isLayoutOnly && (
             <>
             <button
