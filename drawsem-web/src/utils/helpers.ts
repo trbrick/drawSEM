@@ -30,6 +30,9 @@ export interface Node {
     columns: any[]
   }
   bindingMappings?: Record<string, string>
+  // Input keys the editor does not own (see OWNED_NODE_KEYS), re-emitted verbatim.
+  // Opaque: never read or edited by UI code.
+  passthrough?: Record<string, any>
   datasetSource?: {
     type: 'file' | 'embedded'
     location?: string          // For type='file': path to CSV file
@@ -64,6 +67,9 @@ export interface Path {
   visual?: {
     midpointOffset?: { x: number; y: number }
   }
+  // Input keys the editor does not own (see OWNED_PATH_KEYS), re-emitted verbatim.
+  // Opaque: never read or edited by UI code.
+  passthrough?: Record<string, any>
 }
 
 // Helper: Check if a path is a dataset-to-variable mapping path
@@ -114,3 +120,108 @@ export function nodeRectBBox(node: Node, defaultW: number, defaultH: number) {
     maxY: y + h / 2,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Owned keys vs pass-through
+//
+// The editor "owns" the schema keys below: they live on the runtime node/path/
+// model and are written back from runtime state. Every other key of the input
+// object is kept verbatim in `passthrough` at load and re-emitted on
+// serialization, so a load -> sync round trip is lossless. An owned key is never
+// read back from `passthrough` (it is removed from it at load), so an edit to it
+// can never be overwritten by a stale original value.
+//
+// A key listed under `nested` is an object of which only the listed sub-keys
+// are owned (e.g. node `visual.x`); the remaining sub-keys (e.g. `visual.angle`)
+// pass through, and the object itself is kept as a presence marker.
+// ---------------------------------------------------------------------------
+
+export interface OwnedKeySpec {
+  keys: readonly string[]
+  nested: Readonly<Record<string, readonly string[]>>
+}
+
+/** Node keys written from runtime state. */
+export const OWNED_NODE_KEYS: OwnedKeySpec = {
+  keys: ['label', 'type', 'description', 'tags', 'variableCharacteristics', 'bindingMappings', 'datasetSource'],
+  nested: { visual: ['x', 'y', 'width', 'height'] },
+}
+
+/** Path keys written from runtime state. */
+export const OWNED_PATH_KEYS: OwnedKeySpec = {
+  keys: ['from', 'to', 'numberOfArrows', 'type', 'label', 'value', 'freeParameter', 'parameterType', 'optimization'],
+  nested: { visual: ['loopSide', 'midpointOffset'] },
+}
+
+/** Model keys written from runtime state. */
+export const OWNED_MODEL_KEYS: OwnedKeySpec = {
+  keys: ['label', 'nodes', 'paths'],
+  nested: { optimization: ['parameterTypes'] },
+}
+
+/** Document keys written from runtime state. */
+export const OWNED_DOC_KEYS: OwnedKeySpec = {
+  keys: ['models'],
+  nested: {},
+}
+
+function cloneJson<T>(x: T): T {
+  return x === undefined ? x : JSON.parse(JSON.stringify(x))
+}
+
+const isPlainObject = (v: unknown): v is Record<string, any> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Deep copy of `obj` without the keys owned according to `spec`. */
+export function passthroughOf(obj: any, spec: OwnedKeySpec): Record<string, any> {
+  const out: Record<string, any> = {}
+  if (!isPlainObject(obj)) return out
+  for (const [k, v] of Object.entries(obj)) {
+    const nestedOwned = spec.nested[k]
+    if (nestedOwned && isPlainObject(v)) {
+      const sub: Record<string, any> = {}
+      for (const [sk, sv] of Object.entries(v)) {
+        if (!nestedOwned.includes(sk)) sub[sk] = cloneJson(sv)
+      }
+      out[k] = sub // kept even when empty: records that the object was present
+    } else if (!spec.keys.includes(k) && !nestedOwned) {
+      out[k] = cloneJson(v)
+    }
+  }
+  return out
+}
+
+/**
+ * Inverse of `passthroughOf`: `{...passthrough, ...owned}`, where owned values
+ * that are `undefined` are omitted. A nested object is emitted when it was
+ * present in the input or when any of its owned sub-keys is defined.
+ */
+export function mergeOwned(
+  passthrough: Record<string, any> | undefined,
+  owned: Record<string, any>,
+  ownedNested: Record<string, Record<string, any>> = {}
+): Record<string, any> {
+  const out: Record<string, any> = {}
+  const pt = passthrough ?? {}
+  for (const [k, v] of Object.entries(pt)) {
+    if (!(k in ownedNested)) out[k] = v
+  }
+  for (const [k, v] of Object.entries(owned)) {
+    if (v !== undefined) out[k] = v
+  }
+  for (const [k, sub] of Object.entries(ownedNested)) {
+    const merged: Record<string, any> = { ...(isPlainObject(pt[k]) ? pt[k] : {}) }
+    let anyOwned = false
+    for (const [sk, sv] of Object.entries(sub)) {
+      if (sv !== undefined) {
+        merged[sk] = sv
+        anyOwned = true
+      }
+    }
+    if (pt[k] !== undefined || anyOwned) out[k] = merged
+  }
+  return out
+}
+
+/** Prefix for the runtime id of a path endpoint that names no node in the model. */
+export const DANGLING_ENDPOINT_PREFIX = '?'

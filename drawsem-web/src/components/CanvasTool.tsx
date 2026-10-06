@@ -5,6 +5,7 @@ import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { modelToSchema } from '../utils/runtimeToSchema'
+import type { RuntimeModel } from '../utils/runtimeToSchema'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath, modelFilename, nodeX, nodeY } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
@@ -59,7 +60,6 @@ interface CanvasToolProps {
   editMode?: 'full' | 'layout'
 }
 
-type RuntimeModel = { id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }
 
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
@@ -143,7 +143,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         m.id === modelId
           ? {
               ...m,
-              parameterTypes: typeof updater === 'function' ? updater(m.parameterTypes) : updater,
+              parameterTypes: typeof updater === 'function' ? updater(m.parameterTypes ?? {}) : updater,
             }
           : m
       )
@@ -440,7 +440,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             }
           }
 
-          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut)
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -515,7 +515,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })
           }
 
-          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut)
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -1213,7 +1213,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const modelsOut = convertDocToRuntime(loadedSchema)
         
         // apply into runtime state
-        setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+        setModels(modelsOut)
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
           fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)

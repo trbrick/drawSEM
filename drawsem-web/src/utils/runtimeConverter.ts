@@ -1,8 +1,23 @@
 import { convertToUnicode } from './converters'
-import { Node, Path } from './helpers'
+import {
+  Node,
+  Path,
+  DANGLING_ENDPOINT_PREFIX,
+  OWNED_DOC_KEYS,
+  OWNED_MODEL_KEYS,
+  OWNED_NODE_KEYS,
+  OWNED_PATH_KEYS,
+  passthroughOf,
+} from './helpers'
+import type { RuntimeModel } from './runtimeToSchema'
 
 /**
- * Convert a single model object (from schema.models[n]) to runtime format
+ * Convert a single model object (from schema.models[n]) to runtime format.
+ *
+ * Only values present in the input are set on the runtime objects: nothing is
+ * defaulted here (an absent position means "unplaced", an absent size means
+ * "renderer decides", an absent path value means the schema default). Keys the
+ * editor does not own are kept in `passthrough` for a lossless round trip.
  */
 export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[] } {
   const usedIds = new Set<string>()
@@ -31,9 +46,9 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
   }
 
   const nodesOut: Node[] = (model.nodes || []).map((n: any) => {
-    const label = n.label || 'node'
+    const label = n.label
     // Keep label in canonical format; use displayName for UI rendering with unicode
-    let base = n.id || slugifyLabel(label)
+    let base = n.id || slugifyLabel(label ?? 'node')
     base = base.replace(/^p_/, 'n_')
     const id = uniqueId(base)
     labelToId[label] = id
@@ -41,8 +56,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const out: any = {
       id,
       label: label,
-      displayName: convertToUnicode(label),
-      type: n.type || 'variable'
+      displayName: convertToUnicode(label ?? ''),
+      type: n.type || 'variable',
     }
     // Position and size are set only when present: an absent x/y means the node
     // is unplaced, an absent width/height means the renderer decides. Defaults
@@ -51,36 +66,33 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     if (typeof visual.y === 'number' && !isNaN(visual.y)) out.y = visual.y
     if (typeof visual.width === 'number') out.width = visual.width
     if (typeof visual.height === 'number') out.height = visual.height
-    // Copy optional fields
-    if (n.description) out.description = n.description
-    if (n.tags) out.tags = n.tags
-    if (n.bindingMappings) out.bindingMappings = n.bindingMappings
-    if (n.datasetSource) out.datasetSource = n.datasetSource
-    if (n.variableCharacteristics) out.variableCharacteristics = n.variableCharacteristics
+    // Owned optional fields: copied exactly when present (an empty string stays "").
+    if (n.description !== undefined) out.description = n.description
+    if (n.tags !== undefined) out.tags = n.tags
+    if (n.bindingMappings !== undefined) out.bindingMappings = n.bindingMappings
+    if (n.datasetSource !== undefined) out.datasetSource = n.datasetSource
+    if (n.variableCharacteristics !== undefined) out.variableCharacteristics = n.variableCharacteristics
+    const passthrough = passthroughOf(n, OWNED_NODE_KEYS)
+    if (Object.keys(passthrough).length > 0) out.passthrough = passthrough
     return out
   })
 
-  function mkPathId(base: string) {
-    return uniqueId(base.replace(/^p_/, 'p_'))
-  }
+  // A path endpoint that names no node keeps its label, behind a prefix no node
+  // id can have, so the serializer can write it back unchanged.
+  const endpointId = (label: string) => labelToId[label] ?? DANGLING_ENDPOINT_PREFIX + label
 
   const pathsOut: Path[] = (model.paths || []).map((p: any) => {
-        const fromLabel = p.from
+    const fromLabel = p.from
     const toLabel = p.to
-    const from = labelToId[fromLabel] || slugifyLabel(fromLabel)
-    const to = labelToId[toLabel] || slugifyLabel(toLabel)
-    if (!labelToId[fromLabel]) labelToId[fromLabel] = uniqueId(from)
-    if (!labelToId[toLabel]) labelToId[toLabel] = uniqueId(to)
     const numberOfArrows = typeof p.numberOfArrows === 'number' ? p.numberOfArrows : (p.type === 'data' ? undefined : 1)
     const twoSided = numberOfArrows !== undefined ? numberOfArrows >= 2 : false
-    const side = p.visual && p.visual.loopSide ? p.visual.loopSide : undefined
     const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
-    const id = mkPathId(idBase)
-    const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
+    const id = uniqueId(idBase)
+    const out: any = { id, from: endpointId(fromLabel), to: endpointId(toLabel), twoSided }
 
-    if (side) out.side = side
-    // Keep label in canonical format for matching; use displayName for UI rendering
-    out.label = p.label || undefined
+    if (p.visual?.loopSide !== undefined) out.side = p.visual.loopSide
+    // label: kept exactly, including null and "" (canonical form, used for matching)
+    if ('label' in p) out.label = p.label
     if (p.label) {
       out.displayName = convertToUnicode(p.label)
     } else {
@@ -92,12 +104,12 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     if (p.value !== undefined) out.value = p.value
     // freeParameter: true = free anonymous; non-empty string = free named; absent = fixed (never set false)
     if (p.freeParameter !== undefined && p.freeParameter !== false) out.freeParameter = p.freeParameter
-    // Add path type if present
-    if (p.type) out.type = p.type
-    // Add optimization metadata: parameterType and optional overrides
-    if (p.parameterType) out.parameterType = p.parameterType
-    if (p.optimization) out.optimization = p.optimization
-    if (p.visual && p.visual.midpointOffset) out.visual = { midpointOffset: p.visual.midpointOffset }
+    if (p.type !== undefined) out.type = p.type
+    if (p.parameterType !== undefined) out.parameterType = p.parameterType
+    if (p.optimization !== undefined) out.optimization = p.optimization
+    if (p.visual?.midpointOffset !== undefined) out.visual = { midpointOffset: p.visual.midpointOffset }
+    const passthrough = passthroughOf(p, OWNED_PATH_KEYS)
+    if (Object.keys(passthrough).length > 0) out.passthrough = passthrough
     return out
   })
 
@@ -105,26 +117,29 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
 }
 
 /**
- * Convert entire multi-model document to runtime format
- * Returns array of models with id, label, nodes, paths, and parameterTypes
- * Models are provided as a named dictionary in the schema
+ * Convert entire multi-model document to runtime format.
+ * Returns one RuntimeModel per entry of the schema's `models` dictionary (the
+ * dictionary key becomes the runtime model id). Document-level keys are not
+ * part of the result; capture them with `docPassthroughOf`.
  */
-export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }> {
+export function convertDocToRuntime(doc: any): RuntimeModel[] {
   const modelDict = doc.models || {}
   return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
-    const label = model.label || modelId
     const { nodes, paths } = convertModelToRuntime(model)
-    // Extract parameterTypes from optimization section
-    const parameterTypes = model.optimization?.parameterTypes || {}
-    return { id: modelId, label, nodes, paths, parameterTypes }
+    const out: RuntimeModel = { id: modelId, label: model.label, nodes, paths }
+    // parameterTypes: owned, kept exactly (absent stays absent)
+    if (model.optimization?.parameterTypes !== undefined) out.parameterTypes = model.optimization.parameterTypes
+    const passthrough = passthroughOf(model, OWNED_MODEL_KEYS)
+    if (Object.keys(passthrough).length > 0) out.passthrough = passthrough
+    return out
   })
 }
 
 /**
- * Document-level keys the editor does not own (everything except `models`),
- * deep-copied so they can be re-emitted verbatim by `modelsToSchema`.
+ * Document-level keys the editor does not own (everything except `models`,
+ * e.g. `schemaVersion` and `meta`), deep-copied so they can be re-emitted
+ * verbatim by `modelsToSchema`.
  */
 export function docPassthroughOf(doc: any): Record<string, any> {
-  const { models: _models, ...rest } = doc || {}
-  return JSON.parse(JSON.stringify(rest))
+  return passthroughOf(doc, OWNED_DOC_KEYS)
 }

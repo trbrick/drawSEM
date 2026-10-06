@@ -40,7 +40,7 @@ function fixtureFiles(): Array<{ name: string; path: string }> {
 }
 
 describe('round trip: fit results survive', () => {
-  it.fails('a fitted model keeps provenance.fitResults through load -> sync', () => {
+  it('a fitted model keeps provenance.fitResults through load -> sync', () => {
     const doc = readJson(join(FIXTURES, 'kitchen-sink.json'))
     const before = clone(doc)
     const out = roundTrip(doc)
@@ -58,7 +58,7 @@ describe('round trip: kitchen-sink fixture', () => {
     expect(Object.keys(doc.models)).toHaveLength(2)
   })
 
-  it.fails('round-trips to a deep-equal document', () => {
+  it('round-trips to a deep-equal document', () => {
     const doc = readJson(join(FIXTURES, 'kitchen-sink.json'))
     const before = clone(doc)
     const out = roundTrip(doc)
@@ -67,18 +67,9 @@ describe('round trip: kitchen-sink fixture', () => {
   })
 })
 
-// Fixtures that do not round-trip yet (removed as the plan steps land).
-const PENDING = new Set<string>([
-  'cfa-model.json',
-  'mediation-model.json',
-  'multilevel-model.json',
-  'kitchen-sink.json',
-  'examples/graph.example.json',
-])
-
 describe('round trip: identity over every fixture', () => {
   for (const { name, path } of fixtureFiles()) {
-    ;(PENDING.has(name) ? it.fails : it)(name, () => {
+    it(name, () => {
       const doc = readJson(path)
       const before = clone(doc)
       const out = roundTrip(doc)
