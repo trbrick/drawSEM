@@ -91,8 +91,8 @@ NULL
 
 # Shared flow once the model to edit is known. `src` is the object to edit
 # (GraphModel or MxModel) or NULL for a blank new model; `varName` is the name
-# the generated code assigns to. `launch(gm)` runs the editor and returns a
-# GraphModel or NULL; `insert(text, row, column, id)` writes into the script.
+# the generated code assigns to. `launch(gm, onDone)` runs the editor,
+# calling `onDone(gm)` on Done if it can, and returns a GraphModel or NULL; `insert(text, row, column, id)` writes into the script.
 # Returns the tier of generated code ("none" if nothing was inserted).
 .runEdit <- function(ctx, src, varName, launch, insert) {
   isNew  <- is.null(src)
@@ -100,10 +100,28 @@ NULL
   before <- if (isNew) GraphModel() else .addinOrigins[[origin]](src)
   fitted <- identical(origin, "MxModel") && length(src@output) > 0
 
-  after <- launch(before)
+  handled <- FALSE
+  tier <- "none"
+  finish <- function(after) {
+    if (handled) return(invisible(tier))
+    handled <<- TRUE
+    tier <<- .finishEdit(ctx, before, after, varName, isNew, origin, fitted, insert)
+    invisible(tier)
+  }
+  # Normally finish() runs inside the gadget's Done handler, so it does not
+  # depend on code after the gadget returning (see .drawSEM_server). If the
+  # gadget instead returns normally without having called it (cancel, or a
+  # launcher that does not support onDone), finish it here.
+  result <- launch(before, onDone = finish)
+  if (!handled) finish(result)
+  invisible(tier)
+}
+
+# Generate and insert the code for a finished edit; returns the tier.
+.finishEdit <- function(ctx, before, after, varName, isNew, origin, fitted, insert) {
   if (!methods::is(after, "GraphModel")) {
     message("drawSEM: editor closed without Done; nothing inserted.")
-    return(invisible("none"))
+    return("none")
   }
 
   res <- tryCatch(
@@ -113,7 +131,7 @@ NULL
     })
   if (identical(res$tier, "none")) {
     message("drawSEM: no changes; nothing inserted.")
-    return(invisible("none"))
+    return("none")
   }
   if (identical(res$tier, "json")) {
     warning("drawSEM: this edit could not be written as verb calls (", res$reason,
@@ -130,7 +148,7 @@ NULL
               "). Generated code:\n", text)
       stop("drawSEM: insertion failed: ", conditionMessage(e), call. = FALSE)
     })
-  invisible(res$tier)
+  res$tier
 }
 
 # The addin flow: resolve the model from the editor context (cursor/selection
@@ -151,8 +169,9 @@ NULL
 }
 
 # Real-world plumbing shared by the two exported entry points.
-.rstudioLaunch <- function(gm) {
-  drawSEM(initialModel = gm, viewer = shiny::dialogViewer("drawSEM", width = 1200, height = 800))
+.rstudioLaunch <- function(gm, onDone = NULL) {
+  .runDrawSEMGadget(gm, viewer = shiny::dialogViewer("drawSEM", width = 1200, height = 800),
+                    onDone = onDone)
 }
 .rstudioInsert <- function(text, row, column, id) {
   rstudioapi::insertText(rstudioapi::document_position(row, column), text, id = id)

@@ -88,7 +88,7 @@ NULL
 
 #' Build the drawSEM Shiny server
 #' @noRd
-.drawSEM_server <- function(input, output, session, initialGM) {
+.drawSEM_server <- function(input, output, session, initialGM, onDone = NULL) {
   currentModel             <- shiny::reactiveVal(initialGM)
   fitStatus                <- shiny::reactiveVal("unfitted")
   svgData                  <- shiny::reactiveVal(NULL)
@@ -578,7 +578,17 @@ NULL
 
   # ── Done ──────────────────────────────────────────────────────────────
   shiny::observeEvent(input$done_request, {
-    shiny::stopApp(returnValue = currentModel())
+    gm <- currentModel()
+    # Run caller work (e.g. the addin's insert into the editor) HERE, before
+    # stopApp(): with dialogViewer() in RStudio, code after runGadget() may
+    # never run (rstudio/rstudio#11714).
+    if (is.function(onDone)) {
+      tryCatch(onDone(gm), error = function(e) {
+        message("drawSEM: ", conditionMessage(e))
+        shiny::showNotification(conditionMessage(e), type = "error", duration = 10)
+      })
+    }
+    shiny::stopApp(returnValue = gm)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 }
 
@@ -644,15 +654,18 @@ drawSEM <- function(
     viewer       = shiny::browserViewer(),
     ...) {
 
-  gm <- .resolveInitialModel(initialModel, data)
+  .runDrawSEMGadget(.resolveInitialModel(initialModel, data), viewer, onDone = NULL, ...)
+}
 
+# Run the editor gadget on a resolved GraphModel. `onDone(gm)`, if given, is
+# called inside the Done handler before the gadget stops (see above).
+.runDrawSEMGadget <- function(gm, viewer, onDone = NULL, ...) {
   ui <- .drawSEM_ui()
 
   server <- function(input, output, session) {
-    .drawSEM_server(input, output, session, initialGM = gm)
+    .drawSEM_server(input, output, session, initialGM = gm, onDone = onDone)
   }
 
-  app    <- shiny::shinyApp(ui = ui, server = server)
-  result <- shiny::runGadget(app, viewer = viewer, stopOnCancel = FALSE, ...)
-  result
+  app <- shiny::shinyApp(ui = ui, server = server)
+  shiny::runGadget(app, viewer = viewer, stopOnCancel = FALSE, ...)
 }

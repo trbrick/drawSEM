@@ -35,7 +35,7 @@ test_that("existing model: edit is inserted as a patch chain at the captured spo
   got <- NULL
   tier <- .runEditAddin(
     ctx,
-    launch = function(gm) { expect_identical(gm, env$mm); addVariable(gm, "C") },
+    launch = function(gm, ...) { expect_identical(gm, env$mm); addVariable(gm, "C") },
     insert = function(text, row, column, id) got <<- list(text = text, row = row, column = column, id = id),
     env = env
   )
@@ -50,7 +50,7 @@ test_that("no target: starts blank and builds from scratch under a fresh name", 
   got <- NULL
   tier <- .runEditAddin(
     mkCtx("", 1, 1),
-    launch = function(gm) { expect_equal(length(nodes(gm)), 0); addVariable(gm, "Z") },
+    launch = function(gm, ...) { expect_equal(length(nodes(gm)), 0); addVariable(gm, "Z") },
     insert = function(text, row, column, id) got <<- text,
     env = env
   )
@@ -63,8 +63,8 @@ test_that("cancel and no-change insert nothing", {
   ctx <- mkCtx("mm", 1, 1)
   inserted <- FALSE
   ins <- function(...) inserted <<- TRUE
-  expect_message(t1 <- .runEditAddin(ctx, function(gm) NULL, ins, env), "closed without Done")
-  expect_message(t2 <- .runEditAddin(ctx, function(gm) gm, ins, env), "no changes")
+  expect_message(t1 <- .runEditAddin(ctx, function(gm, ...) NULL, ins, env), "closed without Done")
+  expect_message(t2 <- .runEditAddin(ctx, function(gm, ...) gm, ins, env), "no changes")
   expect_equal(c(t1, t2), c("none", "none"))
   expect_false(inserted)
 })
@@ -74,7 +74,7 @@ test_that("JSON fallback warns and inserts a commented re-embed", {
   got <- NULL
   expect_warning(
     .runEditAddin(mkCtx("mm", 1, 1),
-      launch = function(gm) { gm@schema$models[[1]]$paths[[1]]$parameterType <- "loading"; gm },
+      launch = function(gm, ...) { gm@schema$models[[1]]$paths[[1]]$parameterType <- "loading"; gm },
       insert = function(text, ...) got <<- text, env = env),
     "could not be written as verb calls")
   expect_match(got, "^\\n# drawSEM: whole model re-embedded as JSON")
@@ -110,13 +110,13 @@ runMx <- function(edit) {
 
 test_that("MxModel opens in the editor as its GraphModel conversion", {
   seen <- NULL
-  r <- runMx(function(gm) { seen <<- gm; gm })
+  r <- runMx(function(gm, ...) { seen <<- gm; gm })
   expect_s4_class(seen, "GraphModel")
   expect_equal(r$tier, "none")
 })
 
 test_that("MxModel layout-only edit is a setLocation() on the MxModel and keeps the fit", {
-  r <- runMx(function(gm) setLocation(gm, "x", 11, 22))
+  r <- runMx(function(gm, ...) setLocation(gm, "x", 11, 22))
   expect_equal(r$tier, "patch")
   expect_match(r$text, "mm <- mm |>", fixed = TRUE)
   expect_false(grepl("as.MxModel", r$text, fixed = TRUE))
@@ -125,7 +125,7 @@ test_that("MxModel layout-only edit is a setLocation() on the MxModel and keeps 
 })
 
 test_that("MxModel structural edit rebuilds via as.MxModel and warns the fit is discarded", {
-  r <- runMx(function(gm) addVariable(gm, "z"))
+  r <- runMx(function(gm, ...) addVariable(gm, "z"))
   expect_equal(r$tier, "convert")
   expect_match(r$text, "mm <- drawSEM::as.MxModel(", fixed = TRUE)
   expect_match(r$text, "drawSEM::as.GraphModel(mm) |>", fixed = TRUE)
@@ -139,4 +139,36 @@ test_that("drawSEMEdit() rejects expressions and non-models before touching the 
   expect_error(drawSEMEdit(GraphModel()), "variable name")
   notModel <- 1
   expect_error(drawSEMEdit(notModel), "GraphModel or MxModel")
+})
+
+test_that("when the launcher calls onDone (inside the gadget), insertion happens once, there", {
+  env <- new.env(); env$mm <- addinBase()
+  n <- 0; where <- NULL
+  .runEditAddin(
+    mkCtx("mm", 1, 1),
+    launch = function(gm, onDone) {
+      edited <- addVariable(gm, "C")
+      onDone(edited)             # Done handler runs the insert...
+      edited                     # ...and the gadget then also returns the model
+    },
+    insert = function(text, ...) { n <<- n + 1 },
+    env = env)
+  expect_equal(n, 1)
+})
+
+test_that("the gadget's Done handler calls onDone with the model before stopping", {
+  skip_if_not_installed("shiny")
+  gm <- addinBase()
+  got <- NULL
+  app <- shiny::shinyApp(
+    ui = .drawSEM_ui(),
+    server = function(input, output, session) {
+      .drawSEM_server(input, output, session, initialGM = gm, onDone = function(m) got <<- m)
+    })
+  shiny::testServer(app, {
+    session$setInputs(graph_tool_ready = TRUE)
+    session$setInputs(done_request = list(timestamp = 1))
+    session$flushReact()
+  })
+  expect_s4_class(got, "GraphModel")
 })

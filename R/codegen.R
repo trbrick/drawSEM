@@ -162,8 +162,35 @@
   pathValue  = 1                           # value given to a path that had none
 )
 
+# Fields the widget drops on its way back to R (runtimeToSchema.ts emits only
+# schemaVersion + the model's label/nodes/paths and optimization$parameterTypes).
+# They are not user deletions; restore them from the original so they neither
+# register as edits nor vanish from a JSON fallback. INTERIM: delete this when
+# the widget round trip stops dropping fields. Only the fields the widget
+# cannot edit are listed; path/node-level drops (tags, extensions, angle) are
+# not handled here.
+.widgetDrops <- list(
+  top   = c("meta"),
+  model = c("meta", "description", "extensions", "optimization")
+)
+
+.restoreWidgetDrops <- function(after, before) {
+  if (length(after@schema$models) != 1 || length(before@schema$models) != 1) return(after)
+  for (k in .widgetDrops$top) {
+    if (is.null(after@schema[[k]]) && !is.null(before@schema[[k]])) after@schema[[k]] <- before@schema[[k]]
+  }
+  am <- after@schema$models[[1]]; bm <- before@schema$models[[1]]
+  for (k in .widgetDrops$model) {
+    if (is.null(bm[[k]])) next
+    am[[k]] <- if (is.list(bm[[k]]) && is.list(am[[k]])) utils::modifyList(bm[[k]], am[[k]]) else (am[[k]] %||% bm[[k]])
+  }
+  after@schema$models[[1]] <- am
+  after
+}
+
 # Remove stamped fields from `after`'s first model, judged against `before`.
 .stripWidgetStamps <- function(after, before) {
+  after <- .restoreWidgetDrops(after, before)
   if (length(after@schema$models) != 1 || length(before@schema$models) != 1) return(after)
   am <- after@schema$models[[1]]
   bn <- .nodeMap(before@schema$models[[1]])

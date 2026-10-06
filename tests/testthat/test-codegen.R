@@ -156,6 +156,9 @@ emulateWidget <- function(gm, drag = NULL) {
         if (is.null(p$visual)) list() else p$visual, list(loopSide = "top"))
     }
   }
+  # fields runtimeToSchema.ts does not carry back
+  s$meta <- NULL
+  m$meta <- NULL; m$description <- NULL; m$extensions <- NULL; m$optimization <- NULL
   s$models[[1]] <- m
   out <- as.GraphModel(s)
   out@data <- gm@data
@@ -204,6 +207,10 @@ test_that("a fitted MxModel dragged through the widget stays a setLocation (fit 
   g <- changePath(g, "x", "x", 2, value = 1)   # an MxModel path always has a value
   mx <- builtModel(suppressMessages(runModel(g)))
   before <- as.GraphModel(mx)
+  # as.GraphModel(MxModel) carries top-level meta and model optimization, which
+  # the widget drops (this is what forced JSON for OpenMx's OneFactorModel demo)
+  expect_false(is.null(before@schema$meta))
+  expect_false(is.null(before@schema$models[[1]]$optimization))
   r <- .generateEditCode(before, emulateWidget(before, drag = list(x = c(10, 20))),
                          varName = "mm", origin = "MxModel")
   expect_equal(r$tier, "patch")
