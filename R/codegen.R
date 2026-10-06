@@ -43,20 +43,25 @@
 
 # Join calls into a pipe chain assigned to `varName`. `base` is the expression
 # at the head of the chain (the variable itself, or `drawSEM::GraphModel()`).
-.fmtChain <- function(calls, varName, base) {
-  body <- vapply(calls, .fmtCall, character(1))
-  paste0(
-    varName, " <- ", base, " |>\n",
-    paste0("  ", body, collapse = " |>\n"),
-    "\n"
-  )
+# With `wrapper` (e.g. "drawSEM::as.MxModel"), the whole chain is passed as the
+# sole argument of that function, indented inside the call.
+.fmtChain <- function(calls, varName, base, wrapper = NULL) {
+  indent <- if (is.null(wrapper)) "  " else "    "
+  body <- vapply(calls, .fmtCall, character(1), indent = indent)
+  chain <- paste0("  ", base, " |>\n",
+                  paste0(indent, body, collapse = " |>\n"))
+  if (is.null(wrapper)) {
+    return(paste0(varName, " <- ", base, " |>\n",
+                  paste0(indent, body, collapse = " |>\n"), "\n"))
+  }
+  paste0(varName, " <- ", wrapper, "(\n", chain, "\n)\n")
 }
 
 # ---- canonicalization (for equality checks only) -----------------------------
 
 # Recursively normalize a schema fragment so semantically equal values compare
 # identical: named lists key-sorted, all-scalar unnamed lists collapsed to
-# vectors, numbers made double, empty containers dropped.
+# vectors, numbers made double (to 12 significant digits), empty containers dropped.
 .canonValue <- function(x) {
   if (is.null(x)) return(NULL)
   if (is.data.frame(x)) x <- as.list(x)
@@ -73,7 +78,12 @@
     }
     return(x[order(names(x))])
   }
-  if (is.numeric(x)) return(as.numeric(x))
+  # A lone NA is "no value", the same as an absent field (as.GraphModel() on an
+  # MxModel leaves label = NA; the JSON round trip turns it into null).
+  if (is.atomic(x) && length(x) == 1 && is.na(x)) return(NULL)
+  # 12 significant digits: the widget's JSON round trip perturbs doubles in
+  # the last bits (~1e-16), which is not an edit.
+  if (is.numeric(x)) return(signif(as.numeric(x), 12))
   if (is.atomic(x) && length(x) == 0) return(NULL)
   x
 }
@@ -117,6 +127,72 @@
     m
   })
   .canonValue(s)
+}
+
+# Leaf paths where two canonicalized values differ, for diagnostics
+# (e.g. "models/model1/paths/1|y|y/label"). Capped at `max` entries.
+.canonDiff <- function(a, b, path = "", max = 8L) {
+  out <- character(0)
+  if (is.list(a) && is.list(b)) {
+    keys <- union(names(a) %||% seq_along(a), names(b) %||% seq_along(b))
+    for (k in keys) {
+      if (length(out) >= max) break
+      ak <- if (is.null(names(a))) a[[as.integer(k)]] else a[[k]]
+      bk <- if (is.null(names(b))) b[[as.integer(k)]] else b[[k]]
+      out <- c(out, .canonDiff(ak, bk, paste0(path, "/", k), max - length(out)))
+    }
+    return(out)
+  }
+  if (identical(a, b)) character(0) else path
+}
+
+# ---- widget stamps (the ignore-list) -----------------------------------------
+# The widget is a stamping channel: on load it writes defaults the user never
+# chose, and they come back in the edited schema (drawsem-web/src/utils/
+# runtimeConverter.ts, autoLayout.ts). They are not edits. This table is the
+# ONE place that knowledge lives; a test pins the sizes to constants.ts. It is
+# deliberately an ignore-list, not an allowlist of editable fields: an unlisted
+# difference is treated as a real edit (worst case an ugly-but-correct JSON
+# fallback), whereas an allowlist would silently drop edits to any new widget
+# feature. Each stamp is ignored only where the original lacked the field.
+.widgetStamps <- list(
+  nodeTypes  = c("variable", "dataset"),   # node types that get default width/height
+  nodeWidth  = 60,                         # MANIFEST_/DATASET_DEFAULT_W
+  nodeHeight = 60,                         # MANIFEST_/DATASET_DEFAULT_H
+  pathValue  = 1                           # value given to a path that had none
+)
+
+# Remove stamped fields from `after`'s first model, judged against `before`.
+.stripWidgetStamps <- function(after, before) {
+  if (length(after@schema$models) != 1 || length(before@schema$models) != 1) return(after)
+  am <- after@schema$models[[1]]
+  bn <- .nodeMap(before@schema$models[[1]])
+  bp <- stats::setNames(before@schema$models[[1]]$paths %||% list(),
+                        vapply(before@schema$models[[1]]$paths %||% list(), .pathKey, character(1)))
+  st <- .widgetStamps
+
+  for (i in seq_along(am$nodes)) {
+    n <- am$nodes[[i]]
+    if (!(n$type %in% st$nodeTypes)) next
+    old <- bn[[as.character(n$label)]]$visual    # NULL for a new node
+    if (!is.null(n$visual$width) && is.null(old$width) &&
+        isTRUE(as.numeric(n$visual$width) == st$nodeWidth)) am$nodes[[i]]$visual$width <- NULL
+    if (!is.null(n$visual$height) && is.null(old$height) &&
+        isTRUE(as.numeric(n$visual$height) == st$nodeHeight)) am$nodes[[i]]$visual$height <- NULL
+  }
+  for (i in seq_along(am$paths)) {
+    p <- am$paths[[i]]
+    old <- bp[[.pathKey(p)]]                      # NULL for a new path
+    if (!is.null(old) && is.null(.canonValue(old$value)) && !is.null(p$value) &&
+        isTRUE(as.numeric(p$value) == st$pathValue)) {
+      am$paths[[i]]$value <- NULL
+    }
+    if (is.null(old$visual$loopSide) && !is.null(p$visual$loopSide)) am$paths[[i]]$visual$loopSide <- NULL
+    if (length(am$paths[[i]]$visual) == 0) am$paths[[i]]$visual <- NULL
+  }
+  for (i in seq_along(am$nodes)) if (length(am$nodes[[i]]$visual) == 0) am$nodes[[i]]$visual <- NULL
+  after@schema$models[[1]] <- am
+  after
 }
 
 # ---- the diff ----------------------------------------------------------------
@@ -292,7 +368,7 @@
 }
 
 # JSON re-embed (Tier 4): lossless by construction, ugly but never loses the model.
-.jsonReembed <- function(gm, varName) {
+.jsonReembed <- function(gm, varName, wrapper = NULL) {
   json <- tryCatch({
     tmp <- tempfile(fileext = ".json"); on.exit(unlink(tmp), add = TRUE)
     exportSchema(gm, tmp, pretty = TRUE)
@@ -300,7 +376,9 @@
   }, error = function(e) {
     as.character(jsonlite::toJSON(gm@schema, auto_unbox = TRUE, pretty = TRUE, null = "null", digits = NA))
   })
-  sprintf("%s <- drawSEM::as.GraphModel(r\"---(%s)---\")\n", varName, json)
+  expr <- sprintf("drawSEM::as.GraphModel(r\"---(%s)---\")", json)
+  if (!is.null(wrapper)) expr <- sprintf("%s(%s)", wrapper, expr)
+  sprintf("%s <- %s\n", varName, expr)
 }
 
 #' Generate R code reproducing an edit made to a GraphModel
@@ -318,16 +396,23 @@
 #'   existing model, pipes from).
 #' @param isNew `TRUE` if `before` is a blank starting point rather than an
 #'   existing model object: the chain then starts from `drawSEM::GraphModel()`.
-#' @return A list: `tier` (`"none"`, `"patch"`, `"new"` or `"json"`), `code`
-#'   (character or `NULL` when `tier == "none"`) and `reason` (why the JSON
-#'   fallback was used, else `NULL`).
+#' @param origin `"GraphModel"` (default) if `varName` holds a `GraphModel`, or
+#'   `"MxModel"` if it holds an `MxModel` that `before` was converted from.
+#'   Layout-only edits then stay a `setLocation()` on the `MxModel` (which
+#'   preserves a fit); anything else rebuilds it with `as.MxModel()`.
+#' @return A list: `tier` (`"none"`, `"patch"`, `"new"`, `"convert"` or
+#'   `"json"`), `code` (character or `NULL` when `tier == "none"`) and `reason`
+#'   (why the JSON fallback was used, else `NULL`).
 #' @noRd
-.generateEditCode <- function(before, after, varName = "model", isNew = FALSE) {
+.generateEditCode <- function(before, after, varName = "model", isNew = FALSE,
+                              origin = "GraphModel") {
+  wrapper <- if (identical(origin, "MxModel")) "drawSEM::as.MxModel"
+  after <- .stripWidgetStamps(after, before)
   if (identical(.canonSchema(before), .canonSchema(after))) {
     return(list(tier = "none", code = NULL, reason = NULL))
   }
   fallback <- function(reason) {
-    list(tier = "json", code = .jsonReembed(after, varName), reason = reason)
+    list(tier = "json", code = .jsonReembed(after, varName, wrapper), reason = reason)
   }
 
   d <- tryCatch(.diffToCalls(before, after), error = function(e) list(fallback = conditionMessage(e)))
@@ -340,9 +425,21 @@
     return(fallback(paste("generated verb calls failed:", conditionMessage(applied))))
   }
   if (!identical(.canonSchema(applied), .canonSchema(after))) {
-    return(fallback("the generated verb calls did not reproduce the edited model exactly"))
+    where <- .canonDiff(.canonSchema(applied), .canonSchema(after))
+    return(fallback(paste0(
+      "the generated verb calls did not reproduce the edited model exactly; differs at: ",
+      paste(where, collapse = ", "))))
   }
 
-  base <- if (isNew) "drawSEM::GraphModel()" else varName
-  list(tier = if (isNew) "new" else "patch", code = .fmtChain(d$calls, varName, base), reason = NULL)
+  if (isNew) {
+    return(list(tier = "new", code = .fmtChain(d$calls, varName, "drawSEM::GraphModel()"), reason = NULL))
+  }
+  layoutOnly <- all(vapply(d$calls, function(cl) identical(cl$fn, "setLocation"), logical(1)))
+  if (is.null(wrapper) || layoutOnly) {
+    # setLocation() accepts an MxModel directly, keeping any fit
+    return(list(tier = "patch", code = .fmtChain(d$calls, varName, varName), reason = NULL))
+  }
+  list(tier = "convert",
+       code = .fmtChain(d$calls, varName, sprintf("drawSEM::as.GraphModel(%s)", varName), wrapper),
+       reason = NULL)
 }

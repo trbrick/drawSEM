@@ -56,6 +56,14 @@ If vector lengths are not multiples of each other, an error is raised:
 
 If any nodeId doesn't exist in the schema, a warning is issued and that
 node is skipped.
+
+\strong{MxModel input:}
+
+If \code{graphModel} is an \code{MxModel}, the positions are written to its
+\code{drawSemHints} (\verb{@options$drawSemHints}, see \code{\link[=dropDrawSemHints]{dropDrawSemHints()}}) and
+nothing else about the model changes, so a fitted \code{MxModel} keeps its fit.
+A later \code{as.GraphModel()} on it recovers the layout. Hints are created
+from the model's current structure if it has none yet.
 }
 \examples{
 # Single node

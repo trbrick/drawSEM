@@ -126,3 +126,102 @@ test_that("fixture models round-trip under layout and structural edits", {
     expect_identical(.canonSchema(evalCode(r$code, g)), .canonSchema(g2), info = f)
   }
 })
+
+# ---- widget round-trip stamps ------------------------------------------------
+# The widget is a stamping channel (drawsem-web/src/utils/runtimeConverter.ts):
+# every variable/dataset node gains visual width/height, a path with no value
+# gains value 1.0, and two-headed paths gain a loopSide. These are not edits.
+
+emulateWidget <- function(gm, drag = NULL) {
+  s <- jsonlite::fromJSON(
+    jsonlite::toJSON(gm@schema, auto_unbox = TRUE, null = "null", na = "null", digits = NA),
+    simplifyVector = FALSE)
+  m <- s$models[[1]]
+  for (i in seq_along(m$nodes)) {
+    n <- m$nodes[[i]]
+    if (n$type %in% c("variable", "dataset")) {
+      m$nodes[[i]]$visual <- utils::modifyList(
+        if (is.null(n$visual)) list() else n$visual, list(width = 60, height = 60))
+    }
+    if (!is.null(drag) && n$label %in% names(drag)) {
+      m$nodes[[i]]$visual$x <- drag[[n$label]][1] + 0.37   # sub-pixel noise, like a real drag
+      m$nodes[[i]]$visual$y <- drag[[n$label]][2]
+    }
+  }
+  for (i in seq_along(m$paths)) {
+    p <- m$paths[[i]]
+    if (!"value" %in% names(p)) m$paths[[i]]$value <- 1   # only an absent key is stamped; null stays null
+    if (isTRUE(p$numberOfArrows == 2)) {
+      m$paths[[i]]$visual <- utils::modifyList(
+        if (is.null(p$visual)) list() else p$visual, list(loopSide = "top"))
+    }
+  }
+  s$models[[1]] <- m
+  out <- as.GraphModel(s)
+  out@data <- gm@data
+  out
+}
+
+stampFixture <- function() {
+  set.seed(1)
+  d <- data.frame(x = rnorm(30)); d$y <- d$x * 0.5 + rnorm(30)
+  GraphModel() |>
+    addVariable("x") |> addVariable("y") |> addConstant() |>
+    addData("data", d) |> connectData("data", c("x", "y")) |>
+    addPath("x", "y", 1, freeParameter = TRUE, value = 0.3) |>
+    addPath("x", "x", 2, freeParameter = TRUE) |>        # free, no value
+    addPath("y", "y", 2, freeParameter = TRUE, value = 1) |>
+    addPath("1", "x", 1, freeParameter = TRUE, value = 0.1) |>
+    addPath("1", "y", 1, freeParameter = TRUE, value = 0.1) |>
+    setLocation(c("x", "y", "1", "data"), c(0, 100, 50, 50), c(0, 0, -80, 150))
+}
+
+test_that("an unedited widget round trip is no change (GraphModel)", {
+  g <- stampFixture()
+  expect_equal(.generateEditCode(g, emulateWidget(g))$tier, "none")
+})
+
+test_that("a drag through the widget is only setLocation, with final rounded positions", {
+  g <- stampFixture()
+  r <- .generateEditCode(g, emulateWidget(g, drag = list(x = c(10, 20), y = c(120, 30))))
+  expect_equal(r$tier, "patch")
+  expect_match(r$code, "setLocation", fixed = TRUE)
+  expect_false(grepl("addPath|changePath|JSON", r$code))
+  expect_match(r$code, "x = c(10, 120)", fixed = TRUE)
+})
+
+test_that("a structural edit through the widget is a verb patch, not JSON", {
+  g <- stampFixture()
+  w <- emulateWidget(addVariable(g, "z"))
+  r <- .generateEditCode(g, w)
+  expect_equal(r$tier, "patch")
+  expect_match(r$code, "addVariable", fixed = TRUE)
+})
+
+test_that("a fitted MxModel dragged through the widget stays a setLocation (fit kept)", {
+  skip_if_not_installed("OpenMx")
+  g <- stampFixture()
+  g <- changePath(g, "x", "x", 2, value = 1)   # an MxModel path always has a value
+  mx <- builtModel(suppressMessages(runModel(g)))
+  before <- as.GraphModel(mx)
+  r <- .generateEditCode(before, emulateWidget(before, drag = list(x = c(10, 20))),
+                         varName = "mm", origin = "MxModel")
+  expect_equal(r$tier, "patch")
+  expect_false(grepl("as.MxModel", r$code, fixed = TRUE))
+  expect_equal(.generateEditCode(before, emulateWidget(before), "mm", origin = "MxModel")$tier, "none")
+})
+
+test_that("the widget-stamp table matches the widget's default constants", {
+  f <- testthat::test_path("..", "..", "drawsem-web", "src", "utils", "constants.ts")
+  skip_if_not(file.exists(f), "frontend source not available (installed package)")
+  src <- readLines(f)
+  const <- function(name) {
+    m <- regmatches(src, regexec(sprintf("export const %s\\s*=\\s*([0-9.]+)", name), src))
+    as.numeric(Filter(length, m)[[1]][2])
+  }
+  st <- drawSEM:::.widgetStamps
+  expect_equal(const("MANIFEST_DEFAULT_W"), st$nodeWidth)
+  expect_equal(const("DATASET_DEFAULT_W"),  st$nodeWidth)
+  expect_equal(const("MANIFEST_DEFAULT_H"), st$nodeHeight)
+  expect_equal(const("DATASET_DEFAULT_H"),  st$nodeHeight)
+})
