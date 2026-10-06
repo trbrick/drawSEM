@@ -56,7 +56,10 @@ export interface Path {
   value?: number | null
   // true = free anonymous; non-empty string = free named (equality-constrained); absent = fixed
   freeParameter?: boolean | string
-  reversed?: boolean
+  // UI-only memory for cyclePathDirection: set when its "reverse" step swapped
+  // from/to, so the next step returns to two-headed. Never serialized. (The
+  // direction itself always lives in from/to; there is no render-only flag.)
+  reversedByCycle?: boolean
   type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept
   parameterType?: string
   optimization?: {
@@ -225,3 +228,93 @@ export function mergeOwned(
 
 /** Prefix for the runtime id of a path endpoint that names no node in the model. */
 export const DANGLING_ENDPOINT_PREFIX = '?'
+
+// ---------------------------------------------------------------------------
+// Element creation. New nodes/paths carry only what the user created: no
+// size (absent = renderer decides), no path value (absent = schema default 1.0),
+// no label unless the user (or a data column) named it, never a runtime id
+// outside `id`, and no passthrough.
+// ---------------------------------------------------------------------------
+
+/** A new node at a user-chosen position. */
+export function makeNode(fields: { label: string; type: Node['type']; x: number; y: number; displayName?: string }): Node {
+  const node: Node = { id: uid(fields.type === 'dataset' ? 'd_' : 'n_'), label: fields.label, type: fields.type, x: fields.x, y: fields.y }
+  if (fields.displayName !== undefined) node.displayName = fields.displayName
+  return node
+}
+
+/** A new path; fields left undefined are omitted. */
+export function makePath(fields: Omit<Path, 'id'>): Path {
+  const path: any = { id: uid('p_') }
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined) path[k] = v
+  }
+  return path as Path
+}
+
+/** The free error-variance self-loop added with a new variable. */
+export function makeVariancePath(nodeId: string, displayLabel: string): Path {
+  return makePath({
+    from: nodeId,
+    to: nodeId,
+    twoSided: true,
+    freeParameter: true,
+    parameterType: 'errorVariance',
+    displayName: displayLabel + ' ↔ ' + displayLabel,
+  })
+}
+
+/** A dataset -> variable mapping path; `column` is the data column name (its label). */
+export function makeDataPath(datasetId: string, targetId: string, column: string | undefined, displayName?: string): Path {
+  return makePath({
+    from: datasetId,
+    to: targetId,
+    twoSided: false,
+    type: 'data',
+    label: column,
+    displayName: displayName ?? column,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Path direction. The direction of a one-headed path is its from -> to order;
+// reversing swaps them, so the change is serialized like any other edit.
+// ---------------------------------------------------------------------------
+
+/** The path with from/to swapped. */
+export function reversePath(p: Path): Path {
+  const { reversedByCycle: _r, ...rest } = p
+  return { ...rest, from: p.to, to: p.from }
+}
+
+/**
+ * Set a path's direction: 'twoSided' (two-headed), 'forward' (one-headed,
+ * keep from -> to) or 'reversed' (one-headed, swap from/to).
+ */
+export function setPathDirection(p: Path, direction: 'twoSided' | 'forward' | 'reversed'): Path {
+  const { reversedByCycle: _r, ...rest } = p
+  if (direction === 'twoSided') return { ...rest, twoSided: true }
+  if (direction === 'forward') return { ...rest, twoSided: false }
+  return reversePath({ ...rest, twoSided: false })
+}
+
+/** Double-click cycle: two-headed -> one-headed (from -> to) -> one-headed (to -> from) -> two-headed. */
+export function cyclePathDirection(p: Path): Path {
+  if (p.twoSided) return setPathDirection(p, 'forward')
+  if (!p.reversedByCycle) return { ...reversePath(p), reversedByCycle: true }
+  return setPathDirection(p, 'twoSided')
+}
+
+/**
+ * Set or clear a variable's manifestLatent lock. Clearing removes the key, and
+ * removes `variableCharacteristics` entirely when nothing else is left in it,
+ * so a set-then-clear leaves the node as it was.
+ */
+export function withManifestLatent(n: Node, value: 'manifest' | 'latent' | undefined): Node {
+  const vc = { ...(n.variableCharacteristics ?? {}) }
+  if (value === undefined) delete vc.manifestLatent
+  else vc.manifestLatent = value
+  const out: Node = { ...n, variableCharacteristics: vc }
+  if (Object.keys(vc).length === 0) delete out.variableCharacteristics
+  return out
+}

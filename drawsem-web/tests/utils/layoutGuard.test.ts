@@ -38,6 +38,24 @@ describe('layoutGuard: nodes', () => {
     expect(rej).toEqual([])
   })
 
+  it('allows placing an unplaced node (x/y absent -> present)', () => {
+    const prev = nodes().map((n) => (n.id === 'c1' ? { id: 'c1', label: '1', type: 'constant' } : n))
+    const next = prev.map((n) => (n.id === 'c1' ? { ...n, x: 7, y: 8 } : n))
+    const rej: string[] = []
+    const out = restrictNodesToLayoutChanges(prev, next, rej)
+    expect(out[2]).toMatchObject({ x: 7, y: 8 })
+    expect(rej).toEqual([])
+  })
+
+  it('rejects changes to pass-through data (nodes and paths)', () => {
+    const prevN = nodes().map((n) => (n.id === 'n1' ? { ...n, passthrough: { visual: { angle: 1 } } } : n))
+    const nextN = prevN.map((n) => (n.id === 'n1' ? { ...n, passthrough: { visual: { angle: 2 } } } : n))
+    expect(restrictNodesToLayoutChanges(prevN, nextN)).toBe(prevN)
+    const prevP = paths().map((p) => (p.id === 'p1' ? { ...p, passthrough: { tags: ['a'] } } : p))
+    const nextP = prevP.map((p) => (p.id === 'p1' ? { ...p, passthrough: { tags: ['b'] } } : p))
+    expect(restrictPathsToLayoutChanges(prevP, nextP)).toBe(prevP)
+  })
+
   it('rejects adding a node', () => {
     const prev = nodes()
     const rej: string[] = []
@@ -90,7 +108,7 @@ describe('layoutGuard: paths', () => {
     ['label', { label: 'new' }],
     ['value', { value: 0.1 }],
     ['twoSided', { twoSided: true }],
-    ['reversed', { reversed: true }],
+    ['reversedByCycle', { reversedByCycle: true }],
     ['freeParameter', { freeParameter: 'b1' }],
     ['freeParameter (fixing)', { freeParameter: undefined }],
     ['parameterType', { parameterType: 'loading' }],
@@ -133,6 +151,14 @@ describe('layoutGuard: models', () => {
     expect(out[0].parameterTypes).toEqual({ errorVariance: {} })
     expect(out[0].nodes[2].y).toBe(5)
     expect(rej).toHaveLength(2)
+  })
+
+  it('rejects changes to model pass-through (provenance, meta, ...)', () => {
+    const prev = [{ ...model(), passthrough: { provenance: { fitResults: [] } } }]
+    const rej: string[] = []
+    const out = restrictModelsToLayoutChanges(prev, [{ ...prev[0], passthrough: {} }], rej)
+    expect(out[0].passthrough).toEqual({ provenance: { fitResults: [] } })
+    expect(rej.join()).toMatch(/passthrough/)
   })
 
   it('rejects clearing the canvas and adding/removing models', () => {
