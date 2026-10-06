@@ -12,6 +12,7 @@ import {
   DATASET_DEFAULT_W,
   DATASET_DEFAULT_H,
 } from './constants'
+import { effectiveSchemaLoopSide } from './loopSide'
 import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
 
 /** Context carried through all geometry helpers so manifest/latent detection has model scope */
@@ -317,7 +318,7 @@ function pathD(
 ): string {
   if (path.from === path.to) {
     // self-loop
-    const side = (path.visual?.loopSide as any) || 'bottom'
+    const side = effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     return `M ${P0.x} ${P0.y} C ${P1.x} ${P1.y}, ${P2.x} ${P2.y}, ${P3.x} ${P3.y}`
@@ -384,7 +385,7 @@ function getPathLabelPos(
 ): { x: number; y: number } | null {
   if (path.from === path.to) {
     // self-loop: use cubic bezier midpoint
-    const side = (path.visual?.loopSide as any) || 'bottom'
+    const side = effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     const t = 0.5

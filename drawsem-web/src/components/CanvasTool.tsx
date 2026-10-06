@@ -7,6 +7,7 @@ import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
 import { autoLayout, layoutOnLoad, PositionMap } from '../utils/autoLayout'
+import { effectiveLoopSide, nearestLoopSide, LoopSide } from '../utils/loopSide'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
@@ -697,6 +698,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
   // pending drag holds initial press until movement threshold is reached
   const pendingDragRef = useRef<{ id: string; startClientX: number; startClientY: number; offsetX: number; offsetY: number } | null>(null)
+  // Self-loop drag-to-pin: armed on mousedown on a self-loop, becomes active past
+  // the drag threshold; while active the loop previews the nearest side and on
+  // release that side is pinned (Path.side).
+  const loopDragRef = useRef<{ pathId: string; nodeId: string; startClientX: number; startClientY: number; active: boolean } | null>(null)
+  const [loopDragPreview, setLoopDragPreview] = useState<{ pathId: string; side: LoopSide } | null>(null)
+  // Swallows the click that the browser dispatches right after a loop drag ends.
+  const suppressClickRef = useRef(false)
   // track which node the cursor is hovering over (for path drop target)
   const hoverNodeRef = useRef<string | null>(null)
   // true when current path drag was initiated by right-click (forces twoSided=false)
@@ -1388,6 +1396,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     pt.y = e.clientY
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
 
+    // self-loop drag-to-pin: follow the nearest side once past the threshold
+    if (loopDragRef.current) {
+      const ld = loopDragRef.current
+      if (!ld.active && Math.hypot(e.clientX - ld.startClientX, e.clientY - ld.startClientY) > 4) ld.active = true
+      if (ld.active) {
+        const node = nodes.find((n) => n.id === ld.nodeId)
+        if (node) {
+          const side = nearestLoopSide(centerOf(node), cursor)
+          setLoopDragPreview((cur) => (cur && cur.pathId === ld.pathId && cur.side === side ? cur : { pathId: ld.pathId, side }))
+        }
+      }
+      return
+    }
+
     // activate pending drag if threshold exceeded
     if (pendingDragRef.current) {
       const pd = pendingDragRef.current
@@ -1414,6 +1436,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onMouseUp() {
+    // finish a self-loop drag: pin the previewed side (a plain click just selects)
+    if (loopDragRef.current) {
+      const ld = loopDragRef.current
+      loopDragRef.current = null
+      if (ld.active) {
+        const side = loopDragPreview && loopDragPreview.pathId === ld.pathId ? loopDragPreview.side : null
+        if (side) setPaths((ps) => ps.map((x) => (x.id === ld.pathId && x.side !== side ? { ...x, side } : x)))
+        selectElement(ld.pathId, 'path')
+        suppressClickRef.current = true
+        setTimeout(() => { suppressClickRef.current = false }, 0)
+      }
+      setLoopDragPreview(null)
+      return
+    }
+
     // clear pending drag if mouse released before moving
     if (pendingDragRef.current) {
       pendingDragRef.current = null
@@ -1475,6 +1512,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function onCanvasClick(e: React.MouseEvent) {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
     // If click was on a child element (node, path label, etc.), it should have handled its own events
     if (e.target !== svgRef.current) {
       return
@@ -1922,6 +1963,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return finalPts
   }
 
+  // The side a self-loop is drawn on: the drag preview while it is being dragged,
+  // else the pinned side, else the automatic side from current positions (never stored).
+  function loopSideFor(p: Path): LoopSide {
+    if (loopDragPreview && loopDragPreview.pathId === p.id) return loopDragPreview.side
+    return effectiveLoopSide(p, nodes, paths)
+  }
+
   function pathD(p: Path) {
     const from = nodes.find((n) => n.id === p.from)
     const to = nodes.find((n) => n.id === p.to)
@@ -1933,7 +1981,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const a = centerOf(from)
     const b = centerOf(to)
     if (from.id === to.id) {
-      const side = (p.side as any) || 'bottom'
+      const side = loopSideFor(p)
       const finalPts = buildSelfLoopPoints(from, side)
       const [P0, P1, P2, P3] = finalPts
       return `M ${P0.x} ${P0.y} C ${P1.x} ${P1.y}, ${P2.x} ${P2.y}, ${P3.x} ${P3.y}`
@@ -2000,7 +2048,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const b = centerOf(to)
 
     if (from.id === to.id) {
-      const side = (p.side as any) || 'bottom'
+      const side = loopSideFor(p)
       const finalPts = buildSelfLoopPoints(from, side)
       const P0 = finalPts[0]
       const P1 = finalPts[1]
@@ -2721,6 +2769,49 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <div className="space-y-2">
                   <div><span className="font-medium">From:</span> {selectedPath.from}</div>
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+                  {selectedPath.from === selectedPath.to && (() => {
+                    // Loop side: Auto (absent side, resolved from positions) or pinned.
+                    const autoSide = effectiveLoopSide({ ...selectedPath, side: undefined }, nodes, paths)
+                    const options: Array<{ value: LoopSide | 'auto'; text: string }> = [
+                      { value: 'auto', text: `Auto (${autoSide})` },
+                      { value: 'top', text: 'Top' },
+                      { value: 'right', text: 'Right' },
+                      { value: 'bottom', text: 'Bottom' },
+                      { value: 'left', text: 'Left' },
+                    ]
+                    const current = selectedPath.side ?? 'auto'
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">Loop side:</span>
+                        <div role="group" aria-label="Loop side" className="inline-flex rounded border overflow-hidden">
+                          {options.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              aria-pressed={current === o.value}
+                              title={o.value === 'auto' ? 'Automatic: chosen from the positions of connected nodes' : `Pin the loop to the ${o.value}`}
+                              className={`px-2 py-1 text-xs border-l first:border-l-0 ${current === o.value ? 'bg-sky-600 text-white' : 'bg-white hover:bg-sky-100'}`}
+                              onClick={() => {
+                                setPaths((ps) =>
+                                  ps.map((p) => {
+                                    if (p.id !== selectedPath.id) return p
+                                    if (o.value === 'auto') {
+                                      if (p.side === undefined) return p
+                                      const { side: _unpinned, ...rest } = p
+                                      return rest
+                                    }
+                                    return p.side === o.value ? p : { ...p, side: o.value }
+                                  })
+                                )
+                              }}
+                            >
+                              {o.text}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {isLayoutOnly ? (
                   <>
                   <div><span className="font-medium">Label:</span> {selectedPath.label || <span className="text-slate-400">(none)</span>}</div>
@@ -3026,18 +3117,32 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   return (
                     <path
                       key={p.id}
+                      data-path-id={p.id}
+                      data-loop-side={p.from === p.to ? loopSideFor(p) : undefined}
                       d={pathD(p)}
                       fill="none"
                       stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
                       strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
                       markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
                       markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                      onMouseDown={p.from === p.to ? (e) => {
+                        // Self-loop: arm drag-to-pin (left button, select mode). Stop
+                        // propagation so no node drag, pan or path creation starts.
+                        e.stopPropagation()
+                        if (e.button !== 0 || mode !== 'select') return
+                        loopDragRef.current = { pathId: p.id, nodeId: p.from, startClientX: e.clientX, startClientY: e.clientY, active: false }
+                      } : undefined}
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (suppressClickRef.current) {
+                          suppressClickRef.current = false
+                          return
+                        }
                         selectElement(p.id, 'path')
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation()
+                        // cyclePath ignores self-loops (they must stay two-headed)
                         cyclePath(p.id)
                       }}
                       opacity={opacity}

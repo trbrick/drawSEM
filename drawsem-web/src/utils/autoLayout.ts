@@ -11,7 +11,6 @@ import { GraphSchema } from '../core/types'
  * 2. Compute longest paths (path finding without cycles)
  * 3. Assign ranks based on longest path length
  * 4-5. Sort nodes within ranks + assign coordinates (interleaved)
- * 6. Determine two-headed arrow sides (covariances)
  * 7. Position constants and database nodes
  */
 
@@ -83,9 +82,8 @@ export function autoLayout(schema: GraphSchema, options?: LayoutOptions): Positi
     rankHeight: options?.rankHeight ?? 150,
   }
 
-  // Get the first (or only) model. Work on a deep copy: later phases (e.g.
-  // determineLoopSides) annotate the model, and the caller's schema must never
-  // be mutated (it may be the very object the editor round-trips).
+  // Get the first (or only) model. Work on a deep copy: the caller's schema must
+  // never be mutated (it may be the very object the editor round-trips).
   const modelKey = Object.keys(schema.models)[0]
   if (!modelKey) throw new Error('No models found in schema')
   const model = JSON.parse(JSON.stringify(schema.models[modelKey]))
@@ -117,13 +115,11 @@ export function autoLayout(schema: GraphSchema, options?: LayoutOptions): Positi
 
   // PHASE 5.5: Position error/disturbance nodes relative to their targets.
   // Uses the main arrow index to determine whether each target is terminal.
-  // Updates rankIndex in-place so Phase 6 loop-side logic sees correct ranks.
   positionErrorNodes(errorNodeInfos, positions, rankIndex, mainArrowIndex, layoutOpts)
 
-  // PHASE 6: Determine two-headed arrow sides
-  // ranks array is rebuilt from the now-complete rankIndex (includes error nodes)
-  const allRanks = buildRanksFromIndex(rankIndex)
-  determineLoopSides(allRanks, rankIndex, model.paths)
+  // (Self-loop sides are not decided here: an absent loopSide is chosen by the
+  // renderer from current positions -- see utils/loopSide.ts. Auto Layout must
+  // never pin a side.)
 
   // PHASE 7: Position constants and database nodes
   positionConstantsAndDatabases(model, positions, layoutOpts)
@@ -308,8 +304,7 @@ function detectErrorNodes(
  *   Sorted by their target's x so left-associated errors appear leftmost.
  *   Rank assigned: targetRank  (same rank as target).
  *
- * rankIndex is updated in-place so Phase 6 (loop-side assignment) sees the
- * correct rank for every error node.
+ * rankIndex is updated in-place with the rank of every error node.
  */
 function positionErrorNodes(
   errorNodeInfos: ErrorNodeInfo[],
@@ -392,25 +387,6 @@ function positionErrorNodes(
       rankIndex.set(info.nodeLabel, targetRank)
     })
   })
-}
-
-// ============================================================================
-// Helper: Rebuild ranks array from a complete rankIndex
-// ============================================================================
-
-/**
- * Reconstruct the ranks array (used by Phase 6) from a rankIndex that now
- * includes error nodes. Ranks are ordered from lowest rank number to highest
- * so that Phase 6's rankIdx=0 corresponds to the bottom-most visual rank.
- */
-function buildRanksFromIndex(rankIndex: Map<string, number>): string[][] {
-  const ranksByNumber = new Map<number, string[]>()
-  rankIndex.forEach((rankNum, nodeId) => {
-    if (!ranksByNumber.has(rankNum)) ranksByNumber.set(rankNum, [])
-    ranksByNumber.get(rankNum)!.push(nodeId)
-  })
-  const sortedNums = [...ranksByNumber.keys()].sort((a, b) => a - b)
-  return sortedNums.map(n => ranksByNumber.get(n)!)
 }
 
 // ============================================================================
@@ -638,48 +614,6 @@ function sortAndPositionRanks(
   })
 
   return positions
-}
-
-// ============================================================================
-// PHASE 6: Two-Headed Arrow Sides
-// ============================================================================
-
-function determineLoopSides(ranks: string[][], rankIndex: Map<string, number>, paths: any[]): void {
-  const twoHeadedPaths = paths?.filter((p: any) => p.numberOfArrows === 2) ?? []
-
-  ranks.forEach((rank, rankIdx) => {
-    let incomingCount = 0
-    let outgoingCount = 0
-
-    rank.forEach(nodeId => {
-      const incomingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.to === nodeId)
-      incomingPaths.forEach((p: any) => {
-        const sourceRank = rankIndex.get(p.from)
-        if (sourceRank !== undefined && sourceRank < rankIdx) incomingCount++
-      })
-
-      const outgoingPaths = (paths ?? []).filter((p: any) => p.numberOfArrows === 1 && p.from === nodeId)
-      outgoingPaths.forEach((p: any) => {
-        const targetRank = rankIndex.get(p.to)
-        if (targetRank !== undefined && targetRank > rankIdx) outgoingCount++
-      })
-    })
-
-    let preferredSide = 'top'
-    if (rankIdx === 0) preferredSide = 'bottom'
-    else if (rankIdx === ranks.length - 1) preferredSide = 'top'
-    else if (incomingCount > outgoingCount) preferredSide = 'bottom'
-    else if (outgoingCount > incomingCount) preferredSide = 'top'
-    else preferredSide = rankIdx < ranks.length / 2 ? 'bottom' : 'top'
-
-    twoHeadedPaths.forEach((path: any) => {
-      if (!path.visual) path.visual = {}
-      if (path.visual.loopSide) return
-      if (rank.indexOf(path.from) >= 0 || rank.indexOf(path.to) >= 0) {
-        path.visual.loopSide = preferredSide
-      }
-    })
-  })
 }
 
 // ============================================================================
