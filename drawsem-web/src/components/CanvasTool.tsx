@@ -3114,40 +3114,57 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
+                  const isLoop = p.from === p.to
+                  const handlers = {
+                    onMouseDown: isLoop ? (e: React.MouseEvent) => {
+                      // Self-loop: arm drag-to-pin (left button, select mode). Stop
+                      // propagation so no node drag, pan or path creation starts.
+                      e.stopPropagation()
+                      if (e.button !== 0 || mode !== 'select') return
+                      loopDragRef.current = { pathId: p.id, nodeId: p.from, startClientX: e.clientX, startClientY: e.clientY, active: false }
+                    } : undefined,
+                    onClick: (e: React.MouseEvent) => {
+                      e.stopPropagation()
+                      if (suppressClickRef.current) {
+                        suppressClickRef.current = false
+                        return
+                      }
+                      selectElement(p.id, 'path')
+                    },
+                    onDoubleClick: (e: React.MouseEvent) => {
+                      e.stopPropagation()
+                      // cyclePath ignores self-loops (they must stay two-headed)
+                      cyclePath(p.id)
+                    },
+                  }
                   return (
+                    <React.Fragment key={p.id}>
                     <path
-                      key={p.id}
                       data-path-id={p.id}
-                      data-loop-side={p.from === p.to ? loopSideFor(p) : undefined}
+                      data-loop-side={isLoop ? loopSideFor(p) : undefined}
                       d={pathD(p)}
                       fill="none"
                       stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
                       strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
                       markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
                       markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
-                      onMouseDown={p.from === p.to ? (e) => {
-                        // Self-loop: arm drag-to-pin (left button, select mode). Stop
-                        // propagation so no node drag, pan or path creation starts.
-                        e.stopPropagation()
-                        if (e.button !== 0 || mode !== 'select') return
-                        loopDragRef.current = { pathId: p.id, nodeId: p.from, startClientX: e.clientX, startClientY: e.clientY, active: false }
-                      } : undefined}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (suppressClickRef.current) {
-                          suppressClickRef.current = false
-                          return
-                        }
-                        selectElement(p.id, 'path')
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        // cyclePath ignores self-loops (they must stay two-headed)
-                        cyclePath(p.id)
-                      }}
+                      {...handlers}
                       opacity={opacity}
                       style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
                     />
+                    {isLoop && (
+                      // Invisible wider grab area so a loop can be dragged without
+                      // hitting its thin stroke exactly.
+                      <path
+                        d={pathD(p)}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth={12}
+                        {...handlers}
+                        style={{ cursor: 'grab', pointerEvents: 'stroke' }}
+                      />
+                    )}
+                    </React.Fragment>
                   )
                 })}
 
