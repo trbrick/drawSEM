@@ -6,7 +6,8 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime } from '../utils/runtimeConverter'
 import { modelToSchema } from '../utils/runtimeToSchema'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
-import { uid, isDatasetPath, modelFilename } from '../utils/helpers'
+import { uid, isDatasetPath, modelFilename, nodeX, nodeY } from '../utils/helpers'
+import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
@@ -15,78 +16,7 @@ import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 
-type NodeType = 'variable' | 'constant' | 'dataset'
-
-type Node = {
-  id: string
-  x: number
-  y: number
-  label: string
-  type: NodeType
-  description?: string
-  tags?: string[]
-  // optional display name (for UI only) - separate from label used for matching/export
-  displayName?: string
-  // for variable nodes: semantic characteristics (manifestLatent, exogeneity)
-  variableCharacteristics?: {
-    manifestLatent?: 'manifest' | 'latent'
-    exogeneity?: 'exogenous' | 'endogenous'
-  }
-  // optional size for manifest nodes
-  width?: number
-  height?: number
-  // optional dataset metadata attached to dataset nodes (internal only)
-  dataset?: {
-    fileName: string
-    headers: string[]
-    columns: any[]
-  }
-  // optional logical binding names for dataset nodes: { sourceColumn: bindingName }
-  bindingMappings?: Record<string, string>
-  // optional dataset source metadata from schema (file-based or embedded)
-  datasetSource?: {
-    type: 'file' | 'embedded'
-    location?: string          // For type='file': path to CSV file
-    format?: string            // 'csv', 'tsv', 'xlsx', 'json'
-    encoding?: string          // e.g., 'UTF-8'
-    columnTypes?: Record<string, string>  // mapping of column names to data types
-    md5?: string              // For integrity verification
-    rowCount?: number         // Number of data rows (excluding header)
-    object?: any[]            // For type='embedded': array of row objects
-  }
-}
-
-type Path = {
-  id: string
-  from: string
-  to: string
-  twoSided: boolean
-  // optional side for self-loop attachment: 'top', 'right', 'bottom', 'left'
-  side?: 'top' | 'right' | 'bottom' | 'left'
-  // optional human-facing label (editable). If null or absent, UI will not display a label.
-  label?: string | null
-  // optional display name (for UI only) - separate from label used for matching/export
-  displayName?: string | null
-  // numeric value for the path; defaults to 1.0 (null for dataset paths)
-  value?: number | null
-  // whether the path parameter is freely estimated; true = free anonymous, absent = fixed
-  freeParameter?: boolean | string
-  // path type: 'data' = dataset mapping; 'constant' = mean/intercept; absent = structural
-  type?: 'data' | 'constant'
-  // optional semantic category from optimization.parameterTypes
-  parameterType?: string
-  // when true and twoSided=false, the visual arrow direction is reversed (to→from instead of from→to)
-  reversed?: boolean
-  // optional path-specific optimization overrides
-  optimization?: {
-    prior?: Record<string, any> | null
-    bounds?: [number | null, number | null] | null
-    start?: number | string | null
-  }
-  visual?: {
-    midpointOffset?: { x: number; y: number }
-  }
-}
+type NodeType = Node['type']
 
 type Mode =
   | 'select'
@@ -864,8 +794,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // TODO: Apply to all node rendering positions for complete canonical->display transformation
   const getNodeDisplayCoordinates = (n: Node): { displayX: number; displayY: number } => {
     return {
-      displayX: n.x + displayAnchor.x,
-      displayY: n.y + displayAnchor.y,
+      displayX: nodeX(n) + displayAnchor.x,
+      displayY: nodeY(n) + displayAnchor.y,
     }
   }
 
@@ -1431,7 +1361,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
             const w = DATASET_DEFAULT_W
             const h = DATASET_DEFAULT_H
-            function nodeBBox(n: Node) {
+            function nodeBBox(node: Node) {
+              const n = { ...node, x: nodeX(node), y: nodeY(node) }
               if (n.type === 'variable') {
                 const renderType = getVariableRenderType(n.id)
                 if (renderType === 'latent') return { minX: n.x - LATENT_RADIUS, maxX: n.x + LATENT_RADIUS, minY: n.y - LATENT_RADIUS, maxY: n.y + LATENT_RADIUS }
@@ -1698,8 +1629,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     // Check if we're dropping on an existing variable node
     const targetNode = nodes.find((n) => {
-      const cx = n.x
-      const cy = n.y
+      const cx = nodeX(n)
+      const cy = nodeY(n)
       const w = n.width ?? 60
       const h = n.height ?? 60
       return Math.abs(dropX - cx) < w / 2 && Math.abs(dropY - cy) < h / 2
@@ -1797,7 +1728,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // record selection immediately
     selectElement(n.id, 'node')
     if (mode === 'select') {
-      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - n.x, offsetY: cursor.y - n.y }
+      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - nodeX(n), offsetY: cursor.y - nodeY(n) }
     }
 
     // finish node drag if any
@@ -1890,8 +1821,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const node = selectedNode
         if (!node) return 'top-4 right-4'
 
-        objX = node.x
-        objY = node.y
+        objX = nodeX(node)
+        objY = nodeY(node)
 
         if (node.type === 'variable') {
           const renderType = getVariableRenderType(node.id)
@@ -1966,12 +1897,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // geometry helpers
   function centerOf(n: Node) {
-    return { x: n.x, y: n.y }
+    return { x: nodeX(n), y: nodeY(n) }
   }
 
   function getBoundaryPoint(n: Node, towards: { x: number; y: number }) {
-    const cx = n.x
-    const cy = n.y
+    const cx = nodeX(n)
+    const cy = nodeY(n)
     const dx = towards.x - cx
     const dy = towards.y - cy
     const dist = Math.hypot(dx, dy) || 1
@@ -1996,8 +1927,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     if (n.type === 'dataset') {
       // approximate dataset (cylinder) as a rounded rectangle for boundary calculations
-      const halfW = (n.width ?? 110) / 2
-      const halfH = (n.height ?? 48) / 2
+      const halfW = (n.width ?? DATASET_DEFAULT_W) / 2
+      const halfH = (n.height ?? DATASET_DEFAULT_H) / 2
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
       // When nodes are at the same position, there is no direction: return center to avoid 0*Infinity=NaN
@@ -2931,7 +2862,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   />
                   )}
                 </div>
-                <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
+                <div><span className="font-medium">Position:</span> {selectedNode.x === undefined || selectedNode.y === undefined ? 'unplaced' : `(${selectedNode.x.toFixed(1)}, ${selectedNode.y.toFixed(1)})`}</div>
                 {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
                 )}
@@ -2994,11 +2925,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         setPaths((ps) =>
                           ps.map((p) =>
                             p.id === selectedPath.id
-                              ? { ...p, value: isNaN(val) ? 1.0 : val }
+                              ? { ...p, value: isNaN(val) ? undefined : val }
                               : p
                           )
                         )
                       }}
+                      placeholder="1 (default)"
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-36 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
@@ -3360,8 +3292,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           {/* drag preview path - shows connection while dragging column */}
           {dragPreviewPos && draggedColumnName && selectedNode?.type === 'dataset' && (
             <line
-              x1={selectedNode.x}
-              y1={selectedNode.y}
+              x1={nodeX(selectedNode)}
+              y1={nodeY(selectedNode)}
               x2={dragPreviewPos.x}
               y2={dragPreviewPos.y}
               stroke="#888"
@@ -3390,7 +3322,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       const halfW = w / 2
                       const halfH = h / 2
                       return (
-                        <g key={n.id} transform={`translate(${n.x - halfW}, ${n.y - halfH})`} style={{ opacity, zIndex }}>
+                        <g key={n.id} transform={`translate(${nodeX(n) - halfW}, ${nodeY(n) - halfH})`} style={{ opacity, zIndex }}>
                           <rect
                             width={w}
                             height={h}
@@ -3422,7 +3354,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       )
               } else if ( renderType === 'latent' ) {
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+                <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                   <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} onDoubleClick={(e) => { e.stopPropagation(); toggleVariableCharacteristic(n.id) }} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
@@ -3448,7 +3380,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               // then draw vertical side strokes and top ellipse stroke so the bottom of the rectangle
               // and the top of the bottom ellipse are not visible; rectangle corners are not rounded.
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+                <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                   {/* Invisible shape for click/hover detection - covers entire cylinder */}
                   <ellipse
                     cx={0}
@@ -3528,7 +3460,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             } else if (n.type === 'constant') {
             // constant triangle
             return (
-              <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+              <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                 <polygon
                   points="0,-22 19,11 -19,11"
                   fill={DISPLAY_COLORS.fill}

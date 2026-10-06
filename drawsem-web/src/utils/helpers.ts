@@ -5,16 +5,23 @@ export function uid(prefix = ''): string {
 
 export interface Node {
   id: string
-  x: number
-  y: number
+  // Canvas position. Absent = unplaced (the schema node had no visual.x/y and
+  // nothing has positioned it yet); renderers treat it as 0 via nodeX/nodeY.
+  // Only a real placement (drag, auto-layout) sets these, so an unplaced node is
+  // serialized without a position.
+  x?: number
+  y?: number
   label: string
   type: 'variable' | 'constant' | 'dataset'
+  // optional display name (UI only) - separate from label used for matching/export
+  displayName?: string
   description?: string
   tags?: string[]
   variableCharacteristics?: {
     manifestLatent?: 'manifest' | 'latent'
     exogeneity?: 'exogenous' | 'endogenous'
   }
+  // Pinned size. Absent = the renderer decides (MANIFEST_DEFAULT_* etc.).
   width?: number
   height?: number
   dataset?: {
@@ -74,23 +81,36 @@ export function modelFilename(label: string | undefined, ext: string): string {
   return slug ? `${slug}.${ext}` : `graph-${timestamp}.${ext}`
 }
 
+// Position of a node for rendering: an unplaced node (x/y absent) is drawn at 0.
+export function nodeX(node: { x?: number }): number {
+  return node.x ?? 0
+}
+
+export function nodeY(node: { y?: number }): number {
+  return node.y ?? 0
+}
+
 // Geometry helpers
 export function nodeCircleBBox(node: Node, radius: number) {
+  const x = nodeX(node)
+  const y = nodeY(node)
   return {
-    minX: node.x - radius,
-    maxX: node.x + radius,
-    minY: node.y - radius,
-    maxY: node.y + radius,
+    minX: x - radius,
+    maxX: x + radius,
+    minY: y - radius,
+    maxY: y + radius,
   }
 }
 
 export function nodeRectBBox(node: Node, defaultW: number, defaultH: number) {
   const w = node.width ?? defaultW
   const h = node.height ?? defaultH
+  const x = nodeX(node)
+  const y = nodeY(node)
   return {
-    minX: node.x - w / 2,
-    maxX: node.x + w / 2,
-    minY: node.y - h / 2,
-    maxY: node.y + h / 2,
+    minX: x - w / 2,
+    maxX: x + w / 2,
+    minY: y - h / 2,
+    maxY: y + h / 2,
   }
 }

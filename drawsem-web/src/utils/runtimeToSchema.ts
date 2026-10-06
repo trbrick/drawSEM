@@ -26,7 +26,10 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
       nodes: model.nodes.map((n) => ({
         label: n.label,
         type: n.type,
-        visual: { x: n.x, y: n.y },
+        visual: {
+          ...(n.x !== undefined ? { x: n.x } : {}),
+          ...(n.y !== undefined ? { y: n.y } : {}),
+        },
       })),
       paths: model.paths.map((p) => ({
         from: idToLabel[p.from] ?? p.from,
@@ -48,12 +51,16 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
       ...(n.variableCharacteristics ? { variableCharacteristics: n.variableCharacteristics } : {}),
       ...(n.bindingMappings ? { bindingMappings: n.bindingMappings } : {}),
       ...(n.datasetSource ? { datasetSource: n.datasetSource } : {}),
-      visual: {
-        x: n.x,
-        y: n.y,
-        ...(n.width ? { width: n.width } : {}),
-        ...(n.height ? { height: n.height } : {}),
-      },
+      ...(n.x !== undefined || n.y !== undefined || n.width !== undefined || n.height !== undefined
+        ? {
+            visual: {
+              ...(n.x !== undefined ? { x: n.x } : {}),
+              ...(n.y !== undefined ? { y: n.y } : {}),
+              ...(n.width !== undefined ? { width: n.width } : {}),
+              ...(n.height !== undefined ? { height: n.height } : {}),
+            },
+          }
+        : {}),
     })),
     paths: model.paths.map((p) => ({
       from: idToLabel[p.from] ?? p.from,

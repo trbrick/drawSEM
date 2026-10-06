@@ -1,5 +1,4 @@
 import { convertToUnicode } from './converters'
-import { MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H } from './constants'
 import { Node, Path } from './helpers'
 
 /**
@@ -39,34 +38,19 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const id = uniqueId(base)
     labelToId[label] = id
     const visual = n.visual || {}
-    const x = typeof visual.x === 'number' ? visual.x : 0
-    const y = typeof visual.y === 'number' ? visual.y : 0
     const out: any = {
       id,
-      x: isNaN(x) ? 0 : x,
-      y: isNaN(y) ? 0 : y,
       label: label,
       displayName: convertToUnicode(label),
       type: n.type || 'variable'
     }
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[RuntimeConverter] Node conversion:', {
-        label,
-        inputVisual: n.visual,
-        outputX: out.x,
-        outputY: out.y,
-        hasVisual: !!n.visual,
-        visualX: visual.x,
-        visualY: visual.y,
-      })
-    }
-    if (out.type === 'variable') {
-      out.width = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
-      out.height = typeof visual.height === 'number' ? visual.height : MANIFEST_DEFAULT_H
-    } else if (out.type === 'dataset') {
-      out.width = typeof visual.width === 'number' ? visual.width : DATASET_DEFAULT_W
-      out.height = typeof visual.height === 'number' ? visual.height : DATASET_DEFAULT_H
-    }
+    // Position and size are set only when present: an absent x/y means the node
+    // is unplaced, an absent width/height means the renderer decides. Defaults
+    // are applied where they are used, never stored.
+    if (typeof visual.x === 'number' && !isNaN(visual.x)) out.x = visual.x
+    if (typeof visual.y === 'number' && !isNaN(visual.y)) out.y = visual.y
+    if (typeof visual.width === 'number') out.width = visual.width
+    if (typeof visual.height === 'number') out.height = visual.height
     // Copy optional fields
     if (n.description) out.description = n.description
     if (n.tags) out.tags = n.tags
@@ -93,16 +77,7 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
     const idBase = p.id || ('p_' + (p.label || `${fromLabel}_to_${toLabel}`).replace(/\s+/g, '_'))
     const id = mkPathId(idBase)
     const out: any = { id, from: labelToId[fromLabel], to: labelToId[toLabel], twoSided }
-    
-    console.log('[RuntimeConverter] Path:', {
-      fromLabel,
-      toLabel,
-      fromId: labelToId[fromLabel],
-      toId: labelToId[toLabel],
-      pathLabel: p.label,
-      numberOfArrows,
-    })
-    
+
     if (side) out.side = side
     // Keep label in canonical format for matching; use displayName for UI rendering
     out.label = p.label || undefined
@@ -113,8 +88,8 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
       const arrow = twoSided ? ' ↔ ' : ' → '
       out.displayName = convertToUnicode(fromLabel) + arrow + convertToUnicode(toLabel)
     }
-    // Add value (defaults to 1.0, but preserve null for dataset paths)
-    out.value = p.value !== undefined ? p.value : 1.0
+    // value: absent stays absent (the schema default 1.0 is applied at use); null is kept
+    if (p.value !== undefined) out.value = p.value
     // freeParameter: true = free anonymous; non-empty string = free named; absent = fixed (never set false)
     if (p.freeParameter !== undefined && p.freeParameter !== false) out.freeParameter = p.freeParameter
     // Add path type if present
@@ -136,12 +111,9 @@ export function convertModelToRuntime(model: any): { nodes: Node[]; paths: Path[
  */
 export function convertDocToRuntime(doc: any): Array<{ id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }> {
   const modelDict = doc.models || {}
-  console.log('[RuntimeConverter] convertDocToRuntime called. Models:', Object.keys(modelDict))
   return Object.entries(modelDict).map(([modelId, model]: [string, any]) => {
     const label = model.label || modelId
-    console.log('[RuntimeConverter] Processing model:', modelId, 'has', (model.nodes || []).length, 'nodes')
     const { nodes, paths } = convertModelToRuntime(model)
-    console.log('[RuntimeConverter] Model conversion complete. Output nodes:', nodes.length, 'Sample node:', nodes.length > 0 ? { id: nodes[0].id, label: nodes[0].label, x: nodes[0].x, y: nodes[0].y } : 'none')
     // Extract parameterTypes from optimization section
     const parameterTypes = model.optimization?.parameterTypes || {}
     return { id: modelId, label, nodes, paths, parameterTypes }

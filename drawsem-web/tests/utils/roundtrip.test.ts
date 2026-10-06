@@ -67,14 +67,25 @@ describe('round trip: kitchen-sink fixture', () => {
   })
 })
 
+// Fixtures that do not round-trip yet (removed as the plan steps land).
+const PENDING = new Set<string>([
+  'cfa-model.json',
+  'mediation-model.json',
+  'multilevel-model.json',
+  'kitchen-sink.json',
+  'examples/graph.example.json',
+])
+
 describe('round trip: identity over every fixture', () => {
-  it.fails.each(fixtureFiles())('$name', ({ path }) => {
-    const doc = readJson(path)
-    const before = clone(doc)
-    const out = roundTrip(doc)
-    expect(deepDiff(out, before)).toEqual([])
-    expect(out).toEqual(before)
-  })
+  for (const { name, path } of fixtureFiles()) {
+    ;(PENDING.has(name) ? it.fails : it)(name, () => {
+      const doc = readJson(path)
+      const before = clone(doc)
+      const out = roundTrip(doc)
+      expect(deepDiff(out, before)).toEqual([])
+      expect(out).toEqual(before)
+    })
+  }
 })
 
 describe('autoLayout does not mutate its input', () => {
