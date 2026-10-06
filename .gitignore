@@ -28,8 +28,11 @@ Thumbs.db
 ## AI workflow directory (session notes, task lists — not tracked)
 /ai-workflow/
 
-## Generated schema files (regenerated during R package build, not committed to git)
+## Generated schema files. Exception: graph.schema.json is a committed copy of
+## drawsem-web/schema/graph.schema.json (synced by `make`) so installed packages
+## have it; the pre-commit hook and test-schema-sync.R fail if the two differ.
 inst/extdata/*.json
+!inst/extdata/graph.schema.json
 
 ## Note: DO NOT ignore inst/htmlwidgets/lib/app/ (widget assets needed for install_github)
 

@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# The R package ships a copy of the schema (inst/extdata/graph.schema.json).
+# Fail if the staged copy differs from the staged source of truth.
+SRC=drawsem-web/schema/graph.schema.json
+DST=inst/extdata/graph.schema.json
+if ! cmp -s <(git show ":$SRC" 2>/dev/null) <(git show ":$DST" 2>/dev/null); then
+    echo "pre-commit: $DST is out of sync with $SRC."
+    echo "Run 'make' to copy it, then 'git add $DST'."
+    exit 1
+fi
+
 # Check if web-tool source files changed
 if git diff --cached --name-only | grep -qE 'drawsem-web/src|drawsem-web/vite'; then
     echo "Detected web tool changes. Rebuilding widget..."
