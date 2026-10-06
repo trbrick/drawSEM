@@ -3,8 +3,8 @@ import Papa from 'papaparse'
 import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
-import { convertDocToRuntime } from '../utils/runtimeConverter'
-import { modelToSchema } from '../utils/runtimeToSchema'
+import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
+import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
 import { autoLayout, PositionMap } from '../utils/autoLayout'
 import { uid, isDatasetPath, modelFilename, nodeX, nodeY } from '../utils/helpers'
@@ -94,6 +94,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+  // Document-level keys the editor does not own (schemaVersion, meta), captured
+  // at load and re-emitted verbatim with every serialization of `models`.
+  const [docPassthrough, setDocPassthrough] = useState<Record<string, any>>({})
   
   // Convenience accessors for current model
   const currentModel = models.find((m) => m.id === currentModelId)
@@ -441,6 +444,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           loadModels(modelsOut)
+          setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -516,6 +520,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           loadModels(modelsOut)
+          setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -699,17 +704,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }, [nodes.filter((n) => n.type === 'dataset' && n.datasetSource?.type === 'embedded' && !n.dataset).map((n) => n.id).join(',')])
 
-  // Call onModelChange callback whenever the current model changes (for Shiny integration)
+  // Call onModelChange whenever the models change (for Shiny integration). The
+  // whole document is sent (every model plus document-level pass-through), so
+  // an unedited load echoes back exactly what was loaded.
   React.useEffect(() => {
-    if (onModelChange && currentModel) {
+    if (onModelChange && models.length > 0) {
       try {
-        const modelSchema = modelToSchema(currentModel)
-        onModelChange(modelSchema)
+        onModelChange(modelsToSchema(models, docPassthrough))
       } catch (e) {
         console.error('[onModelChange] Error calling callback:', e)
       }
     }
-  }, [currentModel, onModelChange])
+  }, [models, docPassthrough, onModelChange])
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
@@ -1076,9 +1082,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     csvFileInputRef.current?.click()
   }
 
+  // The full document (all models + document-level pass-through): what Save,
+  // code export and the Shiny sync send.
   function buildCurrentSchema(): GraphSchema | null {
+    if (models.length === 0) return null
+    return modelsToSchema(models, docPassthrough)
+  }
+
+  // A single-model schema of the current model for image export. Unplaced nodes
+  // are drawn where the canvas draws them (nodeX/nodeY), so the image matches
+  // the screen. Not a serialization: never sent or saved.
+  function buildRenderSchema(): GraphSchema | null {
     if (!currentModel) return null
-    return modelToSchema(currentModel)
+    return modelToSchema({
+      ...currentModel,
+      nodes: currentModel.nodes.map((n) => ({ ...n, x: nodeX(n), y: nodeY(n) })),
+    })
   }
 
   async function handleSaveClick() {
@@ -1095,7 +1114,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleExportSvg() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       downloadSvg(svgString, modelFilename(currentModel?.label, 'svg'))
@@ -1108,7 +1127,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   async function handleExportPng() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       const blob = new Blob([svgString], { type: 'image/svg+xml' })
@@ -1142,7 +1161,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleImageExportShiny() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       adapter.exportImage?.(svgString)
@@ -1214,6 +1233,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         
         // apply into runtime state
         setModels(modelsOut)
+        setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
           fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
