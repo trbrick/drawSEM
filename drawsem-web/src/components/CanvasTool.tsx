@@ -6,7 +6,7 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
-import { autoLayout, PositionMap } from '../utils/autoLayout'
+import { autoLayout, layoutOnLoad, PositionMap } from '../utils/autoLayout'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
@@ -414,31 +414,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
           const modelsOut = convertDocToRuntime(g as any)
 
-          // Auto-layout: run whenever variable nodes all lack valid positions
-          // (same logic as the onModelReceived Shiny update path)
-          if (modelsOut.length > 0) {
-            const firstModel = modelsOut[0]
-            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
-            const needsLayout = variableNodes.length > 0 && variableNodes.every(
-              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
-            )
-            if (needsLayout) {
-              try {
-                const positions: PositionMap = autoLayout(g as GraphSchema)
-                const anyValid = variableNodes.some((n: any) => {
-                  const pos = positions[n.label || n.id]
-                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
-                })
-                if (anyValid) {
-                  firstModel.nodes.forEach((n: any) => {
-                    const pos = positions[n.label || n.id]
-                    if (pos) { n.x = pos.x; n.y = pos.y }
-                  })
-                }
-              } catch (layoutError) {
-                console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
-              }
-            }
+          // Auto-layout only when no node of the model has a position
+          try {
+            layoutOnLoad(modelsOut, g as GraphSchema)
+          } catch (layoutError) {
+            console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
 
           loadModels(modelsOut)
@@ -469,43 +449,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
           const modelsOut = convertDocToRuntime(schema as any)
           
-          // Attempt auto-layout if variable nodes lack valid positions.
-          // Only variable nodes are considered — constant and dataset nodes
-          // may legitimately have no visual hints.
-          if (modelsOut.length > 0) {
-            const firstModel = modelsOut[0]
-            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
-            const needsLayout = variableNodes.length > 0 && variableNodes.every(
-              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
-            )
-            
-            if (needsLayout) {
-              try {
-                const positions: PositionMap = autoLayout(schema as GraphSchema)
-                
-                // Validate: at least one variable node got a non-origin position
-                const anyValid = variableNodes.some((n: any) => {
-                  const pos = positions[n.label || n.id]
-                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
-                })
-                
-                if (anyValid) {
-                  firstModel.nodes.forEach((n: any) => {
-                    const pos = positions[n.label || n.id]
-                    if (pos) {
-                      n.x = pos.x
-                      n.y = pos.y
-                    }
-                  })
-                } else {
-                  setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
-                }
-              } catch (layoutError) {
-                setErrorMessage('Auto-layout failed: ' + (layoutError instanceof Error ? layoutError.message : String(layoutError)) + '. Click "Auto Layout" to try again.')
-              }
+          // Auto-layout only when no node of the model has a position
+          try {
+            if (layoutOnLoad(modelsOut, schema) === 'no-usable-positions') {
+              setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
+          } catch (layoutError) {
+            setErrorMessage('Auto-layout failed: ' + (layoutError instanceof Error ? layoutError.message : String(layoutError)) + '. Click "Auto Layout" to try again.')
           }
-          
+
           // If the schema has fit results, auto-switch label mode to show values
           const firstModelSchema = Object.values((schema as any).models || {})[0] as any
           const hasFitResults = firstModelSchema?.provenance?.fitResults?.length > 0

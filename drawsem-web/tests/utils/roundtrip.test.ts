@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { convertDocToRuntime, docPassthroughOf } from '../../src/utils/runtimeConverter'
 import { modelsToSchema } from '../../src/utils/runtimeToSchema'
-import { autoLayout } from '../../src/utils/autoLayout'
+import { autoLayout, layoutOnLoad } from '../../src/utils/autoLayout'
 import { validateGraph } from '../../src/validateGraph'
 import {
   OWNED_DOC_KEYS,
@@ -387,5 +387,43 @@ describe('round trip: owned keys', () => {
     const out = k.serialize()
     expect(out.models.second).not.toHaveProperty('label')
     expect(out.models.second).not.toHaveProperty('optimization')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Auto-layout on load
+// ---------------------------------------------------------------------------
+
+describe('layoutOnLoad', () => {
+  for (const { name, path } of fixtureFiles()) {
+    it(`${name}: runs only when no node has a position; adds only visual.x/y`, () => {
+      const doc = readJson(path)
+      const before = clone(doc)
+      const models = convertDocToRuntime(doc)
+      const firstKey = Object.keys(doc.models)[0]
+      const positioned = before.models[firstKey].nodes.some((n: any) => n.visual?.x !== undefined || n.visual?.y !== undefined)
+      const result = layoutOnLoad(models, doc)
+      expect(doc).toEqual(before) // input not mutated
+      const out = modelsToSchema(models, docPassthroughOf(doc))
+      if (positioned) {
+        expect(result).toBe('not-needed')
+        expect(out).toEqual(before)
+      } else {
+        expect(result).toBe('applied')
+        const diff = deepDiff(out, before)
+        expect(diff.length).toBeGreaterThan(0)
+        for (const d of diff) expect(d).toMatch(new RegExp(`^models\\.${firstKey}\\.nodes\\[\\d+\\]\\.visual$`))
+      }
+    })
+  }
+
+  it('does not run when only some nodes are positioned', () => {
+    const doc = readJson(join(FIXTURES, 'layout/diamond.json'))
+    const key = Object.keys(doc.models)[0]
+    doc.models[key].nodes[0].visual = { x: 1, y: 2 }
+    const before = clone(doc)
+    const models = convertDocToRuntime(doc)
+    expect(layoutOnLoad(models, doc)).toBe('not-needed')
+    expect(modelsToSchema(models, docPassthroughOf(doc))).toEqual(before)
   })
 })
