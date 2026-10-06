@@ -129,10 +129,10 @@ test_that("fixture models round-trip under layout and structural edits", {
   }
 })
 
-# ---- widget round-trip stamps ------------------------------------------------
-# The widget is a stamping channel (drawsem-web/src/utils/runtimeConverter.ts):
-# every variable/dataset node gains visual width/height, a path with no value
-# gains value 1.0, and two-headed paths gain a loopSide. These are not edits.
+# ---- widget round trip ------------------------------------------------------
+# The widget round trip is lossless: it neither stamps defaults nor drops
+# fields, so an unedited round trip differs only by JSON transport (boxing,
+# double precision) and a drag changes only visual x/y.
 
 emulateWidget <- function(gm, drag = NULL) {
   s <- jsonlite::fromJSON(
@@ -141,33 +141,18 @@ emulateWidget <- function(gm, drag = NULL) {
   m <- s$models[[1]]
   for (i in seq_along(m$nodes)) {
     n <- m$nodes[[i]]
-    if (n$type %in% c("variable", "dataset")) {
-      m$nodes[[i]]$visual <- utils::modifyList(
-        if (is.null(n$visual)) list() else n$visual, list(width = 60, height = 60))
-    }
     if (!is.null(drag) && n$label %in% names(drag)) {
       m$nodes[[i]]$visual$x <- drag[[n$label]][1] + 0.37   # sub-pixel noise, like a real drag
       m$nodes[[i]]$visual$y <- drag[[n$label]][2]
     }
   }
-  for (i in seq_along(m$paths)) {
-    p <- m$paths[[i]]
-    if (!"value" %in% names(p)) m$paths[[i]]$value <- 1   # only an absent key is stamped; null stays null
-    if (isTRUE(p$numberOfArrows == 2)) {
-      m$paths[[i]]$visual <- utils::modifyList(
-        if (is.null(p$visual)) list() else p$visual, list(loopSide = "top"))
-    }
-  }
-  # fields runtimeToSchema.ts does not carry back
-  s$meta <- NULL
-  m$meta <- NULL; m$description <- NULL; m$extensions <- NULL; m$optimization <- NULL
   s$models[[1]] <- m
   out <- as.GraphModel(s)
   out@data <- gm@data
   out
 }
 
-stampFixture <- function() {
+roundTripFixture <- function() {
   set.seed(1)
   d <- data.frame(x = rnorm(30)); d$y <- d$x * 0.5 + rnorm(30)
   GraphModel() |>
@@ -182,12 +167,12 @@ stampFixture <- function() {
 }
 
 test_that("an unedited widget round trip is no change (GraphModel)", {
-  g <- stampFixture()
+  g <- roundTripFixture()
   expect_equal(.generateEditCode(g, emulateWidget(g))$tier, "none")
 })
 
 test_that("a drag through the widget is only setLocation, with final rounded positions", {
-  g <- stampFixture()
+  g <- roundTripFixture()
   r <- .generateEditCode(g, emulateWidget(g, drag = list(x = c(10, 20), y = c(120, 30))))
   expect_equal(r$tier, "patch")
   expect_match(r$code, "setLocation", fixed = TRUE)
@@ -196,7 +181,7 @@ test_that("a drag through the widget is only setLocation, with final rounded pos
 })
 
 test_that("a structural edit through the widget is a verb patch, not JSON", {
-  g <- stampFixture()
+  g <- roundTripFixture()
   w <- emulateWidget(addVariable(g, "z"))
   r <- .generateEditCode(g, w)
   expect_equal(r$tier, "patch")
@@ -205,14 +190,10 @@ test_that("a structural edit through the widget is a verb patch, not JSON", {
 
 test_that("a fitted MxModel dragged through the widget stays a setLocation (fit kept)", {
   skip_if_not_installed("OpenMx")
-  g <- stampFixture()
+  g <- roundTripFixture()
   g <- changePath(g, "x", "x", 2, value = 1)   # an MxModel path always has a value
   mx <- builtModel(suppressMessages(runModel(g)))
   before <- as.GraphModel(mx)
-  # as.GraphModel(MxModel) carries top-level meta and model optimization, which
-  # the widget drops (this is what forced JSON for OpenMx's OneFactorModel demo)
-  expect_false(is.null(before@schema$meta))
-  expect_false(is.null(before@schema$models[[1]]$optimization))
   r <- .generateEditCode(before, emulateWidget(before, drag = list(x = c(10, 20))),
                          varName = "mm", origin = "MxModel")
   expect_equal(r$tier, "patch")
@@ -220,19 +201,52 @@ test_that("a fitted MxModel dragged through the widget stays a setLocation (fit 
   expect_equal(.generateEditCode(before, emulateWidget(before), "mm", origin = "MxModel")$tier, "none")
 })
 
-test_that("the widget-stamp table matches the widget's default constants", {
-  f <- testthat::test_path("..", "..", "drawsem-web", "src", "utils", "constants.ts")
-  skip_if_not(file.exists(f), "frontend source not available (installed package)")
-  src <- readLines(f)
-  const <- function(name) {
-    m <- regmatches(src, regexec(sprintf("export const %s\\s*=\\s*([0-9.]+)", name), src))
-    as.numeric(Filter(length, m)[[1]][2])
-  }
-  st <- drawSEM:::.widgetStamps
-  expect_equal(const("MANIFEST_DEFAULT_W"), st$nodeWidth)
-  expect_equal(const("DATASET_DEFAULT_W"),  st$nodeWidth)
-  expect_equal(const("MANIFEST_DEFAULT_H"), st$nodeHeight)
-  expect_equal(const("DATASET_DEFAULT_H"),  st$nodeHeight)
+# ---- schema-declared equivalences -------------------------------------------
+
+test_that("absent path value equals an explicit schema default (value = 1)", {
+  g <- base_gm()
+  g2 <- g
+  g2@schema$models[[1]]$paths[[1]]$value <- NULL   # was value = 1
+  expect_identical(.canonSchema(g), .canonSchema(g2))
+  expect_equal(.generateEditCode(g, g2)$tier, "none")
+  expect_equal(.generateEditCode(g2, g)$tier, "none")
+  # a non-default value is still a real difference
+  g3 <- g2; g3@schema$models[[1]]$paths[[1]]$value <- 0.5
+  expect_false(identical(.canonSchema(g2), .canonSchema(g3)))
+})
+
+test_that("explicit null value is not filled with the default", {
+  g <- base_gm()
+  g2 <- g
+  g2@schema$models[[1]]$paths[1] <- list(utils::modifyList(g2@schema$models[[1]]$paths[[1]],
+                                                             list(value = NULL), keep.null = TRUE))
+  expect_true("value" %in% names(g2@schema$models[[1]]$paths[[1]]))
+  expect_false(identical(.canonSchema(g), .canonSchema(g2)))
+})
+
+test_that("schema defaults are read from the shipped schema, not hard-coded", {
+  d <- .schemaDefaults()
+  at <- vapply(d, function(x) paste(x$at, collapse = "/"), character(1))
+  expect_true("models/*/paths/[]/value" %in% at)
+  expect_equal(d[[which(at == "models/*/paths/[]/value")]]$value, 1)
+})
+
+test_that("absent node width is not equal to an explicit width 60 (no schema default)", {
+  g <- base_gm()
+  g2 <- g
+  g2@schema$models[[1]]$nodes[[2]]$visual$width <- 60
+  expect_false(identical(.canonSchema(g), .canonSchema(g2)))
+  expect_false(.generateEditCode(g, g2)$tier == "none")
+})
+
+test_that("a boxed vs unboxed tag compares equal", {
+  g <- addVariable(base_gm(), "T1", tags = "obs")
+  g2 <- g
+  i <- which(vapply(g2@schema$models[[1]]$nodes, function(n) identical(n$label, "T1"), logical(1)))
+  g2@schema$models[[1]]$nodes[[i]]$tags <- list("obs")
+  g3 <- g; g3@schema$models[[1]]$nodes[[i]]$tags <- "obs"
+  expect_identical(.canonSchema(g2), .canonSchema(g3))
+  expect_equal(.generateEditCode(g3, g2)$tier, "none")
 })
 
 # ---- .visualEditCode() (the layout-only addin) --------------------------------
@@ -264,12 +278,12 @@ test_that("visual: every node of a positionless model is set", {
 
 test_that("visual: non-visual differences are never emitted; structural ones are flagged", {
   g <- base_gm()
-  # field-level widget losses/stamps (not structure): ignored, not flagged
-  stamped <- g
-  stamped@schema$models[[1]]$nodes[[2]]$visual$width <- 60
-  stamped@schema$models[[1]]$paths[[3]]$value <- 1
-  stamped@schema$models[[1]]$meta <- NULL
-  r <- .visualEditCode(g, stamped)
+  # field-level differences (not structure): ignored, not flagged
+  fieldDiff <- g
+  fieldDiff@schema$models[[1]]$nodes[[2]]$visual$width <- 60
+  fieldDiff@schema$models[[1]]$paths[[3]]$value <- 1
+  fieldDiff@schema$models[[1]]$meta <- NULL
+  r <- .visualEditCode(g, fieldDiff)
   expect_equal(r$tier, "none"); expect_false(r$structureChanged)
   # structural: flagged, still positions only
   r2 <- .visualEditCode(g, setLocation(addVariable(g, "Z"), "F", 0, 0))

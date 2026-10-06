@@ -12,13 +12,72 @@ NULL
 # change can't be expressed with verbs) that reproduces the edit, and verifies
 # the verbs by applying them to `before`. Single-model only, like the verbs.
 #
-# The widget stamp/drop lists below are workarounds for a lossy widget round
-# trip; they are to be deleted when the widget round trip is lossless.
+# Comparison assumes a lossless widget round trip (no stamped defaults, no
+# dropped fields). The only equivalences applied are the schema's own
+# `default` keywords (.fillSchemaDefaults) and the JSON-transport ones in
+# .canonValue()/.roundVisual(); there is no tool-specific ignore-list.
 
 # ---- canonicalization (for equality checks only) -----------------------------
 
+# Defaults declared by `default` keywords in the shipped graph.schema.json (the
+# single source of truth; nothing is hard-coded here). Returned as a list of
+# list(at = <steps>, value = <default>), where steps are property names, "[]"
+# (every array item) or "*" (every value of an additionalProperties map), from
+# the document root down to the defaulted property. The schema is inline (no
+# $ref); `default`s under combinators (allOf/if/then) are not collected.
+# Cached per session.
+.schemaDefaultsCache <- new.env(parent = emptyenv())
+.schemaDefaults <- function() {
+  if (!is.null(.schemaDefaultsCache$defaults)) return(.schemaDefaultsCache$defaults)
+  f <- getSchemaPath()
+  if (!nzchar(f) || !file.exists(f)) {
+    stop("graph.schema.json not found in the installed package (run `make` to sync it to inst/extdata/)",
+         call. = FALSE)
+  }
+  schema <- jsonlite::fromJSON(f, simplifyVector = FALSE)
+  out <- list()
+  walk <- function(node, steps) {
+    if (!is.list(node)) return()
+    for (k in names(node$properties)) {
+      child <- node$properties[[k]]
+      if (is.list(child) && "default" %in% names(child)) {
+        out[[length(out) + 1]] <<- list(at = c(steps, k), value = child$default)
+      }
+      walk(child, c(steps, k))
+    }
+    if (is.list(node$items)) walk(node$items, c(steps, "[]"))
+    if (is.list(node$additionalProperties)) walk(node$additionalProperties, c(steps, "*"))
+  }
+  walk(schema, character(0))
+  .schemaDefaultsCache$defaults <- out
+  out
+}
+
+# Fill every field that is ABSENT (not merely null) with its schema default.
+# Applied to both sides of a comparison, so "absent" and "explicitly the
+# default" compare equal. Today this is path `value` (1.0) only.
+.fillSchemaDefaults <- function(s) {
+  fill <- function(x, steps, value) {
+    if (!is.list(x)) return(x)
+    st <- steps[1]; rest <- steps[-1]
+    if (st %in% c("[]", "*")) {
+      if (length(x)) x[] <- lapply(x, fill, steps = rest, value = value)
+      return(x)
+    }
+    if (length(rest) == 0) {
+      if (length(x) && is.null(names(x))) return(x)   # an array, not an object
+      if (!(st %in% names(x))) x[[st]] <- value
+      return(x)
+    }
+    if (!is.null(x[[st]])) x[[st]] <- fill(x[[st]], rest, value)
+    x
+  }
+  for (d in .schemaDefaults()) s <- fill(s, d$at, d$value)
+  s
+}
+
 .canonSchema <- function(gm) {
-  s <- gm@schema
+  s <- .fillSchemaDefaults(gm@schema)
   s$graph <- NULL   # derived by setLocation(); not part of the edit
   s$models <- lapply(s$models, function(m) {
     nodes <- lapply(m$nodes %||% list(), .roundVisual)
@@ -54,82 +113,6 @@ NULL
     return(out)
   }
   if (identical(a, b)) character(0) else path
-}
-
-# ---- widget stamps (the ignore-list) -----------------------------------------
-# The widget is a stamping channel: on load it writes defaults the user never
-# chose, and they come back in the edited schema (drawsem-web/src/utils/
-# runtimeConverter.ts, autoLayout.ts). They are not edits. This table is the
-# ONE place that knowledge lives; a test pins the sizes to constants.ts. It is
-# deliberately an ignore-list, not an allowlist of editable fields: an unlisted
-# difference is treated as a real edit (worst case an ugly-but-correct JSON
-# fallback), whereas an allowlist would silently drop edits to any new widget
-# feature. Each stamp is ignored only where the original lacked the field.
-.widgetStamps <- list(
-  nodeTypes  = c("variable", "dataset"),   # node types that get default width/height
-  nodeWidth  = 60,                         # MANIFEST_/DATASET_DEFAULT_W
-  nodeHeight = 60,                         # MANIFEST_/DATASET_DEFAULT_H
-  pathValue  = 1                           # value given to a path that had none
-)
-
-# Fields the widget drops on its way back to R (runtimeToSchema.ts emits only
-# schemaVersion + the model's label/nodes/paths and optimization$parameterTypes).
-# They are not user deletions; restore them from the original so they neither
-# register as edits nor vanish from a JSON fallback. INTERIM: delete this when
-# the widget round trip stops dropping fields. Only the fields the widget
-# cannot edit are listed; path/node-level drops (tags, extensions, angle) are
-# not handled here.
-.widgetDrops <- list(
-  top   = c("meta"),
-  model = c("meta", "description", "extensions", "optimization")
-)
-
-.restoreWidgetDrops <- function(after, before) {
-  if (length(after@schema$models) != 1 || length(before@schema$models) != 1) return(after)
-  for (k in .widgetDrops$top) {
-    if (is.null(after@schema[[k]]) && !is.null(before@schema[[k]])) after@schema[[k]] <- before@schema[[k]]
-  }
-  am <- after@schema$models[[1]]; bm <- before@schema$models[[1]]
-  for (k in .widgetDrops$model) {
-    if (is.null(bm[[k]])) next
-    am[[k]] <- if (is.list(bm[[k]]) && is.list(am[[k]])) utils::modifyList(bm[[k]], am[[k]]) else (am[[k]] %||% bm[[k]])
-  }
-  after@schema$models[[1]] <- am
-  after
-}
-
-# Remove stamped fields from `after`'s first model, judged against `before`.
-.stripWidgetStamps <- function(after, before) {
-  after <- .restoreWidgetDrops(after, before)
-  if (length(after@schema$models) != 1 || length(before@schema$models) != 1) return(after)
-  am <- after@schema$models[[1]]
-  bn <- .nodeMap(before@schema$models[[1]])
-  bp <- stats::setNames(before@schema$models[[1]]$paths %||% list(),
-                        vapply(before@schema$models[[1]]$paths %||% list(), .pathKey, character(1)))
-  st <- .widgetStamps
-
-  for (i in seq_along(am$nodes)) {
-    n <- am$nodes[[i]]
-    if (!(n$type %in% st$nodeTypes)) next
-    old <- bn[[as.character(n$label)]]$visual    # NULL for a new node
-    if (!is.null(n$visual$width) && is.null(old$width) &&
-        isTRUE(as.numeric(n$visual$width) == st$nodeWidth)) am$nodes[[i]]$visual$width <- NULL
-    if (!is.null(n$visual$height) && is.null(old$height) &&
-        isTRUE(as.numeric(n$visual$height) == st$nodeHeight)) am$nodes[[i]]$visual$height <- NULL
-  }
-  for (i in seq_along(am$paths)) {
-    p <- am$paths[[i]]
-    old <- bp[[.pathKey(p)]]                      # NULL for a new path
-    if (!is.null(old) && is.null(.canonValue(old$value)) && !is.null(p$value) &&
-        isTRUE(as.numeric(p$value) == st$pathValue)) {
-      am$paths[[i]]$value <- NULL
-    }
-    if (is.null(old$visual$loopSide) && !is.null(p$visual$loopSide)) am$paths[[i]]$visual$loopSide <- NULL
-    if (length(am$paths[[i]]$visual) == 0) am$paths[[i]]$visual <- NULL
-  }
-  for (i in seq_along(am$nodes)) if (length(am$nodes[[i]]$visual) == 0) am$nodes[[i]]$visual <- NULL
-  after@schema$models[[1]] <- am
-  after
 }
 
 # ---- the diff ----------------------------------------------------------------
@@ -187,6 +170,9 @@ NULL
 
   # structural paths
   bp <- .pathMap(bm, TRUE); ap <- .pathMap(am, TRUE)
+  # the same paths with schema defaults filled, for value-change detection
+  bpf <- .pathMap(.fillSchemaDefaults(before@schema)$models[[1]], TRUE)
+  apf <- .pathMap(.fillSchemaDefaults(after@schema)$models[[1]], TRUE)
   rmPaths <- setdiff(names(bp), names(ap))
   adPaths <- setdiff(names(ap), names(bp))
   chPaths <- intersect(names(bp), names(ap))
@@ -255,11 +241,11 @@ NULL
   for (k in chPaths) {
     b <- bp[[k]]; a <- ap[[k]]
     fp_changed  <- !identical(.canonValue(b$freeParameter), .canonValue(a$freeParameter))
-    val_changed <- !identical(.canonValue(b$value), .canonValue(a$value))
+    val_changed <- !identical(.canonValue(bpf[[k]]$value), .canonValue(apf[[k]]$value))
     tb <- .chr(b$tags); ta <- .chr(a$tags)
     ch <- list(
       freeParameter = if (fp_changed) (a$freeParameter %||% FALSE),
-      value         = if (val_changed) (a$value %||% FALSE),
+      value         = if (val_changed) (apf[[k]]$value %||% FALSE),
       addTags       = if (length(setdiff(ta, tb))) setdiff(ta, tb),
       removeTags    = if (length(setdiff(tb, ta))) setdiff(tb, ta)
     )
@@ -331,7 +317,6 @@ NULL
 .generateEditCode <- function(before, after, varName = "model", isNew = FALSE,
                               origin = "GraphModel") {
   wrapper <- if (identical(origin, "MxModel")) "drawSEM::as.MxModel"
-  after <- .stripWidgetStamps(after, before)
   if (identical(.canonSchema(before), .canonSchema(after))) {
     return(list(tier = "none", code = NULL, reason = NULL))
   }

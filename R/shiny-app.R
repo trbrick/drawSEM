@@ -186,7 +186,6 @@ NULL
   fitStatus                <- shiny::reactiveVal("unfitted")
   svgData                  <- shiny::reactiveVal(NULL)
   lastVarname              <- shiny::reactiveVal("myModel")
-  suppressNextEcho         <- shiny::reactiveVal(FALSE)
   lastStructuralFingerprint <- shiny::reactiveVal(NULL)
 
   # ── Tailwind modal helpers ─────────────────────────────────────────────
@@ -303,13 +302,10 @@ NULL
   })
 
   # ── Model updates from JS ──────────────────────────────────────────────
+  # After a fit, R pushes update_model and the widget echoes the model back.
+  # The echo is structurally identical, so the hashStructure() check below
+  # keeps the fit "converged"; no echo suppression is needed.
   shiny::observeEvent(input$graph_model, {
-    # When R pushes an update_model after fitting, JS echoes the model back.
-    # Suppress that single echo so it does not flip converged→stale.
-    if (isTRUE(suppressNextEcho())) {
-      suppressNextEcho(FALSE)
-      return()
-    }
     tryCatch({
       gm  <- as.GraphModel(input$graph_model)
       old <- currentModel()
@@ -528,7 +524,6 @@ NULL
     currentModel(result)
     .sendFitStatus("converged")
     lastStructuralFingerprint(hashStructure(result))
-    suppressNextEcho(TRUE)
     session$sendCustomMessage("update_model", list(schema = result@schema))
 
     fit_res    <- getFitResults(result)
@@ -734,6 +729,11 @@ NULL
     }
     shiny::stopApp(returnValue = gm)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+  # Reactive state handles, for tests (shiny::testServer exposes a module's
+  # return value as session$returned). Unused by the app itself.
+  invisible(list(currentModel = currentModel, fitStatus = fitStatus,
+                 lastStructuralFingerprint = lastStructuralFingerprint))
 }
 
 
