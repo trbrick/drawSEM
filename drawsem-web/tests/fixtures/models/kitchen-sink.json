@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 0,
+  "meta": {
+    "title": "Kitchen sink",
+    "description": "Round-trip fixture exercising every schema field the editor must preserve",
+    "nested": { "keep": [1, 2, { "deep": true }] }
+  },
+  "models": {
+    "fitted": {
+      "label": "Fitted model",
+      "meta": { "author": "test", "notes": "" },
+      "extensions": {
+        "pendingCore": [
+          {
+            "kind": "linkFunction",
+            "origin": { "tool": "OpenMx", "version": "2.21", "nativeForm": "mxThreshold", "exporter": { "tool": "drawSEM", "version": "0.1" } },
+            "object": { "target": "x2", "link": "probit" }
+          }
+        ],
+        "toolPrivate": { "drawSEM": { "repeatGroups": [{ "id": "g1" }] } }
+      },
+      "optimization": {
+        "fitFunction": "ML",
+        "missingness": "FIML",
+        "parameterTypes": {
+          "loading": { "bounds": [0, null], "start": 0.5 },
+          "errorVariance": { "bounds": [0.0001, null], "prior": null, "start": "auto" }
+        }
+      },
+      "provenance": {
+        "created": "2026-01-01T00:00:00Z",
+        "lastModified": "2026-01-02T00:00:00.000Z",
+        "structureHash": "abc123",
+        "fitResults": [
+          {
+            "timestamp": "2026-01-02T00:00:00Z",
+            "backend": "OpenMx",
+            "converged": true,
+            "structureHash": "abc123",
+            "statusRemarks": "OK",
+            "fitValue": 123.456,
+            "degreesOfFreedom": 2,
+            "sampleSize": 3,
+            "parameterEstimates": { "b1": 0.7, "e1": 0.3 },
+            "standardErrors": { "b1": 0.05, "e1": 0.02 },
+            "dataBinding": { "datasetLabel": "data", "md5": "d41d8cd98f00b204e9800998ecf8427e", "rowCount": 3 }
+          }
+        ]
+      },
+      "visualization": {
+        "anchor": { "x": 10, "y": 20 },
+        "displayContext": { "marginLeft": 50, "marginTop": 40, "modelWidthFactor": 0.5 }
+      },
+      "nodes": [
+        {
+          "label": "F",
+          "type": "variable",
+          "description": "",
+          "tags": ["factor"],
+          "variableCharacteristics": { "manifestLatent": "latent", "exogeneity": "exogenous" },
+          "visual": { "x": 100, "y": 50, "angle": 15 }
+        },
+        {
+          "label": "x1",
+          "type": "variable",
+          "description": "first indicator",
+          "visual": { "x": 50.5, "y": 200.25, "width": 60, "height": 60 }
+        },
+        {
+          "label": "x2",
+          "type": "variable",
+          "visual": { "x": 150, "y": 200, "width": 80 }
+        },
+        {
+          "label": "1",
+          "type": "constant"
+        },
+        {
+          "label": "data",
+          "type": "dataset",
+          "bindingMappings": { "x1": "x1", "x2": "x2" },
+          "datasetSource": {
+            "type": "embedded",
+            "format": "json",
+            "columnTypes": { "x1": "number", "x2": "number" },
+            "rowCount": 3,
+            "object": [
+              { "x1": 1, "x2": 2 },
+              { "x1": 2, "x2": 3 },
+              { "x1": 3, "x2": 5 }
+            ]
+          },
+          "visual": { "x": 100, "y": 350 }
+        }
+      ],
+      "paths": [
+        {
+          "from": "F",
+          "to": "x1",
+          "numberOfArrows": 1,
+          "label": "b1",
+          "value": 0.7,
+          "freeParameter": "b1",
+          "parameterType": "loading",
+          "description": "loading of x1",
+          "tags": ["measurement"],
+          "optimization": { "bounds": [0, 2], "start": 0.5, "prior": { "distribution": "normal", "mean": 0, "sd": 1 } },
+          "visual": { "midpointOffset": { "x": 3, "y": -4 } }
+        },
+        {
+          "from": "F",
+          "to": "x2",
+          "numberOfArrows": 1,
+          "label": null,
+          "freeParameter": true
+        },
+        {
+          "from": "F",
+          "to": "F",
+          "numberOfArrows": 2,
+          "label": "",
+          "value": 1.0
+        },
+        {
+          "from": "x1",
+          "to": "x1",
+          "numberOfArrows": 2,
+          "label": "e1",
+          "value": 0.3,
+          "freeParameter": true,
+          "parameterType": "errorVariance",
+          "visual": { "loopSide": "left" }
+        },
+        {
+          "from": "x2",
+          "to": "x2",
+          "numberOfArrows": 2,
+          "freeParameter": true,
+          "parameterType": "errorVariance"
+        },
+        {
+          "from": "x1",
+          "to": "x2",
+          "numberOfArrows": 2,
+          "value": 0
+        },
+        {
+          "from": "1",
+          "to": "x1",
+          "type": "constant",
+          "numberOfArrows": 1,
+          "value": 0,
+          "freeParameter": true
+        },
+        {
+          "from": "data",
+          "to": "x1",
+          "type": "data",
+          "label": "x1",
+          "value": null
+        },
+        {
+          "from": "data",
+          "to": "x2",
+          "type": "data",
+          "label": "x2"
+        }
+      ]
+    },
+    "second": {
+      "nodes": [
+        { "label": "A", "type": "variable", "visual": { "x": 0, "y": 0 } },
+        { "label": "B", "type": "variable", "visual": { "x": 200, "y": 0 } }
+      ],
+      "paths": [
+        { "from": "A", "to": "B", "numberOfArrows": 1, "value": 0.5, "freeParameter": true },
+        { "from": "B", "to": "A", "numberOfArrows": 2, "label": "cov" }
+      ]
+    }
+  }
+}

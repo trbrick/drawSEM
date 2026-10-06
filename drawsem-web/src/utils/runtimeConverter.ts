@@ -147,3 +147,12 @@ export function convertDocToRuntime(doc: any): Array<{ id: string; label: string
     return { id: modelId, label, nodes, paths, parameterTypes }
   })
 }
+
+/**
+ * Document-level keys the editor does not own (everything except `models`),
+ * deep-copied so they can be re-emitted verbatim by `modelsToSchema`.
+ */
+export function docPassthroughOf(doc: any): Record<string, any> {
+  const { models: _models, ...rest } = doc || {}
+  return JSON.parse(JSON.stringify(rest))
+}

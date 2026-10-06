@@ -88,3 +88,16 @@ export function modelToSchema(model: RuntimeModel, options: RuntimeToSchemaOptio
     },
   }
 }
+
+/**
+ * Serialize every runtime model into one schema document. `docPassthrough`
+ * carries the document-level keys the editor does not own (`schemaVersion`,
+ * `meta`), as captured at load by `docPassthroughOf`.
+ */
+export function modelsToSchema(models: RuntimeModel[], docPassthrough: Record<string, any> = {}): GraphSchema {
+  return {
+    ...docPassthrough,
+    schemaVersion: docPassthrough.schemaVersion ?? 0,
+    models: Object.fromEntries(models.map((m) => [m.id, modelToSchemaModel(m)])),
+  } as GraphSchema
+}

@@ -83,10 +83,12 @@ export function autoLayout(schema: GraphSchema, options?: LayoutOptions): Positi
     rankHeight: options?.rankHeight ?? 150,
   }
 
-  // Get the first (or only) model
+  // Get the first (or only) model. Work on a deep copy: later phases (e.g.
+  // determineLoopSides) annotate the model, and the caller's schema must never
+  // be mutated (it may be the very object the editor round-trips).
   const modelKey = Object.keys(schema.models)[0]
   if (!modelKey) throw new Error('No models found in schema')
-  const model = schema.models[modelKey]
+  const model = JSON.parse(JSON.stringify(schema.models[modelKey]))
 
   // PHASE 1: Prepare data — full arrow index over all variable nodes
   const { variableNodes, arrowIndex: fullArrowIndex } = prepareData(model)
