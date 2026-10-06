@@ -294,7 +294,10 @@ and are backend-limited.
 ## 9. Authoring principles
 
 The relational contract is the derived/stored form; authoring is gestures that
-generate it. The user never types unit-of-analysis sets or correspondences.
+generate it. The user never types unit-of-analysis sets or correspondences. The
+principles below serve visual authoring, visual composition, and visual verification
+together (vision principle 9): what is built by drawing should be checkable by
+looking.
 
 - **The canvas is the ambient unit of analysis.** Top-level nodes belong to it;
   "repeat X along dimension Y" adds a dimension by containment.
@@ -320,6 +323,26 @@ generate it. The user never types unit-of-analysis sets or correspondences.
   linked) differs from reusing a structural shape for distinct constructs (the five
   personality factors — correlated, not exchangeable, not dimensional). Shape reuse is
   sugar that expands to a flat graph and must not create a dimension.
+
+**The visual verifiability test.** Each construct must answer these:
+
+1. **Default view.** What does the diagram show without interaction? A simple model
+   stays simple; a construct adds visual weight in proportion to how much it changes
+   what the model predicts and what it implies for the theory.
+2. **Presence.** If the construct cannot be drawn in full, what marker shows that it
+   acts, and where? Nothing that changes model-implied moments may be invisible.
+3. **Detail.** How does a viewer reach its full meaning by interacting with the
+   diagram (expand, inspect, switch view)?
+4. **Errors.** What mistakes does the construct make possible, and how do they show
+   on the diagram?
+
+Schema and visual develop together, as they do for cascades: visual options can only
+be tried against a schema instance, so a construct may enter the schema
+*provisionally* with provisional answers. A schema element is **settled** only once
+it has a working visual form that answers all four questions; until then it stays
+provisional and may change as the visual work informs it. The test does not settle
+the open visual questions in `DESIGN-DECISIONS.md`; it makes them prerequisites for
+settling the elements they concern.
 
 ---
 
@@ -366,6 +389,9 @@ across backends hold only when the analysis configuration is pinned.
 ---
 
 ## 11. Tiers and forward-compatibility
+
+Constructs in every tier are subject to the visual verifiability test (§9): they may
+be built provisionally to try visual forms, but are settled only once they pass.
 
 - **`schemaVersion: 0` (current, implemented):** the flat single/multi-model schema in
   `DESIGN-DECISIONS.md`.

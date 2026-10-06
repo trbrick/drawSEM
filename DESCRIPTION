@@ -34,4 +34,5 @@ Collate:
     'fitting.R'
     'schema.R'
     'shiny-app.R'
+    'verbs.R'
 Config/roxygen2/version: 8.0.0
