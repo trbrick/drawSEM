@@ -189,7 +189,7 @@ describe('resolveLoopSides: loops avoid each other and other nodes', () => {
   const box = (x: number, y: number, half = 30) => ({ x, y, halfW: half, halfH: half })
   const none = () => false
 
-  it('two factors side by side no longer point their loops at each other', () => {
+  it('two factors side by side both move their loops away from each other', () => {
     // two_level_factor_model, laid out as the editor does: F1 and F2 sit side
     // by side under F3, each with its indicators below. On its own, each
     // factor's clearest side is the one facing the other.
@@ -208,6 +208,11 @@ describe('resolveLoopSides: loops avoid each other and other nodes', () => {
     expect([individually.get(id('F1')), individually.get(id('F2'))].sort()).toEqual(['left', 'right'])
 
     const sides = resolveLoopSides(loops, shapes, m.paths, isDataset)
+    // both give way: neither keeps the side facing the other
+    const f1 = loops.find((l) => l.node === id('F1'))!.id
+    const f2 = loops.find((l) => l.node === id('F2'))!.id
+    expect(sides.get(f1)).not.toBe(individually.get(id('F1')))
+    expect(sides.get(f2)).not.toBe(individually.get(id('F2')))
     // no two loops (as circles of radius 20 just outside their nodes) overlap
     const centre = (l: { id: string; node: string }) => {
       const s = shapes.get(l.node)!

@@ -216,10 +216,14 @@ function loopHitsShape(c: Point, shape: NodeShape): boolean {
 /**
  * Sides for all self-loops of a model, chosen together so loops avoid each
  * other and other nodes. Pinned loops keep their side and count as obstacles.
- * Each automatic loop, in the order given, takes the first side in its
- * rankLoopSides() order whose loop would not overlap another node or a loop
- * already placed; if every side overlaps something, it takes its first-ranked
- * side. Data paths do not count towards the ranking (as in autoLoopSideFor).
+ *
+ * Each automatic loop ranks its sides with rankLoopSides() (data paths do not
+ * count, as in autoLoopSideFor). Loops whose first-ranked sides would overlap
+ * each other are contested, and both give way: uncontested loops are placed
+ * first; then each contested loop tries its other sides in rank order, using
+ * its first choice only if no other side is free. A loop takes the first
+ * candidate side that would not overlap another node or a loop already
+ * placed, else its first-ranked side.
  *
  * `shapes` holds every node keyed by the same keys as path endpoints (runtime
  * ids or schema labels). Returns each loop's side, keyed by its `id`.
@@ -232,6 +236,8 @@ export function resolveLoopSides(
 ): Map<string, LoopSide> {
   const sides = new Map<string, LoopSide>()
   const placed: Point[] = []
+  const overlapsLoop = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y) < 2 * LOOP_RADIUS
+
   for (const loop of loops) {
     const shape = shapes.get(loop.node)
     if (loop.pinned) {
@@ -239,24 +245,48 @@ export function resolveLoopSides(
       if (shape) placed.push(loopCenter(shape, loop.pinned))
     }
   }
-  for (const loop of loops) {
-    if (loop.pinned) continue
-    const shape = shapes.get(loop.node)
-    const ranked = rankLoopSidesFor(loop.node, paths, (key) => shapes.get(key), isDataset)
-    if (!shape) {
-      sides.set(loop.id, ranked[0])
-      continue
+
+  const auto = loops
+    .filter((l) => !l.pinned)
+    .map((l) => ({
+      ...l,
+      shape: shapes.get(l.node),
+      ranked: rankLoopSidesFor(l.node, paths, (key) => shapes.get(key), isDataset),
+    }))
+
+  // Contested: first choices that would overlap another automatic loop's first choice.
+  const firstCenter = (a: (typeof auto)[number]) => (a.shape ? loopCenter(a.shape, a.ranked[0]) : null)
+  const contested = new Set<string>()
+  for (let i = 0; i < auto.length; i++) {
+    for (let j = i + 1; j < auto.length; j++) {
+      const ci = firstCenter(auto[i])
+      const cj = firstCenter(auto[j])
+      if (ci && cj && overlapsLoop(ci, cj)) {
+        contested.add(auto[i].id)
+        contested.add(auto[j].id)
+      }
     }
+  }
+
+  const place = (a: (typeof auto)[number], candidates: LoopSide[]) => {
+    if (!a.shape) {
+      sides.set(a.id, a.ranked[0])
+      return
+    }
+    const shape = a.shape
     const clear = (side: LoopSide) => {
       const c = loopCenter(shape, side)
       for (const [key, other] of shapes) {
-        if (key !== loop.node && loopHitsShape(c, other)) return false
+        if (key !== a.node && loopHitsShape(c, other)) return false
       }
-      return placed.every((q) => Math.hypot(q.x - c.x, q.y - c.y) >= 2 * LOOP_RADIUS)
+      return placed.every((q) => !overlapsLoop(q, c))
     }
-    const side = ranked.find(clear) ?? ranked[0]
-    sides.set(loop.id, side)
+    const side = candidates.find(clear) ?? a.ranked[0]
+    sides.set(a.id, side)
     placed.push(loopCenter(shape, side))
   }
+
+  for (const a of auto) if (!contested.has(a.id)) place(a, a.ranked)
+  for (const a of auto) if (contested.has(a.id)) place(a, [...a.ranked.slice(1), a.ranked[0]])
   return sides
 }
