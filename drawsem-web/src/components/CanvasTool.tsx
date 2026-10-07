@@ -9,7 +9,8 @@ import type { RuntimeModel } from '../utils/runtimeToSchema'
 import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
 import type { CableTrunk } from '../utils/dataCables'
-import { effectiveLoopSide, nearestLoopSide, LoopSide } from '../utils/loopSide'
+import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
+import type { NodeShape } from '../utils/loopSide'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
@@ -1972,11 +1973,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return finalPts
   }
 
+  // A node's extent as drawn, for choosing loop sides that avoid it.
+  function nodeShape(n: Node): NodeShape {
+    const x = nodeX(n)
+    const y = nodeY(n)
+    if (n.type === 'variable' && getVariableRenderType(n.id) === 'latent') {
+      return { x, y, halfW: LATENT_RADIUS, halfH: LATENT_RADIUS }
+    }
+    if (n.type === 'constant') return { x, y, halfW: 22, halfH: 22 }
+    const w = n.width ?? (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
+    const h = n.height ?? (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
+    return { x, y, halfW: w / 2, halfH: h / 2 }
+  }
+
+  // Sides for all self-loops, chosen together so they avoid each other and
+  // other nodes (see resolveLoopSides). `unpin` treats one loop as automatic
+  // (for the inspector's "Auto (...)" label on a pinned loop).
+  function computeLoopSides(unpin?: string): Map<string, LoopSide> {
+    const shapes = new Map(nodes.map((n) => [n.id, nodeShape(n)]))
+    const loops = paths
+      .filter((p) => p.from === p.to)
+      .map((p) => ({ id: p.id, node: p.from, pinned: p.id === unpin ? undefined : p.side }))
+    const isDataset = (id: string) => nodes.find((n) => n.id === id)?.type === 'dataset'
+    return resolveLoopSides(loops, shapes, paths, isDataset)
+  }
+
   // The side a self-loop is drawn on: the drag preview while it is being dragged,
-  // else the pinned side, else the automatic side from current positions (never stored).
+  // else the pinned side, else the automatic side (never stored).
   function loopSideFor(p: Path): LoopSide {
     if (loopDragPreview && loopDragPreview.pathId === p.id) return loopDragPreview.side
-    return effectiveLoopSide(p, nodes, paths)
+    return loopSides.get(p.id) ?? 'bottom'
   }
 
   function pathD(p: Path) {
@@ -2177,8 +2203,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setEditing(null)
   }
 
-  // Data cable trunks for this render (see buildCableGroups())
+  // Data cable trunks and self-loop sides for this render
   const cableGroups = buildCableGroups()
+  const loopSides = computeLoopSides()
 
   return (
     <>
@@ -2816,7 +2843,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
                   {selectedPath.from === selectedPath.to && (() => {
                     // Loop side: Auto (absent side, resolved from positions) or pinned.
-                    const autoSide = effectiveLoopSide({ ...selectedPath, side: undefined }, nodes, paths)
+                    const autoSide = computeLoopSides(selectedPath.id).get(selectedPath.id) ?? 'bottom'
                     const options: Array<{ value: LoopSide | 'auto'; text: string }> = [
                       { value: 'auto', text: `Auto (${autoSide})` },
                       { value: 'top', text: 'Top' },

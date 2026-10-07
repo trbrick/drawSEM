@@ -12,7 +12,8 @@ import {
   DATASET_DEFAULT_W,
   DATASET_DEFAULT_H,
 } from './constants'
-import { effectiveSchemaLoopSide } from './loopSide'
+import { effectiveSchemaLoopSide, resolveLoopSides } from './loopSide'
+import type { LoopSide, NodeShape } from './loopSide'
 import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from './dataCables'
 import type { CableTrunk } from './dataCables'
@@ -21,6 +22,8 @@ import type { CableTrunk } from './dataCables'
 interface ModelContext {
   allNodes: Node[]
   allPaths: Path[]
+  /** Self-loop sides, chosen together for the whole model (resolveLoopSides). */
+  loopSides?: Map<Path, LoopSide>
 }
 
 /**
@@ -320,7 +323,7 @@ function pathD(
 ): string {
   if (path.from === path.to) {
     // self-loop
-    const side = effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
+    const side = ctx.loopSides?.get(path) ?? effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     return `M ${P0.x} ${P0.y} C ${P1.x} ${P1.y}, ${P2.x} ${P2.y}, ${P3.x} ${P3.y}`
@@ -387,7 +390,7 @@ function getPathLabelPos(
 ): { x: number; y: number } | null {
   if (path.from === path.to) {
     // self-loop: use cubic bezier midpoint
-    const side = effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
+    const side = ctx.loopSides?.get(path) ?? effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
     const finalPts = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
     const [P0, P1, P2, P3] = finalPts
     const t = 0.5
@@ -562,6 +565,24 @@ export function modelToSVG(
       positions[n.label] = { x: n.visual.x, y: n.visual.y }
     }
   })
+
+  // Self-loop sides for the whole model, chosen together so loops avoid each
+  // other and other nodes, exactly as on the canvas (resolveLoopSides)
+  const shapes = new Map<string, NodeShape>()
+  model.nodes.forEach((n) => {
+    const pos = positions[n.label]
+    if (!pos) return
+    const b = getNodeBounds(n, pos, ctx)
+    shapes.set(n.label, { x: pos.x, y: pos.y, halfW: b.width / 2, halfH: b.height / 2 })
+  })
+  const loopPaths = model.paths.filter((p) => p.from === p.to)
+  const resolved = resolveLoopSides(
+    loopPaths.map((p, i) => ({ id: String(i), node: p.from, pinned: p.visual?.loopSide as LoopSide | undefined })),
+    shapes,
+    model.paths,
+    (label) => nodesByLabel[label]?.type === 'dataset'
+  )
+  ctx.loopSides = new Map(loopPaths.map((p, i) => [p, resolved.get(String(i))!]))
 
   // Filter visible nodes
   const visibleNodes = model.nodes.filter((n) => {
