@@ -273,7 +273,7 @@ validatePathReferences <- function(schema, verbose = TRUE) {
 #' Validate Optimization Parameters
 #'
 #' Checks that:
-#' - Fixed parameters have values (not null)
+#' - Fixed parameters may omit their value (it defaults to the schema's 1.0)
 #' - Free parameters have valid values or are null (will default to 0.1)
 #' - freeParameter is TRUE, a non-empty string, or absent (absent means fixed; FALSE is rejected)
 #'
@@ -317,17 +317,8 @@ validateOptimizationParams <- function(schema, verbose = TRUE) {
         }
       }
       
-      # Fixed parameters must have values
-      is_path_fixed <- is.null(path$freeParameter) || isFALSE(path$freeParameter)
-      if (is_path_fixed && is.null(path$value)) {
-        stop(
-          sprintf(
-            "Model '%s': path %d: Fixed parameters must have a value (got NULL)",
-            model_id, i
-          ),
-          call. = FALSE
-        )
-      }
+      # A fixed parameter with no value is valid: it takes the schema's
+      # default value (1.0; see buildPathList()).
     }
   }
   

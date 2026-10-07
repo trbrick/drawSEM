@@ -530,6 +530,10 @@ buildPathList <- function(paths, constantNodeLabels = character(0)) {
     if (is_free && (is.na(start_value) || is.null(start_value))) {
       start_value <- 0.1
     }
+    # A fixed path with no value takes the schema's default value (1.0)
+    if (!is_free && (is.null(start_value) || is.na(start_value))) {
+      start_value <- .pathValueDefault()
+    }
     
     # Build path specification
     path_spec <- list(

@@ -19,39 +19,7 @@ NULL
 
 # ---- canonicalization (for equality checks only) -----------------------------
 
-# Defaults declared by `default` keywords in the shipped graph.schema.json (the
-# single source of truth; nothing is hard-coded here). Returned as a list of
-# list(at = <steps>, value = <default>), where steps are property names, "[]"
-# (every array item) or "*" (every value of an additionalProperties map), from
-# the document root down to the defaulted property. The schema is inline (no
-# $ref); `default`s under combinators (allOf/if/then) are not collected.
-# Cached per session.
-.schemaDefaultsCache <- new.env(parent = emptyenv())
-.schemaDefaults <- function() {
-  if (!is.null(.schemaDefaultsCache$defaults)) return(.schemaDefaultsCache$defaults)
-  f <- getSchemaPath()
-  if (!nzchar(f) || !file.exists(f)) {
-    stop("graph.schema.json not found in the installed package (run `make` to sync it to inst/extdata/)",
-         call. = FALSE)
-  }
-  schema <- jsonlite::fromJSON(f, simplifyVector = FALSE)
-  out <- list()
-  walk <- function(node, steps) {
-    if (!is.list(node)) return()
-    for (k in names(node$properties)) {
-      child <- node$properties[[k]]
-      if (is.list(child) && "default" %in% names(child)) {
-        out[[length(out) + 1]] <<- list(at = c(steps, k), value = child$default)
-      }
-      walk(child, c(steps, k))
-    }
-    if (is.list(node$items)) walk(node$items, c(steps, "[]"))
-    if (is.list(node$additionalProperties)) walk(node$additionalProperties, c(steps, "*"))
-  }
-  walk(schema, character(0))
-  .schemaDefaultsCache$defaults <- out
-  out
-}
+# .schemaDefaults() (R/schema.R) lists the schema's declared defaults.
 
 # Fill every field that is ABSENT (not merely null) with its schema default.
 # Applied to both sides of a comparison, so "absent" and "explicitly the
