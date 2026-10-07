@@ -1654,6 +1654,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         from: selectedNode.id,
         to: targetNode.id,
         twoSided: false,
+        type: 'data',  // a data link: no numberOfArrows, no parameter
         label: columnName,
         displayName: displayName,
       }
@@ -1679,6 +1680,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         from: selectedNode.id,
         to: newNode.id,
         twoSided: false,
+        type: 'data',  // a data link: no numberOfArrows, no parameter
         label: columnName,
         displayName: displayName,
       }
