@@ -2475,7 +2475,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded shadow-md min-w-max">
                   <button
                     className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
-                    onClick={() => { handleSaveClick(); setShowSaveMenu(false) }}
+                    onClick={() => {
+                      // R writes it (it can embed data held only in the R session)
+                      if (adapter.requestSaveJson) adapter.requestSaveJson()
+                      else handleSaveClick()
+                      setShowSaveMenu(false)
+                    }}
                   >
                     JSON file
                   </button>

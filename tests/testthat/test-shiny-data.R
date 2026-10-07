@@ -223,3 +223,57 @@ test_that("Load Data from the R session: held in the session by default, embedde
   node2 <- Filter(function(n) identical(n$label, "frame"), gm2@schema$models[[1]]$nodes)[[1]]
   expect_equal(node2$datasetSource$type, "embedded")
 })
+
+# ---- exporting session-only data ---------------------------------------------
+
+sessionModel <- function() {
+  gm <- GraphModel() |> addVariable("u")
+  df <- data.frame(u = c(1.5, 2.5, NA))
+  gm@schema <- .attachDatasetNode(gm@schema, "frame", df, "session")
+  gm@data$frame <- df
+  gm
+}
+
+test_that("exportSchema embeds data held only in the R session by default", {
+  gm <- sessionModel()
+  expect_equal(.sessionOnlyDatasets(gm), "frame")
+  f <- tempfile(fileext = ".json")
+  exportSchema(gm, f)
+  back <- loadGraphModel(f)
+  node <- Filter(function(n) identical(n$label, "frame"), back@schema$models[[1]]$nodes)[[1]]
+  expect_equal(node$datasetSource$type, "embedded")
+  expect_equal(back@data$frame$u, c(1.5, 2.5, NA))      # reopens with its data
+  expect_null(gm@schema$models[[1]]$nodes[[2]]$datasetSource)   # the model itself is unchanged
+
+  f2 <- tempfile(fileext = ".json")
+  exportSchema(gm, f2, embedData = FALSE)
+  node2 <- Filter(function(n) identical(n$label, "frame"), jsonlite::read_json(f2)$models[[1]]$nodes)[[1]]
+  expect_null(node2$datasetSource)
+})
+
+test_that("exportSchema leaves file connections as connections", {
+  f <- testthat::test_path("..", "..", "drawsem-web", "examples", "graph.example.json")
+  skip_if_not(file.exists(f), "example not available")
+  gm <- loadGraphModel(f)
+  out <- tempfile(fileext = ".json")
+  exportSchema(gm, out)
+  ds <- Filter(function(n) identical(n$type, "dataset"), jsonlite::read_json(out)$models[[1]]$nodes)[[1]]
+  expect_equal(ds$datasetSource$type, "file")
+  expect_null(ds$datasetSource$object)
+})
+
+test_that("Shiny's Save JSON download embeds session-only data unless unticked", {
+  skip_if_not_installed("shiny")
+  mod <- function(id, initialGM) shiny::moduleServer(id, function(input, output, session)
+    .drawSEM_server(input, output, session, initialGM = initialGM))
+  shiny::testServer(mod, args = list(initialGM = sessionModel()), {
+    session$setInputs(save_json_request = list(timestamp = 1))
+    path <- output$download_json
+    node <- Filter(function(n) identical(n$label, "frame"), jsonlite::read_json(path)$models[[1]]$nodes)[[1]]
+    expect_equal(node$datasetSource$type, "embedded")
+    session$setInputs(json_embed = FALSE)
+    path2 <- output$download_json
+    node2 <- Filter(function(n) identical(n$label, "frame"), jsonlite::read_json(path2)$models[[1]]$nodes)[[1]]
+    expect_null(node2$datasetSource)
+  })
+})

@@ -234,6 +234,16 @@ NULL
   schema
 }
 
+# Labels of dataset nodes whose data exists only in the R session (no
+# datasetSource, data in gm@data).
+.sessionOnlyDatasets <- function(gm) {
+  if (is.null(gm)) return(character(0))
+  nodes <- gm@schema$models[[1]]$nodes %||% list()
+  labs <- vapply(Filter(function(n) identical(n$type, "dataset") && is.null(n$datasetSource), nodes),
+                 function(n) as.character(n$label), character(1))
+  labs[vapply(labs, function(l) is.data.frame(gm@data[[l]]), logical(1))]
+}
+
 # A data file's location as stored in a model: relative to `base` (the folder
 # drawSEM() was launched from) when the file is inside it, so reopening the
 # model from the same project finds it; absolute otherwise.
@@ -849,6 +859,40 @@ NULL
                  style = "color:#888; font-size:11px; margin-top:8px;")
     )
   })
+
+  # ── Save model as JSON (Save > JSON file in Shiny) ─────────────────────
+  # Written by R so that data held only in the R session can be embedded.
+  shiny::observeEvent(input$save_json_request, {
+    session_only <- .sessionOnlyDatasets(currentModel())
+    body_ui <- shiny::tagList(
+      if (length(session_only) > 0) shiny::tagList(
+        shiny::checkboxInput("json_embed", "Embed data held only in this R session", value = TRUE),
+        shiny::div(style = "font-size:12px; color:#64748b; margin:-6px 0 10px;",
+          sprintf("Dataset%s %s: without embedding, the file can only be reopened by reconnecting the data.",
+                  if (length(session_only) > 1) "s" else "", paste(session_only, collapse = ", ")))
+      ),
+      shiny::downloadButton("download_json", "Download JSON",
+        style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; text-decoration:none;")
+    )
+    footer_ui <- shiny::tags$button(
+      style = "background:#fff; color:#374151; border:1px solid #d1d5db; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer; font-family:system-ui;",
+      onclick = "Shiny.setInputValue('modal_close','dsem-modal-json',{priority:'event'})",
+      "Close"
+    )
+    shiny::insertUI("#drawsem-modal-host", "afterBegin",
+      .modal("dsem-modal-json", "Save Model as JSON", body_ui, footer_ui, size = "s"),
+      immediate = TRUE)
+  }, ignoreNULL = TRUE)
+
+  output$download_json <- shiny::downloadHandler(
+    filename = function() {
+      label <- currentModel()@schema$models[[1]]$label %||% "drawSEM_model"
+      paste0(gsub("[^A-Za-z0-9._-]+", "_", label), ".json")
+    },
+    content = function(file) {
+      exportSchema(currentModel(), file, embedData = !isFALSE(input$json_embed))
+    }
+  )
 
   output$download_svg <- shiny::downloadHandler(
     filename = function() paste0("drawSEM_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".svg"),

@@ -4,7 +4,7 @@
 \alias{exportSchema}
 \title{Export GraphModel to JSON File}
 \usage{
-exportSchema(graph_obj, filepath, pretty = TRUE)
+exportSchema(graph_obj, filepath, pretty = TRUE, embedData = TRUE)
 }
 \arguments{
 \item{graph_obj}{A GraphModel object}
@@ -12,6 +12,13 @@ exportSchema(graph_obj, filepath, pretty = TRUE)
 \item{filepath}{Path where JSON should be written}
 
 \item{pretty}{Logical. If TRUE, format with indentation (default: TRUE)}
+
+\item{embedData}{Logical. If TRUE (default), datasets whose data exists only
+in the R session (a dataset node with no \code{datasetSource}, e.g. a data frame
+connected in drawSEM's Load Data dialog) are written with their data
+embedded, so the file can be reopened without reconnecting the data. File
+connections and already-embedded datasets are written as they are. If
+FALSE, such datasets are written without data.}
 }
 \value{
 Invisibly returns the filepath
@@ -21,8 +28,8 @@ Save a GraphModel's schema and metadata to a JSON file.
 }
 \details{
 Validates the schema before writing. Does NOT save the cached built model,
-data objects, or runtime \verb{@metadata} (these are transient / non-conformant and
-are reconstructed on import). Only schema-conformant content is written; non-
+other data objects, or runtime \verb{@metadata} (these are transient /
+non-conformant and are reconstructed on import). Only schema-conformant content is written; non-
 core content that must round-trip lives in each model's extensions$pendingCore.
 }
 \examples{

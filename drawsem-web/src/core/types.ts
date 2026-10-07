@@ -211,6 +211,12 @@ export interface GraphAdapter {
   requestLoadModel?(): void
 
   /**
+   * Optional (Shiny): ask the host to save the model as a JSON file, so it can
+   * include data held only in the R session.
+   */
+  requestSaveJson?(): void
+
+  /**
    * Optional: Push current schema to the host environment on every edit (Shiny reactive sync).
    * Distinct from save(), which always means "download to disk".
    * In standalone mode this method is absent.

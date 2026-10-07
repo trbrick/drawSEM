@@ -92,4 +92,14 @@ describe('finding a missing data file', () => {
     expect(screen.queryByText('⚠ No Data Loaded')).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('in Shiny, Save > JSON file asks R to save (so session data can be embedded)', async () => {
+    const requestSaveJson = vi.fn()
+    const save = vi.fn()
+    renderCanvas('shiny', { requestLoadData: vi.fn(), requestSaveJson, save })
+    fireEvent.click(await waitFor(() => screen.getByText('Save ▾')))
+    fireEvent.click(screen.getByText('JSON file'))
+    expect(requestSaveJson).toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+  })
 })
