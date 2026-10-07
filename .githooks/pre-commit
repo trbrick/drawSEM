@@ -12,7 +12,7 @@ if ! cmp -s <(git show ":$SRC" 2>/dev/null) <(git show ":$DST" 2>/dev/null); the
 fi
 
 # Check if web-tool source files changed
-if git diff --cached --name-only | grep -qE 'drawsem-web/src|drawsem-web/vite'; then
+if git diff --cached --name-only | grep -qE 'drawsem-web/src|drawsem-web/schema|drawsem-web/vite'; then
     echo "Detected web tool changes. Rebuilding widget..."
     
     cd drawsem-web
