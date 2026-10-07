@@ -300,6 +300,10 @@ setMethod(
       metadata <- list()
     }
 
+    # setLocation() once cached node positions in a top-level `graph` key that
+    # is not part of the schema; drop it so files saved with it still load.
+    schema$graph <- NULL
+
     # Collect unsupported-feature flags BEFORE extraction, while the elements are
     # still in core. These drive runtime warnings only and are NOT persisted to
     # the portable file (they are recomputed on every import).

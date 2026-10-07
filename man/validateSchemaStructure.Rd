@@ -16,7 +16,12 @@ Invisibly returns TRUE if valid. Throws error if invalid.
 Validate Schema Structure
 }
 \details{
-Checks required top-level fields: \code{schemaVersion}, \code{models}.
-Does not validate against the formal JSON schema (that's done in TypeScript).
+Checks required top-level fields: \code{schemaVersion}, \code{models}. Rejects a
+\code{schemaVersion} other than the one the shipped graph.schema.json declares,
+and top-level keys that schema does not declare, so a document written for
+another schema version or carrying content this package does not understand
+is refused rather than read as if it were plain core. Does not validate
+below the top level against the formal JSON schema (that's done in
+TypeScript).
 }
 \keyword{internal}

@@ -311,6 +311,19 @@ getSchemaPath <- function() {
   system.file("extdata", "graph.schema.json", package = "drawSEM")
 }
 
+# The shipped graph.schema.json, parsed. Cached per session.
+.schemaDefaultsCache <- new.env(parent = emptyenv())
+.shippedSchema <- function() {
+  if (!is.null(.schemaDefaultsCache$schema)) return(.schemaDefaultsCache$schema)
+  f <- getSchemaPath()
+  if (!nzchar(f) || !file.exists(f)) {
+    stop("graph.schema.json not found in the installed package (run `make` to sync it to inst/extdata/)",
+         call. = FALSE)
+  }
+  .schemaDefaultsCache$schema <- jsonlite::fromJSON(f, simplifyVector = FALSE)
+  .schemaDefaultsCache$schema
+}
+
 # Defaults declared by `default` keywords in the shipped graph.schema.json (the
 # single source of truth; nothing is hard-coded here). Returned as a list of
 # list(at = <steps>, value = <default>), where steps are property names, "[]"
@@ -318,15 +331,9 @@ getSchemaPath <- function() {
 # the document root down to the defaulted property. The schema is inline (no
 # $ref); `default`s under combinators (allOf/if/then) are not collected.
 # Cached per session.
-.schemaDefaultsCache <- new.env(parent = emptyenv())
 .schemaDefaults <- function() {
   if (!is.null(.schemaDefaultsCache$defaults)) return(.schemaDefaultsCache$defaults)
-  f <- getSchemaPath()
-  if (!nzchar(f) || !file.exists(f)) {
-    stop("graph.schema.json not found in the installed package (run `make` to sync it to inst/extdata/)",
-         call. = FALSE)
-  }
-  schema <- jsonlite::fromJSON(f, simplifyVector = FALSE)
+  schema <- .shippedSchema()
   out <- list()
   walk <- function(node, steps) {
     if (!is.list(node)) return()

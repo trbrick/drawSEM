@@ -427,3 +427,22 @@ test_that("paths sharing only a display label are estimated separately in OpenMx
   expect_true(all(c("var", "var_2") %in% names(est)))
   expect_gt(abs(est[["var"]] - est[["var_2"]]), 1)   # sd 1 vs sd 3: clearly unequal
 })
+
+test_that("schemaToOpenMx refuses a schema that fails validation", {
+  # A schema built in R never passes through importSchema(); the converter
+  # still refuses content this version cannot read rather than fitting a
+  # model with it silently dropped.
+  schema <- list(
+    schemaVersion = 0,
+    experimental = list(branch = "x", v = 1),
+    models = list(m = list(
+      nodes = list(list(label = "y1", type = "variable")),
+      paths = list(list(from = "y1", to = "y1", numberOfArrows = 2, value = 1.0))
+    ))
+  )
+
+  expect_error(
+    schemaToOpenMx(schema, list()),
+    "unrecognized top-level field"
+  )
+})

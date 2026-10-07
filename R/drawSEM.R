@@ -619,19 +619,6 @@ setLocation <- function(graphModel, nodeId, x, y) {
   # Update the schema
   graphModel@schema$models[[1]] <- first_model
 
-  positions_df <- data.frame(
-    nodeId = vapply(first_model$nodes, function(n) n$id %||% n$label, character(1)),
-    x = vapply(first_model$nodes, function(n) as.numeric(n$visual$x %||% NA_real_), numeric(1)),
-    y = vapply(first_model$nodes, function(n) as.numeric(n$visual$y %||% NA_real_), numeric(1)),
-    stringsAsFactors = FALSE
-  )
-  positions_df <- positions_df[stats::complete.cases(positions_df[, c("x", "y")]), , drop = FALSE]
-
-  if (is.null(graphModel@schema$graph)) {
-    graphModel@schema$graph <- list()
-  }
-  graphModel@schema$graph$positions <- positions_df
-
   invisible(graphModel)
 }
 
