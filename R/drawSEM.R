@@ -10,6 +10,8 @@
 #' @param outputId Optional. For Shiny apps, the output ID.
 #' @param width Widget width (default: "100%").
 #' @param height Widget height (default: "600px").
+#' @param editMode `"full"` (default) for full editing, or `"layout"` to allow
+#'   only visual changes (node positions); used by the RStudio addin.
 #'
 #' @return An htmlwidget that renders the graph editor.
 #'
@@ -19,8 +21,10 @@ semWidget <- function(
   initialModel = NULL,
   outputId = NULL,
   width = "100%",
-  height = "600px"
+  height = "600px",
+  editMode = c("full", "layout")
 ) {
+  editMode <- match.arg(editMode)
   # Validate initialModel if provided
   if (!is.null(initialModel)) {
     if (is.character(initialModel)) {
@@ -45,7 +49,8 @@ semWidget <- function(
   # Create htmlwidget
   x_data <- list(
     initialModel = initialModel,
-    outputId = outputId
+    outputId = outputId,
+    editMode = editMode
   )
   # Enable auto_unbox for proper JSON serialization of scalar values
   attr(x_data, 'TOJSON_ARGS') <- list(auto_unbox = TRUE)
@@ -500,6 +505,14 @@ plotGraphModel <- function(
 #' If any nodeId doesn't exist in the schema, a warning is issued and that
 #' node is skipped.
 #'
+#' **MxModel input:**
+#'
+#' If `graphModel` is an `MxModel`, the positions are written to its
+#' `drawSemHints` (`@options$drawSemHints`, see [dropDrawSemHints()]) and
+#' nothing else about the model changes, so a fitted `MxModel` keeps its fit.
+#' A later `as.GraphModel()` on it recovers the layout. Hints are created
+#' from the model's current structure if it has none yet.
+#'
 #' @return The modified `graphModel` object (invisibly).
 #'
 #' @examples
@@ -514,6 +527,15 @@ plotGraphModel <- function(
 #'
 #' @export
 setLocation <- function(graphModel, nodeId, x, y) {
+  if (is(graphModel, "MxModel")) {
+    # Layout lives in drawSemHints, not in anything OpenMx fits: update only
+    # that option so a fitted model's @output is left untouched.
+    gm <- setLocation(as.GraphModel(graphModel), nodeId, x, y)
+    graphModel@options$drawSemHints <-
+      buildDrawSemHints(gm@schema, names(gm@schema$models)[[1]])
+    return(invisible(graphModel))
+  }
+
   # Validate inputs
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)

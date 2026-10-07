@@ -357,3 +357,24 @@ test_that("dropDrawSemHints removes only the drawSemHints option", {
 test_that("dropDrawSemHints errors on a non-MxModel", {
   expect_error(dropDrawSemHints(list()), "MxModel")
 })
+
+test_that("setLocation() on a fitted MxModel updates drawSemHints and preserves the fit", {
+  skip_if_not_installed("OpenMx")
+  set.seed(1)
+  d <- data.frame(x = rnorm(50)); d$y <- d$x * 0.5 + rnorm(50)
+  gm <- GraphModel() |>
+    addVariable("x") |> addVariable("y") |> addConstant() |>
+    addData("data", d) |> connectData("data", c("x", "y")) |>
+    addPath("x", "y", 1, freeParameter = TRUE, value = 0.3) |>
+    addPath("x", "x", 2, freeParameter = TRUE, value = 1) |>
+    addPath("y", "y", 2, freeParameter = TRUE, value = 1) |>
+    addPath("1", "x", 1, freeParameter = TRUE, value = 0.1) |>
+    addPath("1", "y", 1, freeParameter = TRUE, value = 0.1)
+  om <- builtModel(suppressMessages(runModel(gm)))
+  expect_gt(length(om@output), 0)
+
+  om2 <- setLocation(om, "x", 123, 456)
+  expect_identical(om2@output, om@output)
+  nd <- Find(function(n) identical(n$label, "x"), as.GraphModel(om2)@schema$models[[1]]$nodes)
+  expect_equal(c(nd$visual$x, nd$visual$y), c(123, 456))
+})
