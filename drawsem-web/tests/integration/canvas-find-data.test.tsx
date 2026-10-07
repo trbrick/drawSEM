@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react'
 import CanvasTool from '../../src/components/CanvasTool'
 import { AdapterContext } from '../../src/context/AdapterContext'
 import type { GraphAdapter, GraphSchema } from '../../src/core/types'
@@ -70,5 +70,26 @@ describe('finding a missing data file', () => {
     const clicked = vi.spyOn(input, 'click').mockImplementation(() => {})
     fireEvent.click(screen.getByText('Find data file…'))
     expect(clicked).toHaveBeenCalled()
+  })
+
+  it('column information from R fills the panel instead of No Data Loaded, without fetching the file', async () => {
+    let send: ((s: any) => void) | null = null
+    const { container } = renderCanvas('shiny', {
+      requestLoadData: vi.fn(),
+      onDatasetSummaries: (cb: any) => { send = cb },
+    })
+    await waitFor(() => expect(send).not.toBeNull())
+    const fetchMock = (globalThis as any).fetch as ReturnType<typeof vi.fn>
+    act(() => send!({ sample: { fileName: 'sample.csv', headers: ['x_1'],
+      columns: [{ name: 'x_1', distinct: 10, cardinality: 10, mean: 1.5, std: 0.5, min: 1, max: 2, count: 10 }] } }))
+    const label = screen.getAllByText('sample').find((el) => el.closest('svg'))!
+    const svg = container.querySelector('marker#arrow-end')!.closest('svg')! as any
+    svg.createSVGPoint = () => ({ x: 0, y: 0, matrixTransform() { return { x: this.x, y: this.y } } })
+    svg.getScreenCTM = () => ({ a: 1, inverse: () => ({}) })
+    fireEvent.mouseDown(label.closest('g')!.querySelector('[style*="grab"], rect, path, ellipse')!, { button: 0 })
+    fireEvent.mouseUp(svg)
+    await waitFor(() => expect(screen.getByText('sample.csv')).toBeTruthy())
+    expect(screen.queryByText('⚠ No Data Loaded')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

@@ -237,6 +237,13 @@ export interface GraphAdapter {
   onFitStatusChanged?(callback: (status: string) => void): void
 
   /**
+   * Optional (Shiny): column names and summary statistics for file-based
+   * datasets whose data the host (R) holds, keyed by dataset label. Display
+   * only; the editor cannot read data files itself in that environment.
+   */
+  onDatasetSummaries?(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: any[] }>) => void): void
+
+  /**
    * Optional: Send an SVG string to the host environment for server-side format
    * conversion (PNG, PDF via rsvg).  Shiny-only; in standalone mode the toolbar
    * downloads SVG directly.

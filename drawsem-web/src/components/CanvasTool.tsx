@@ -508,6 +508,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     adapterOptional.signalReady()
   }, [models, adapterOptional])
 
+  // Column information from R for file-based datasets it holds data for (shiny
+  // only): fills each matching dataset node's column panel. Applied to every
+  // model, since this callback outlives renders (no current-model closure).
+  React.useEffect(() => {
+    adapterOptional?.onDatasetSummaries?.((summaries) => {
+      setModels((ms) => ms.map((m) => ({
+        ...m,
+        nodes: m.nodes.map((n) => {
+          const s = n.type === 'dataset' ? summaries[n.label] : undefined
+          return s ? { ...n, dataset: { fileName: s.fileName, headers: s.headers, columns: s.columns } } : n
+        }),
+      })))
+    })
+  }, [adapterOptional])
+
   // Subscribe to fit status updates from R (shiny only)
   React.useEffect(() => {
     adapterOptional?.onFitStatusChanged?.((status) => setFitStatus(status))
@@ -548,6 +563,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     let mounted = true
     const loadDatasetFile = async (node: Node) => {
       if (!node.datasetSource || node.datasetSource.type !== 'file') return
+      // Where the host supplies column information (Shiny), it reads the file.
+      if (adapterOptional?.onDatasetSummaries) return
       const nodeId = node.id
       const fileName = node.datasetSource.location
       if (!fileName) return  // location is required for file type

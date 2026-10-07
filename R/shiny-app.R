@@ -132,6 +132,44 @@ NULL
   c(`Working directory` = launchDir, Home = path.expand("~"), drives)
 }
 
+# Column names and summary statistics of the data R holds for file-based
+# datasets, for the editor's column panel: in Shiny the editor cannot read data
+# files itself. Display only, never part of the schema. Embedded datasets are
+# left out (the editor summarizes those itself), as are datasets R has no data
+# for (the editor shows those as not loaded). Statistics match the editor's
+# own (computeColumnStats in CanvasTool). Returns a list keyed by dataset label.
+.datasetSummaries <- function(gm) {
+  model <- gm@schema$models[[1]] %||% list()
+  out <- list()
+  for (n in model$nodes %||% list()) {
+    if (!identical(n$type, "dataset") || identical(n$datasetSource$type, "embedded")) next
+    df <- gm@data[[as.character(n$label)]]
+    if (!is.data.frame(df)) next
+    out[[as.character(n$label)]] <- list(
+      fileName = basename(n$datasetSource$location %||% as.character(n$label)),
+      headers  = names(df),
+      columns  = unname(lapply(names(df), function(col) .columnSummary(df[[col]], col)))
+    )
+  }
+  out
+}
+
+.columnSummary <- function(x, name) {
+  present <- x[!is.na(x) & !(is.character(x) & x == "")]
+  num <- suppressWarnings(as.numeric(as.character(present)))
+  num <- num[!is.na(num)]
+  list(
+    name        = name,
+    distinct    = length(unique(present)),
+    cardinality = length(unique(present)),
+    mean        = if (length(num) > 0) mean(num) else NULL,
+    std         = if (length(num) > 1) stats::sd(num) else NULL,
+    min         = if (length(num) > 0) min(num) else NULL,
+    max         = if (length(num) > 0) max(num) else NULL,
+    count       = length(present)
+  )
+}
+
 # Default dataset label for a chosen file: its name without the extension.
 .datasetLabelFromFile <- function(fileName) {
   tools::file_path_sans_ext(basename(fileName))
@@ -343,6 +381,13 @@ NULL
     })
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
+  # Column information for file-based datasets R holds data for (see
+  # .datasetSummaries()); sent on startup and after every model pushed.
+  .sendDatasetSummaries <- function(gm) {
+    if (is.null(gm)) return(invisible())
+    session$sendCustomMessage("dataset_summaries", list(datasets = .datasetSummaries(gm)))
+  }
+
   # ── Sync fit status to React toolbar ──────────────────────────────────
   .sendFitStatus <- function(status) {
     fitStatus(status)
@@ -352,6 +397,7 @@ NULL
   # ── Signal readiness: push current fit status to toolbar ───────────────
   shiny::observeEvent(input$graph_tool_ready, {
     session$sendCustomMessage("fit_status_update", list(status = fitStatus()))
+    .sendDatasetSummaries(currentModel())
   }, ignoreNULL = TRUE)
 
   # ── Data modal ("Load Data" toolbar button in Shiny mode) ─────────────
@@ -374,6 +420,7 @@ NULL
       fitStatus("unfitted")
       svgData(NULL)
       session$sendCustomMessage("update_model", list(schema = gm@schema))
+      .sendDatasetSummaries(gm)
       .closeModal("dsem-modal-load")
       shiny::showNotification("Model loaded.", type = "message", duration = 2)
     }, error = function(e) {
@@ -489,6 +536,7 @@ NULL
 
       currentModel(gm)
       session$sendCustomMessage("update_model", list(schema = gm@schema))
+      .sendDatasetSummaries(gm)
       .closeModal("dsem-modal-data")
       shiny::showNotification(sprintf("Dataset '%s' attached (%d \u00d7 %d).", label, nrow(df), ncol(df)),
                               type = "message", duration = 4)
@@ -532,6 +580,7 @@ NULL
     .sendFitStatus("converged")
     lastStructuralFingerprint(hashStructure(result))
     session$sendCustomMessage("update_model", list(schema = result@schema))
+    .sendDatasetSummaries(result)
 
     fit_res    <- getFitResults(result)
     modal_body <- if (!is.null(fit_res) && !identical(fit_res, NA)) {

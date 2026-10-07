@@ -322,6 +322,14 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
       shiny.setInputValue('fit_model_request', { timestamp: Date.now() }, { priority: 'event' })
     },
 
+    onDatasetSummaries(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: any[] }>) => void): void {
+      shiny.addCustomMessageHandler('dataset_summaries', (data: unknown) => {
+        const datasets = (data as any)?.datasets
+        // R sends an empty list as [] rather than {}
+        callback(datasets && !Array.isArray(datasets) && typeof datasets === 'object' ? datasets : {})
+      })
+    },
+
     onFitStatusChanged(callback: (status: string) => void): void {
       shiny.addCustomMessageHandler('fit_status_update', (data: unknown) => {
         const status = (data as any)?.status

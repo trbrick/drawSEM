@@ -130,3 +130,34 @@ test_that("Load Data for a given dataset pre-fills its label so Attach connects 
     expect_equal(datasets[[1]]$datasetSource$rowCount, 4)
   })
 })
+
+test_that(".datasetSummaries describes file datasets R holds data for, and only those", {
+  f <- testthat::test_path("..", "..", "drawsem-web", "examples", "graph.example.json")
+  skip_if_not(file.exists(f), "example not available")
+  gm <- loadGraphModel(f)
+  s <- .datasetSummaries(gm)
+  expect_named(s, "sample")
+  expect_equal(s$sample$fileName, "sample.csv")
+  expect_equal(s$sample$headers, c("x_1", "x_2", "x_3"))
+  col <- s$sample$columns[[1]]
+  expect_equal(col$name, "x_1")
+  expect_equal(col$count, 10)
+  expect_equal(col$mean, mean(gm@data$sample$x_1))
+  expect_equal(col$std, sd(gm@data$sample$x_1))
+
+  # embedded datasets (the editor summarizes those) and missing data are left out
+  gm2 <- GraphModel() |> addVariable("x")
+  gm2@schema <- .attachDatasetNode(gm2@schema, "emb", data.frame(x = 1:3))
+  gm2@data$emb <- data.frame(x = 1:3)
+  expect_length(.datasetSummaries(gm2), 0)
+  gm3 <- gm
+  gm3@data$sample <- NULL
+  expect_length(.datasetSummaries(gm3), 0)
+})
+
+test_that(".columnSummary handles missing values and text columns", {
+  s <- .columnSummary(c(1, NA, 3), "a")
+  expect_equal(s$count, 2); expect_equal(s$mean, 2); expect_equal(s$min, 1); expect_equal(s$max, 3)
+  t <- .columnSummary(c("u", "v", "", NA, "u"), "b")
+  expect_equal(t$count, 3); expect_equal(t$distinct, 2); expect_null(t$mean)
+})
