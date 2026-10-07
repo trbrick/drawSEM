@@ -314,6 +314,9 @@ NULL
           if (is.null(gm@data[[nm]])) gm@data[[nm]] <- old@data[[nm]]
         }
       }
+      # Keep the fitted MxModel across echoes; as.MxModel() uses it only while
+      # the model still matches what was fitted.
+      gm <- .carryCachedFit(gm, old)
       currentModel(gm)
       # Empty model (Clear) → reset to unfitted
       first_model <- (gm@schema$models %||% list())[[1]]

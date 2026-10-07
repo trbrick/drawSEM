@@ -332,9 +332,11 @@ runModel <- function(
     model_id <- names(graphModel@schema$models)[1]
   }
 
-  # Step 1: Convert to mxModel
+  # Step 1: Convert to mxModel (always a fresh build, never a cached fit)
   message(sprintf("Building mxModel from schema (model_id = '%s')...", model_id))
-  mx_model <- as.MxModel(graphModel, model_id = model_id, onUnsupported = onUnsupported)
+  unfitted <- graphModel
+  unfitted@metadata$lastBuilt <- NULL
+  mx_model <- as.MxModel(unfitted, model_id = model_id, onUnsupported = onUnsupported)
 
   if (is.null(mx_model$data)) {
     stop(
@@ -489,8 +491,9 @@ runModel <- function(
   
   result_model@schema$models[[model_id]] <- model
   
-  # Step 7: Cache the fitted model
-  result_model@lastBuiltModel <- fit_result
+  # Step 7: Cache the fitted model, with a record of what it was fitted to
+  # (as.MxModel() returns it while the model still matches; see .cachedFit())
+  result_model <- .cacheFit(result_model, fit_result, model_id)
   
   message("Fitting complete.")
   result_model
@@ -560,7 +563,10 @@ generateData <- function(
   }
 
   message(sprintf("Building mxModel from schema (model_id = '%s')...", model_id))
-  mx_model <- as.MxModel(graphModel, model_id = model_id, onUnsupported = onUnsupported)
+  # Simulate from the schema's values: a fresh build, never a cached fit.
+  unfitted <- graphModel
+  unfitted@metadata$lastBuilt <- NULL
+  mx_model <- as.MxModel(unfitted, model_id = model_id, onUnsupported = onUnsupported)
 
   result <- OpenMx::mxGenerateData(mx_model, nrows = nrows, returnModel = returnModel, ...)
 
@@ -569,4 +575,43 @@ generateData <- function(
   }
 
   result
+}
+
+# ---- cached fit ---------------------------------------------------------------
+# runModel() caches its fitted MxModel in @lastBuiltModel together with a
+# record of what was fitted (@metadata$lastBuilt). as.MxModel() returns that
+# fitted model -- output and all -- while the GraphModel still matches the
+# record. Any change to structure, values or data invalidates it; layout is
+# not part of the record, so moving nodes keeps the fit.
+
+.fitRecord <- function(graphModel, model_id) {
+  list(
+    modelId       = model_id,
+    structureHash = hashStructure(graphModel, model_id),
+    dataHash      = digest::digest(graphModel@data, algo = "sha256")
+  )
+}
+
+.cacheFit <- function(graphModel, fit, model_id) {
+  graphModel@lastBuiltModel <- fit
+  graphModel@metadata$lastBuilt <- .fitRecord(graphModel, model_id)
+  graphModel
+}
+
+# The cached fitted MxModel if it still matches `graphModel`, else NULL.
+.cachedFit <- function(graphModel, model_id) {
+  fit <- graphModel@lastBuiltModel
+  rec <- graphModel@metadata$lastBuilt
+  if (is.null(rec) || !methods::is(fit, "MxModel") || length(fit@output) == 0) return(NULL)
+  if (!identical(rec, .fitRecord(graphModel, model_id))) return(NULL)
+  fit
+}
+
+# Copy `from`'s cached fit onto `to` (e.g. a model rebuilt from the widget's
+# echo); whether it still applies is checked when it is used.
+.carryCachedFit <- function(to, from) {
+  if (is.null(from) || is.null(from@metadata$lastBuilt)) return(to)
+  to@lastBuiltModel <- from@lastBuiltModel
+  to@metadata$lastBuilt <- from@metadata$lastBuilt
+  to
 }
