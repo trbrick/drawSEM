@@ -87,27 +87,41 @@ jsonToDataFrame <- function(jsonObject, columnTypes) {
     df <- data.frame()
     return(df)
   }
-  
-  # Convert list of objects to data frame
-  df <- as.data.frame(do.call(rbind, jsonObject), stringsAsFactors = FALSE)
-  
+
+  # Build each column from the row objects. A missing value can arrive as JSON
+  # null (NULL here: Shiny encodes NA as null, and the widget echoes it back),
+  # as an absent key, or as the string "NA"; all become NA. (Row-binding the
+  # rows instead gives list-columns, which as.numeric() cannot coerce once any
+  # value is NULL.)
+  cols <- unique(c(unlist(lapply(jsonObject, names)), names(columnTypes)))
+  pick <- function(row, col) {
+    v <- row[[col]]
+    if (is.null(v) || length(v) == 0) NA else v[[1]]
+  }
+  df <- as.data.frame(
+    lapply(stats::setNames(cols, cols), function(col) unlist(lapply(jsonObject, pick, col = col))),
+    stringsAsFactors = FALSE, check.names = FALSE
+  )
+
   # Apply type coercion based on columnTypes
   for (col_name in names(columnTypes)) {
     if (col_name %in% names(df)) {
       json_type <- columnTypes[[col_name]]
-      
+      x <- df[[col_name]]
+      if (is.character(x)) x[x %in% c("NA", "")] <- NA
+
       if (json_type == "number") {
-        df[[col_name]] <- as.numeric(df[[col_name]])
+        df[[col_name]] <- as.numeric(x)
       } else if (json_type == "boolean") {
-        df[[col_name]] <- as.logical(df[[col_name]])
+        df[[col_name]] <- as.logical(x)
       } else if (json_type == "ordinal") {
-        df[[col_name]] <- as.factor(df[[col_name]])
+        df[[col_name]] <- as.factor(x)
       } else if (json_type == "string") {
-        df[[col_name]] <- as.character(df[[col_name]])
+        df[[col_name]] <- as.character(x)
       }
     }
   }
-  
+
   return(df)
 }
 

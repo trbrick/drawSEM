@@ -90,3 +90,23 @@ test_that("the Load Data browser starts in the launch directory and navigates an
     expect_match(output$csv_browser$html, "inner.csv", fixed = TRUE)   # stays put
   })
 })
+
+test_that("embedded data with missing values survives the widget round trip", {
+  df <- data.frame(x = c(1, NA, 3), y = c(2L, 4L, NA), g = c("a", NA, "c"),
+                   `my var` = c(TRUE, FALSE, NA), check.names = FALSE)
+  j <- dataFrameToJSON(df)
+  # R -> widget uses Shiny's encoder (NA -> null); widget -> R is decoded
+  # with simplifyVector = FALSE, so nulls come back as NULL.
+  echoed <- shiny:::safeFromJSON(shiny:::toJSON(j$object), simplifyVector = FALSE)
+  out <- jsonToDataFrame(echoed, as.list(j$columnTypes))
+  expect_equal(names(out), names(df))
+  expect_equal(out$x, c(1, NA, 3))
+  expect_equal(out$y, c(2, 4, NA))
+  expect_equal(out$g, c("a", NA, "c"))
+  expect_equal(out$`my var`, c(TRUE, FALSE, NA))
+})
+
+test_that("jsonToDataFrame treats the string \"NA\" in a number column as missing", {
+  out <- jsonToDataFrame(list(list(x = 1), list(x = "NA"), list(x = 3)), list(x = "number"))
+  expect_equal(out$x, c(1, NA, 3))
+})
