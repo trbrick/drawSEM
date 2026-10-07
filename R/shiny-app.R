@@ -276,10 +276,23 @@ NULL
 .drawSEM_server <- function(input, output, session, initialGM, onDone = NULL,
                             editMode = "full") {
   currentModel             <- shiny::reactiveVal(initialGM)
-  fitStatus                <- shiny::reactiveVal("unfitted")
+  # Start from the model's latest fit: none -> unfitted; current -> converged
+  # (or failed); out of date -> stale.
+  initialFit <- if (!is.null(initialGM)) suppressWarnings(getFitResults(initialGM)) else NULL
+  initialStatus <- if (is.null(initialFit)) {
+    "unfitted"
+  } else if (identical(initialFit, NA)) {
+    "stale"
+  } else if (isTRUE(initialFit$converged)) {
+    "converged"
+  } else {
+    "failed"
+  }
+  fitStatus                <- shiny::reactiveVal(initialStatus)
   svgData                  <- shiny::reactiveVal(NULL)
   lastVarname              <- shiny::reactiveVal("myModel")
-  lastStructuralFingerprint <- shiny::reactiveVal(NULL)
+  lastStructuralFingerprint <- shiny::reactiveVal(
+    if (identical(initialStatus, "unfitted")) NULL else hashStructure(initialGM))
 
   # ── Tailwind modal helpers ─────────────────────────────────────────────
   .modal <- function(id, title, body, footer = NULL, size = "m") {
