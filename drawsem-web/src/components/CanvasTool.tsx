@@ -168,8 +168,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // of the canvas does (tag wins; else incoming path from a dataset node) rather than trusting
   // only the explicit tag — reading component state here instead would be stale at exactly the
   // call sites that matter (right after loading a new model, before setNodes commits).
-  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[]) {
-    if (nodesToFit.length === 0) {
+  // Outside the Data layer, dataset nodes are left out of the fit by default, so
+  // the view centres on the SEM structure instead of zooming out for a dataset
+  // placed off to the side. Pass excludeDataset to override. Excluded datasets
+  // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
+  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
+    const excludeDataset = options?.excludeDataset ?? (activeLayer !== 'data')
+    const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
+    if (fitted.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
       return
     }
@@ -182,7 +188,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return !hasDatasetPath
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    nodesToFit.forEach(n => {
+    fitted.forEach(n => {
       const x = n.x || 0
       const y = n.y || 0
       let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
@@ -1122,16 +1128,64 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   // Apply auto-layout to current model: recompute all node positions via RAMPath algorithm
+  // Move dataset nodes to the right of the rest of the diagram, half a rank
+  // above or below the row of variables they feed (keeping the side the layout
+  // put them on), so their data cables read as a side bus instead of sharing a
+  // row with constants and tangling with mean paths. Multiple datasets stack
+  // in the order of the rows they feed. (Ported from coordinate-expansion 0aec616.)
+  function repositionDatasetsToSide(allNodes: Node[], allPaths: Path[]): Node[] {
+    const datasetNodes = allNodes.filter((n) => n.type === 'dataset')
+    const others = allNodes.filter((n) => n.type !== 'dataset')
+    if (datasetNodes.length === 0 || others.length === 0) return allNodes
+
+    const SIDE_GAP = 90
+    const STACK_GAP = 140
+    const HALF_RANK = 75 // half of autoLayout's default rankHeight (150, see utils/autoLayout.ts)
+    let maxX = -Infinity
+    others.forEach((n) => {
+      maxX = Math.max(maxX, nodeX(n) + (n.width ?? MANIFEST_DEFAULT_W) / 2)
+    })
+    const sideX = maxX + SIDE_GAP
+
+    const withTargetY = datasetNodes
+      .map((ds) => {
+        const targetYs = allPaths
+          .filter((p) => p.from === ds.id && isDatasetPath(p, allNodes))
+          .map((p) => others.find((n) => n.id === p.to))
+          .filter((n): n is Node => n !== undefined)
+          .map((n) => nodeY(n))
+        const targetAvgY = targetYs.length > 0 ? targetYs.reduce((a, b) => a + b, 0) / targetYs.length : nodeY(ds)
+        const wasAbove = nodeY(ds) < targetAvgY
+        return { id: ds.id, y: targetAvgY + (wasAbove ? -HALF_RANK : HALF_RANK) }
+      })
+      .sort((a, b) => a.y - b.y)
+
+    const yById = new Map(withTargetY.map((w, idx) => [w.id, w.y + (idx - (withTargetY.length - 1) / 2) * STACK_GAP]))
+    return allNodes.map((n) => (n.type === 'dataset' ? { ...n, x: sideX, y: yById.get(n.id) ?? nodeY(n) } : n))
+  }
+
   function handleAutoLayout() {
     if (!currentModel || isLayingOut) return
     setIsLayingOut(true)
     try {
-      const schema = modelToSchema(currentModel, { forAutoLayout: true })
+      // Outside the Data layer the dataset isn't the focus: leave it out of the
+      // layout (so it doesn't split a row with constants such as the mean
+      // node) and move it to the side afterwards.
+      const excludeDatasets = activeLayer !== 'data'
+      const modelForLayout = excludeDatasets
+        ? {
+            ...currentModel,
+            nodes: currentModel.nodes.filter((n) => n.type !== 'dataset'),
+            paths: currentModel.paths.filter((p) => !isDatasetPath(p, currentModel.nodes)),
+          }
+        : currentModel
+      const schema = modelToSchema(modelForLayout, { forAutoLayout: true })
       const positions: PositionMap = autoLayout(schema)
-      const newNodes = currentModel.nodes.map((n) => {
+      let newNodes = currentModel.nodes.map((n) => {
         const pos = positions[n.label]
         return pos ? { ...n, x: pos.x, y: pos.y } : n
       })
+      if (excludeDatasets) newNodes = repositionDatasetsToSide(newNodes, currentModel.paths)
       setNodes(newNodes)
       fitViewToNodes(newNodes, currentModel.paths)
     } catch (e) {

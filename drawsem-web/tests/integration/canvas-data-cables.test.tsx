@@ -77,4 +77,26 @@ describe('data cables', () => {
     await waitFor(() => expect(Number(trunk().getAttribute('opacity'))).toBe(1))
     expect(trunk().getAttribute('opacity')).toBe(branch().getAttribute('opacity'))
   })
+
+  it('Auto Layout puts the dataset to the side, half a rank off the row it feeds', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
+    let last: any = null
+    const adapter = { load: vi.fn(), save: vi.fn(), export: vi.fn() } as unknown as GraphAdapter
+    render(
+      <AdapterContext.Provider value={adapter}>
+        <CanvasTool initialSchema={schema()} onModelChange={(s) => { last = s }} />
+      </AdapterContext.Provider>
+    )
+    await waitFor(() => expect(last).not.toBeNull())
+    fireEvent.click(screen.getByTitle(/Auto-layout/))
+    await waitFor(() => {
+      const nodes = last.models.m.nodes
+      const ds = nodes.find((n: any) => n.type === 'dataset')
+      const vars = nodes.filter((n: any) => n.type === 'variable')
+      const maxVarX = Math.max(...vars.map((n: any) => n.visual.x))
+      const avgVarY = vars.reduce((a: number, n: any) => a + n.visual.y, 0) / vars.length
+      expect(ds.visual.x).toBeGreaterThan(maxVarX)
+      expect(Math.abs(ds.visual.y - avgVarY)).toBeCloseTo(75)
+    })
+  })
 })
