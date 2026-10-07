@@ -86,6 +86,52 @@ NULL
 }
 
 
+# ---- server-side CSV browser (Load Data) ------------------------------------
+# The browser's own upload dialog cannot be pointed at a folder, so Load Data
+# browses the R side's file system instead, starting in the directory
+# drawSEM() was launched from. These helpers are pure so they can be tested.
+
+# Folders and CSV files directly inside `dir` (full paths, sorted by name,
+# hidden entries skipped). Unreadable folders list as empty.
+.listCsvDir <- function(dir) {
+  entries <- tryCatch(list.files(dir, full.names = TRUE, no.. = TRUE),
+                      error = function(e) character(0))
+  is_dir <- dir.exists(entries)
+  by_name <- function(x) x[order(tolower(basename(x)))]
+  list(
+    dirs  = by_name(entries[is_dir]),
+    files = by_name(entries[!is_dir & grepl("\\.csv$", entries, ignore.case = TRUE)])
+  )
+}
+
+# Breadcrumbs for `path`, root first: a list of list(name, path).
+.pathCrumbs <- function(path) {
+  cur <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  out <- list()
+  repeat {
+    parent <- dirname(cur)
+    out <- c(list(list(name = if (identical(parent, cur)) cur else basename(cur), path = cur)), out)
+    if (identical(parent, cur)) break
+    cur <- parent
+  }
+  out
+}
+
+# Places to jump to besides the folder tree: the launch directory, home, and
+# the machine's drives (Windows drive letters, macOS volumes, or "/").
+.browseRoots <- function(launchDir) {
+  drives <- if (.Platform$OS.type == "windows") {
+    d <- paste0(LETTERS, ":/")
+    stats::setNames(d[dir.exists(d)], substr(d[dir.exists(d)], 1, 2))
+  } else if (dir.exists("/Volumes")) {
+    v <- list.files("/Volumes", full.names = TRUE)
+    stats::setNames(v, basename(v))
+  } else {
+    c("/" = "/")
+  }
+  c(`Working directory` = launchDir, Home = path.expand("~"), drives)
+}
+
 # Default dataset label for a chosen file: its name without the extension.
 .datasetLabelFromFile <- function(fileName) {
   tools::file_path_sans_ext(basename(fileName))
@@ -207,8 +253,8 @@ NULL
     }
     body_ui <- shiny::tagList(
       shiny::div(class = "dsem-field",
-        shiny::tags$label(class = "dsem-label", `for` = "load_csv_file", "CSV file"),
-        shiny::fileInput("load_csv_file", NULL, accept = ".csv", width = "100%")
+        shiny::tags$label(class = "dsem-label", "CSV file"),
+        shiny::uiOutput("csv_browser")
       ),
       shiny::div(class = "dsem-field",
         shiny::tags$label(class = "dsem-label", `for` = "csv_dataset_name", "Dataset label"),
@@ -307,6 +353,7 @@ NULL
 
   # ── Data modal ("Load Data" toolbar button in Shiny mode) ─────────────
   shiny::observeEvent(input$load_data_request, {
+    selectedCsv(NULL)
     .showDataModal(currentModel())
   }, ignoreNULL = TRUE)
 
@@ -331,23 +378,99 @@ NULL
     })
   })
 
-  # Default the dataset label to the chosen file's name, unless one was typed.
-  shiny::observeEvent(input$load_csv_file, {
+  # ── CSV browser (Load Data) ──────────────────────────────────────────
+  # Starts in the directory drawSEM() was launched from; the folder shown is
+  # remembered for the rest of the session.
+  launchDir   <- normalizePath(getwd(), winslash = "/")
+  csvDir      <- shiny::reactiveVal(launchDir)
+  selectedCsv <- shiny::reactiveVal(NULL)
+
+  # onclick handler that sends `path` to input `id` (paths JSON-escaped).
+  .sendPath <- function(id, path) {
+    sprintf("Shiny.setInputValue('%s', %s, {priority:'event'})",
+            id, jsonlite::toJSON(path, auto_unbox = TRUE))
+  }
+
+  output$csv_browser <- shiny::renderUI({
+    dir     <- csvDir()
+    listing <- .listCsvDir(dir)
+    chosen  <- selectedCsv()
+    row_style <- "display:flex; align-items:center; gap:6px; padding:3px 8px; cursor:pointer; border-radius:4px; font-size:13px;"
+    chip_style <- "background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px; padding:1px 8px; font-size:12px; cursor:pointer; color:#334155;"
+
+    roots <- .browseRoots(launchDir)
+    jump <- lapply(names(roots), function(nm) {
+      shiny::tags$button(type = "button", style = chip_style,
+                         onclick = .sendPath("csv_browser_nav", roots[[nm]]), nm)
+    })
+    crumbs <- .pathCrumbs(dir)
+    crumb_ui <- lapply(seq_along(crumbs), function(i) {
+      cr <- crumbs[[i]]
+      shiny::tagList(
+        if (i > 1) shiny::span(style = "color:#94a3b8;", "/"),
+        shiny::tags$a(href = "#", style = "color:#2563eb; text-decoration:none;",
+                      onclick = paste0(.sendPath("csv_browser_nav", cr$path), "; return false;"),
+                      cr$name)
+      )
+    })
+    up <- dirname(dir)
+    dir_rows <- lapply(listing$dirs, function(d) {
+      shiny::div(style = row_style, onclick = .sendPath("csv_browser_nav", d),
+                 shiny::span("\U0001F4C1"), basename(d))
+    })
+    file_rows <- lapply(listing$files, function(f) {
+      sel <- identical(f, chosen)
+      shiny::div(style = paste0(row_style, if (sel) "background:#dbeafe; font-weight:600;" else ""),
+                 onclick = .sendPath("csv_browser_pick", f),
+                 shiny::span("\U0001F4C4"), basename(f))
+    })
+    empty <- if (length(dir_rows) + length(file_rows) == 0) {
+      shiny::div(style = "color:#94a3b8; font-size:12px; padding:6px 8px;", "No folders or CSV files here.")
+    }
+
+    shiny::tagList(
+      shiny::div(style = "display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px;", jump),
+      shiny::div(style = "display:flex; flex-wrap:wrap; align-items:center; gap:3px; font-size:12px; margin-bottom:4px;",
+        shiny::tags$button(type = "button", style = chip_style, title = "Up one folder",
+                           disabled = if (identical(up, dir)) NA,
+                           onclick = .sendPath("csv_browser_nav", up), "\u2191 Up"),
+        crumb_ui),
+      shiny::div(style = "border:1px solid #e2e8f0; border-radius:6px; height:220px; overflow:auto; padding:4px;",
+                 dir_rows, file_rows, empty),
+      shiny::div(style = "font-size:12px; color:#475569; margin-top:4px;",
+                 if (is.null(chosen)) "No file selected." else paste("Selected:", basename(chosen)))
+    )
+  })
+
+  shiny::observeEvent(input$csv_browser_nav, {
+    target <- as.character(input$csv_browser_nav)
+    if (dir.exists(target)) csvDir(normalizePath(target, winslash = "/"))
+  })
+
+  # Picking a file also defaults the dataset label to its name, unless one
+  # was typed.
+  shiny::observeEvent(input$csv_browser_pick, {
+    path <- as.character(input$csv_browser_pick)
+    if (!file.exists(path)) return()
+    selectedCsv(path)
     if (!nzchar(trimws(input$csv_dataset_name %||% ""))) {
-      shiny::updateTextInput(session, "csv_dataset_name",
-                             value = .datasetLabelFromFile(input$load_csv_file$name))
+      shiny::updateTextInput(session, "csv_dataset_name", value = .datasetLabelFromFile(path))
     }
   })
 
   shiny::observeEvent(input$attach_csv_btn, {
-    shiny::req(input$load_csv_file)
+    path <- selectedCsv()
+    if (is.null(path)) {
+      shiny::showNotification("Choose a CSV file first.", type = "warning", duration = 4)
+      return()
+    }
     label <- trimws(input$csv_dataset_name %||% "")
     if (nchar(label) == 0) {
       shiny::showNotification("Enter a dataset label first.", type = "warning", duration = 4)
       return()
     }
     tryCatch({
-      df <- utils::read.csv(input$load_csv_file$datapath, stringsAsFactors = FALSE)
+      df <- utils::read.csv(path, stringsAsFactors = FALSE)
       gm <- currentModel()
       if (is.null(gm)) {
         shiny::showNotification("No active model.", type = "warning", duration = 4)
