@@ -57,13 +57,13 @@ test_that("validateSchemaStructure rejects an unsupported schemaVersion", {
 test_that("validateSchemaStructure rejects unrecognized top-level fields", {
   schema <- list(
     schemaVersion = 0,
-    experimental = list(branch = "x", v = 1),
+    notAField = list(v = 1),
     models = list(model1 = list(nodes = list(), paths = list()))
   )
 
   expect_error(
     validateSchemaStructure(schema, verbose = FALSE),
-    "unrecognized top-level field\\(s\\): experimental"
+    "unrecognized top-level field\\(s\\): notAField"
   )
 })
 

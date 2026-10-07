@@ -434,7 +434,7 @@ test_that("schemaToOpenMx refuses a schema that fails validation", {
   # model with it silently dropped.
   schema <- list(
     schemaVersion = 0,
-    experimental = list(branch = "x", v = 1),
+    notAField = list(v = 1),
     models = list(m = list(
       nodes = list(list(label = "y1", type = "variable")),
       paths = list(list(from = "y1", to = "y1", numberOfArrows = 2, value = 1.0))
