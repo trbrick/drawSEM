@@ -8,7 +8,8 @@ import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { convertDocToRuntime, docPassthroughOf } from '../../src/utils/runtimeConverter'
 import { modelsToSchema } from '../../src/utils/runtimeToSchema'
-import { autoLayout, layoutOnLoad } from '../../src/utils/autoLayout'
+import { autoLayout } from '../../src/utils/autoLayout'
+import { layoutOnLoad, layoutModel } from '../../src/utils/layoutModel'
 import { validateGraph } from '../../src/validateGraph'
 import {
   OWNED_DOC_KEYS,
@@ -409,7 +410,7 @@ describe('layoutOnLoad', () => {
       const models = convertDocToRuntime(doc)
       const firstKey = Object.keys(doc.models)[0]
       const positioned = before.models[firstKey].nodes.some((n: any) => n.visual?.x !== undefined || n.visual?.y !== undefined)
-      const result = layoutOnLoad(models, doc)
+      const result = layoutOnLoad(models, { excludeDatasets: true })
       expect(doc).toEqual(before) // input not mutated
       const out = modelsToSchema(models, docPassthroughOf(doc))
       if (positioned) {
@@ -430,7 +431,44 @@ describe('layoutOnLoad', () => {
     doc.models[key].nodes[0].visual = { x: 1, y: 2 }
     const before = clone(doc)
     const models = convertDocToRuntime(doc)
-    expect(layoutOnLoad(models, doc)).toBe('not-needed')
+    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('not-needed')
     expect(modelsToSchema(models, docPassthroughOf(doc))).toEqual(before)
+  })
+
+  it('uses the same layout as the Auto Layout button (layoutModel)', () => {
+    const doc = readJson(join(FIXTURES, 'layout/diamond.json'))
+    const models = convertDocToRuntime(doc)
+    const expected = layoutModel(models[0], { excludeDatasets: true })!
+    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('applied')
+    expect(models[0].nodes.map((n) => [n.label, n.x, n.y])).toEqual(expected.map((n) => [n.label, n.x, n.y]))
+  })
+
+  it('puts a dataset to the side, as Auto Layout does', () => {
+    const doc: any = {
+      schemaVersion: 0,
+      models: {
+        m: {
+          nodes: [
+            { label: 'F', type: 'variable' },
+            { label: 'x1', type: 'variable' },
+            { label: 'x2', type: 'variable' },
+            { label: 'data', type: 'dataset' },
+          ],
+          paths: [
+            { from: 'F', to: 'x1', numberOfArrows: 1 },
+            { from: 'F', to: 'x2', numberOfArrows: 1 },
+            { from: 'data', to: 'x1', type: 'data', label: 'x1' },
+            { from: 'data', to: 'x2', type: 'data', label: 'x2' },
+          ],
+        },
+      },
+    }
+    const models = convertDocToRuntime(doc)
+    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('applied')
+    const ds = models[0].nodes.find((n) => n.type === 'dataset')!
+    const xs = models[0].nodes.filter((n) => n.type === 'variable')
+    expect(ds.x!).toBeGreaterThan(Math.max(...xs.map((n) => n.x!)))
+    const rowY = (xs[1].y! + xs[2].y!) / 2
+    expect(Math.abs(ds.y! - rowY)).toBeCloseTo(75)
   })
 })

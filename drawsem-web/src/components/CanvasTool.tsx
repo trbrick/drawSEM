@@ -6,8 +6,11 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
-import { autoLayout, layoutOnLoad, PositionMap } from '../utils/autoLayout'
-import { effectiveLoopSide, nearestLoopSide, LoopSide } from '../utils/loopSide'
+import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
+import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
+import type { CableTrunk } from '../utils/dataCables'
+import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
+import type { NodeShape } from '../utils/loopSide'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
@@ -168,8 +171,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // of the canvas does (tag wins; else incoming path from a dataset node) rather than trusting
   // only the explicit tag — reading component state here instead would be stale at exactly the
   // call sites that matter (right after loading a new model, before setNodes commits).
-  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[]) {
-    if (nodesToFit.length === 0) {
+  // Outside the Data layer, dataset nodes are left out of the fit by default, so
+  // the view centres on the SEM structure instead of zooming out for a dataset
+  // placed off to the side. Pass excludeDataset to override. Excluded datasets
+  // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
+  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
+    const excludeDataset = options?.excludeDataset ?? (activeLayer !== 'data')
+    const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
+    if (fitted.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
       return
     }
@@ -182,7 +191,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return !hasDatasetPath
     }
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    nodesToFit.forEach(n => {
+    fitted.forEach(n => {
       const x = n.x || 0
       const y = n.y || 0
       let w = n.width || (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
@@ -209,6 +218,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
+  // For long-lived callbacks (model loads) that would otherwise see a stale layer
+  const activeLayerRef = useRef(activeLayer)
+  activeLayerRef.current = activeLayer
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
@@ -417,7 +429,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           // Auto-layout only when no node of the model has a position
           try {
-            layoutOnLoad(modelsOut, g as GraphSchema)
+            layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
           } catch (layoutError) {
             console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
@@ -452,7 +464,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           
           // Auto-layout only when no node of the model has a position
           try {
-            if (layoutOnLoad(modelsOut, schema) === 'no-usable-positions') {
+            if (layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
               setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
           } catch (layoutError) {
@@ -1126,12 +1138,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (!currentModel || isLayingOut) return
     setIsLayingOut(true)
     try {
-      const schema = modelToSchema(currentModel, { forAutoLayout: true })
-      const positions: PositionMap = autoLayout(schema)
-      const newNodes = currentModel.nodes.map((n) => {
-        const pos = positions[n.label]
-        return pos ? { ...n, x: pos.x, y: pos.y } : n
-      })
+      // Same code as layout on load (layoutModel). Outside the Data layer the
+      // dataset isn't the focus: it is left out of the layout and moved to the side.
+      const newNodes = layoutModel(currentModel, { excludeDatasets: activeLayer !== 'data' })
+      if (!newNodes) throw new Error('the layout produced no usable coordinates')
       setNodes(newNodes)
       fitViewToNodes(newNodes, currentModel.paths)
     } catch (e) {
@@ -1963,11 +1973,36 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return finalPts
   }
 
+  // A node's extent as drawn, for choosing loop sides that avoid it.
+  function nodeShape(n: Node): NodeShape {
+    const x = nodeX(n)
+    const y = nodeY(n)
+    if (n.type === 'variable' && getVariableRenderType(n.id) === 'latent') {
+      return { x, y, halfW: LATENT_RADIUS, halfH: LATENT_RADIUS }
+    }
+    if (n.type === 'constant') return { x, y, halfW: 22, halfH: 22 }
+    const w = n.width ?? (n.type === 'dataset' ? DATASET_DEFAULT_W : MANIFEST_DEFAULT_W)
+    const h = n.height ?? (n.type === 'dataset' ? DATASET_DEFAULT_H : MANIFEST_DEFAULT_H)
+    return { x, y, halfW: w / 2, halfH: h / 2 }
+  }
+
+  // Sides for all self-loops, chosen together so they avoid each other and
+  // other nodes (see resolveLoopSides). `unpin` treats one loop as automatic
+  // (for the inspector's "Auto (...)" label on a pinned loop).
+  function computeLoopSides(unpin?: string): Map<string, LoopSide> {
+    const shapes = new Map(nodes.map((n) => [n.id, nodeShape(n)]))
+    const loops = paths
+      .filter((p) => p.from === p.to)
+      .map((p) => ({ id: p.id, node: p.from, pinned: p.id === unpin ? undefined : p.side }))
+    const isDataset = (id: string) => nodes.find((n) => n.id === id)?.type === 'dataset'
+    return resolveLoopSides(loops, shapes, paths, isDataset)
+  }
+
   // The side a self-loop is drawn on: the drag preview while it is being dragged,
-  // else the pinned side, else the automatic side from current positions (never stored).
+  // else the pinned side, else the automatic side (never stored).
   function loopSideFor(p: Path): LoopSide {
     if (loopDragPreview && loopDragPreview.pathId === p.id) return loopDragPreview.side
-    return effectiveLoopSide(p, nodes, paths)
+    return loopSides.get(p.id) ?? 'bottom'
   }
 
   function pathD(p: Path) {
@@ -2098,6 +2133,39 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return { x: (startOut.x + endOut.x) / 2, y: (startOut.y + endOut.y) / 2 }
   }
 
+  // ---- Data cables (geometry in utils/dataCables.ts; display only) ----
+
+  // One trunk per dataset, aimed at the centroid of its targets. A trunk is in
+  // the active layer if any of its branches is, and is drawn once per dataset.
+  function buildCableGroups(): Map<string, CableTrunk & { inLayer: boolean }> {
+    const bySource = new Map<string, { targets: Node[]; inLayer: boolean }>()
+    paths.forEach((p) => {
+      if (!isDatasetPath(p, nodes)) return
+      const target = nodes.find((n) => n.id === p.to)
+      if (!target) return
+      const g = bySource.get(p.from) ?? { targets: [], inLayer: false }
+      g.targets.push(target)
+      g.inLayer = g.inLayer || isPathInLayer(p)
+      bySource.set(p.from, g)
+    })
+    const groups = new Map<string, CableTrunk & { inLayer: boolean }>()
+    bySource.forEach(({ targets, inLayer }, from) => {
+      const source = nodes.find((n) => n.id === from)
+      if (!source || targets.length === 0) return
+      const trunk = cableTrunk(centerOf(source), (t) => getBoundaryPoint(source, t), targets.map(centerOf))
+      groups.set(from, { ...trunk, inLayer })
+    })
+    return groups
+  }
+
+  // Branch geometry for a data path, or null for any other path.
+  function cableGeometryFor(p: Path, groups: ReturnType<typeof buildCableGroups>): { d: string; labelPos: { x: number; y: number } } | null {
+    if (!isDatasetPath(p, nodes)) return null
+    const trunk = groups.get(p.from)
+    const target = nodes.find((n) => n.id === p.to)
+    return trunk && target ? cableBranch(trunk, centerOf(target), (t) => getBoundaryPoint(target, t)) : null
+  }
+
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     if (isLayoutOnly) return
@@ -2134,6 +2202,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function cancelEditing() {
     setEditing(null)
   }
+
+  // Data cable trunks and self-loop sides for this render
+  const cableGroups = buildCableGroups()
+  const loopSides = computeLoopSides()
 
   return (
     <>
@@ -2771,7 +2843,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
                   {selectedPath.from === selectedPath.to && (() => {
                     // Loop side: Auto (absent side, resolved from positions) or pinned.
-                    const autoSide = effectiveLoopSide({ ...selectedPath, side: undefined }, nodes, paths)
+                    const autoSide = computeLoopSides(selectedPath.id).get(selectedPath.id) ?? 'bottom'
                     const options: Array<{ value: LoopSide | 'auto'; text: string }> = [
                       { value: 'auto', text: `Auto (${autoSide})` },
                       { value: 'top', text: 'Top' },
@@ -3107,6 +3179,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 </marker>
               </defs>
 
+              {/* data cable trunks: one per dataset, with the data paths' layer opacity */}
+              {Array.from(cableGroups.entries()).map(([fromId, g]) => (
+                <path
+                  key={`cable-trunk-${fromId}`}
+                  data-cable-trunk={fromId}
+                  d={cableTrunkD(g)}
+                  fill="none"
+                  stroke={CABLE_COLOR}
+                  strokeWidth={CABLE_WIDTH}
+                  strokeLinecap="round"
+                  opacity={getElementOpacity(g.inLayer)}
+                  pointerEvents="none"
+                />
+              ))}
+
               {/* draw paths with layer-based opacity */}
               {paths.map((p) => {
                   const isSelected = selectedType === 'path' && selectedId === p.id
@@ -3115,6 +3202,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
                   const isLoop = p.from === p.to
+                  const cable = cableGeometryFor(p, cableGroups)
                   const handlers = {
                     onMouseDown: isLoop ? (e: React.MouseEvent) => {
                       // Self-loop: arm drag-to-pin (left button, select mode). Stop
@@ -3142,12 +3230,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     <path
                       data-path-id={p.id}
                       data-loop-side={isLoop ? loopSideFor(p) : undefined}
-                      d={pathD(p)}
+                      data-cable={cable ? 'true' : undefined}
+                      d={cable ? cable.d : pathD(p)}
                       fill="none"
-                      stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)}
-                      strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : 1.6)}
-                      markerEnd={isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)'}
-                      markerStart={p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined}
+                      stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : (cable ? CABLE_COLOR : DISPLAY_COLORS.stroke))}
+                      strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : (cable ? CABLE_WIDTH : 1.6))}
+                      strokeLinecap={cable ? 'round' : undefined}
+                      markerEnd={cable ? undefined : (isSelected ? 'url(#arrow-end-selected)' : 'url(#arrow-end)')}
+                      markerStart={cable ? undefined : (p.twoSided ? (isSelected ? 'url(#arrow-start-selected)' : 'url(#arrow-start)') : undefined)}
                       {...handlers}
                       opacity={opacity}
                       style={{ cursor: 'pointer', pointerEvents: 'stroke', zIndex }}
@@ -3172,7 +3262,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           {paths.map((p) => {
             const displayText = getPathDisplayText(p)
             if (!displayText) return null
-            const pos = pathLabelPos(p)
+            const pos = cableGeometryFor(p, cableGroups)?.labelPos ?? pathLabelPos(p)
             if (!pos) return null
             const inLayer = isPathInLayer(p)
             const opacity = getElementOpacity(inLayer)
