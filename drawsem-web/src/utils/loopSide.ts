@@ -83,23 +83,29 @@ const finiteOr0 = (v: number | undefined) => (typeof v === 'number' && !Number.i
 interface EndpointPath {
   from: string
   to: string
+  type?: string
 }
 
 /**
- * The automatic side for the node `nodeKey`, computed from the positions of the other endpoints of every non-self-loop path
- * incident to the loop's node. `positionOf` returns undefined for an endpoint
- * that names no node (such paths are ignored).
+ * The automatic side for the node `nodeKey`, computed from the positions of
+ * the other endpoints of every non-self-loop path incident to the loop's node.
+ * `positionOf` returns undefined for an endpoint that names no node (such paths
+ * are ignored). Data paths are ignored too (`type: "data"`, or any path from a
+ * node `isDataset` reports): they are drawn as cables that do not run straight
+ * to the dataset, so their direction says little about where a loop fits.
  */
 function autoLoopSideFor(
   nodeKey: string,
   paths: readonly EndpointPath[],
-  positionOf: (key: string) => Point | undefined
+  positionOf: (key: string) => Point | undefined,
+  isDataset: (key: string) => boolean
 ): LoopSide {
   const center = positionOf(nodeKey)
   if (!center) return 'bottom'
   const others: Point[] = []
   for (const p of paths) {
     if (p.from === p.to) continue
+    if (p.type === 'data' || isDataset(p.from)) continue
     let other: string | null = null
     if (p.from === nodeKey) other = p.to
     else if (p.to === nodeKey) other = p.from
@@ -117,15 +123,20 @@ function autoLoopSideFor(
  */
 export function effectiveLoopSide(
   path: { from: string; side?: LoopSide },
-  nodes: readonly { id: string; x?: number; y?: number }[],
+  nodes: readonly { id: string; x?: number; y?: number; type?: string }[],
   paths: readonly EndpointPath[]
 ): LoopSide {
   if (path.side) return path.side
   const byId = new Map(nodes.map((n) => [n.id, n]))
-  return autoLoopSideFor(path.from, paths, (id) => {
-    const n = byId.get(id)
-    return n ? { x: n.x ?? 0, y: n.y ?? 0 } : undefined
-  })
+  return autoLoopSideFor(
+    path.from,
+    paths,
+    (id) => {
+      const n = byId.get(id)
+      return n ? { x: n.x ?? 0, y: n.y ?? 0 } : undefined
+    },
+    (id) => byId.get(id)?.type === 'dataset'
+  )
 }
 
 /**
@@ -135,14 +146,19 @@ export function effectiveLoopSide(
  */
 export function effectiveSchemaLoopSide(
   path: { from: string; visual?: { loopSide?: LoopSide } },
-  nodes: readonly { label: string; visual?: { x?: number; y?: number } }[],
+  nodes: readonly { label: string; type?: string; visual?: { x?: number; y?: number } }[],
   paths: readonly EndpointPath[]
 ): LoopSide {
   const pinned = path.visual?.loopSide
   if (pinned) return pinned
   const byLabel = new Map(nodes.map((n) => [n.label, n]))
-  return autoLoopSideFor(path.from, paths, (label) => {
-    const n = byLabel.get(label)
-    return n ? { x: finiteOr0(n.visual?.x), y: finiteOr0(n.visual?.y) } : undefined
-  })
+  return autoLoopSideFor(
+    path.from,
+    paths,
+    (label) => {
+      const n = byLabel.get(label)
+      return n ? { x: finiteOr0(n.visual?.x), y: finiteOr0(n.visual?.y) } : undefined
+    },
+    (label) => byLabel.get(label)?.type === 'dataset'
+  )
 }

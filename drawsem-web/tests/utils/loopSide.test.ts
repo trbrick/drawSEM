@@ -155,3 +155,26 @@ describe('autoLayout and loop sides', () => {
     expect(JSON.stringify(positions)).not.toContain('loopSide')
   })
 })
+
+describe('data paths are ignored when choosing a loop side', () => {
+  // x has a loading from above and a data path from a dataset below. Counting
+  // the data path would push the loop to the side; ignoring it gives bottom.
+  const nodes = [
+    { id: 'f', x: 0, y: -100, type: 'variable' },
+    { id: 'x', x: 0, y: 0, type: 'variable' },
+    { id: 'd', x: 0, y: 100, type: 'dataset' },
+  ]
+  it('ignores a path typed "data"', () => {
+    const paths = [{ from: 'f', to: 'x' }, { from: 'd', to: 'x', type: 'data' }]
+    expect(effectiveLoopSide({ from: 'x' }, nodes, paths)).toBe('bottom')
+  })
+  it('ignores an untyped path from a dataset node', () => {
+    const paths = [{ from: 'f', to: 'x' }, { from: 'd', to: 'x' }]
+    expect(effectiveLoopSide({ from: 'x' }, nodes, paths)).toBe('bottom')
+  })
+  it('the schema resolver agrees', () => {
+    const sNodes = nodes.map((n) => ({ label: n.id, type: n.type, visual: { x: n.x, y: n.y } }))
+    const paths = [{ from: 'f', to: 'x' }, { from: 'd', to: 'x', type: 'data' }]
+    expect(effectiveSchemaLoopSide({ from: 'x' }, sNodes, paths)).toBe('bottom')
+  })
+})
