@@ -82,22 +82,80 @@ export function repositionDatasetsToSide(allNodes: Node[], allPaths: Path[]): No
   return allNodes.map((n) => (n.type === 'dataset' ? { ...n, x: sideX, y: yById.get(n.id) ?? nodeY(n) } : n))
 }
 
-export type LoadLayoutResult = 'not-needed' | 'applied' | 'no-usable-positions'
+/**
+ * Give positions to dataset nodes that have none, in a model whose other
+ * nodes are placed (e.g. data just attached from R), the way Auto Layout
+ * places datasets: to the right of the diagram, half a rank below the rows of
+ * the variables they feed, or beside the middle of the diagram if they feed
+ * none yet. Several such datasets stack. Placed nodes never move.
+ * Returns null when there is nothing to place.
+ */
+export function placeUnplacedDatasets(allNodes: Node[], allPaths: Path[]): Node[] | null {
+  const isPlaced = (n: Node) => n.x !== undefined && n.y !== undefined
+  const unplaced = allNodes.filter((n) => n.type === 'dataset' && !isPlaced(n))
+  const placed = allNodes.filter((n) => isPlaced(n) && !unplaced.includes(n))
+  if (unplaced.length === 0 || placed.length === 0) return null
+
+  const SIDE_GAP = 90
+  const STACK_GAP = 140
+  const HALF_RANK = 75
+  let maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  placed.forEach((n) => {
+    maxX = Math.max(maxX, nodeX(n) + (n.width ?? MANIFEST_DEFAULT_W) / 2)
+    minY = Math.min(minY, nodeY(n))
+    maxY = Math.max(maxY, nodeY(n))
+  })
+  const sideX = maxX + SIDE_GAP
+  const middleY = (minY + maxY) / 2
+
+  const targets = unplaced
+    .map((ds) => {
+      const ys = allPaths
+        .filter((p) => p.from === ds.id && isDatasetPath(p, allNodes))
+        .map((p) => placed.find((n) => n.id === p.to))
+        .filter((n): n is Node => n !== undefined)
+        .map((n) => nodeY(n))
+      const y = ys.length > 0 ? ys.reduce((a, b) => a + b, 0) / ys.length + HALF_RANK : middleY
+      return { id: ds.id, y }
+    })
+    .sort((a, b) => a.y - b.y)
+  const yById = new Map(targets.map((t, idx) => [t.id, t.y + (idx - (targets.length - 1) / 2) * STACK_GAP]))
+  return allNodes.map((n) => (yById.has(n.id) ? { ...n, x: sideX, y: yById.get(n.id)! } : n))
+}
+
+export type IncomingLayoutResult = 'not-needed' | 'applied' | 'no-usable-positions'
 
 /**
- * Auto Layout applied when a document is loaded into the editor: runs only
- * when the first model has variable nodes and NO node of it has a position
- * (a model that carries any layout is shown as written). Uses layoutModel(),
+ * Layout applied to every model the editor receives (on load, and each time
+ * R pushes a model, e.g. after data is attached or a model is fitted): runs only
+ * when the first model has variable nodes and NO node of it has a position.
+ * A model that carries a layout is shown as written, except that datasets
+ * without a position are placed (placeUnplacedDatasets). Uses layoutModel(),
  * the same code as the Auto Layout button. When it runs, the runtime nodes of
  * `models[0]` get their new positions in place; nothing else changes. Throws
  * if the layout algorithm throws.
  */
-export function layoutOnLoad(models: RuntimeModel[], options: { excludeDatasets: boolean }): LoadLayoutResult {
+export function layoutIncomingModel(models: RuntimeModel[], options: { excludeDatasets: boolean }): IncomingLayoutResult {
   const first = models[0]
   if (!first) return 'not-needed'
   const hasVariables = first.nodes.some((n) => n.type === 'variable')
   const anyPositioned = first.nodes.some((n) => n.x !== undefined || n.y !== undefined)
-  if (!hasVariables || anyPositioned) return 'not-needed'
+  if (anyPositioned) {
+    // A laid-out model with datasets that have no position (e.g. data just
+    // attached from R): place only those datasets, as Auto Layout would.
+    const withDatasets = placeUnplacedDatasets(first.nodes, first.paths)
+    if (!withDatasets) return 'not-needed'
+    const byId = new Map(withDatasets.map((n) => [n.id, n]))
+    first.nodes.forEach((n) => {
+      const placed = byId.get(n.id)
+      if (n.type === 'dataset' && placed && n.x === undefined) {
+        n.x = placed.x
+        n.y = placed.y
+      }
+    })
+    return 'applied'
+  }
+  if (!hasVariables) return 'not-needed'
 
   const laidOut = layoutModel(first, options)
   if (!laidOut) return 'no-usable-positions'

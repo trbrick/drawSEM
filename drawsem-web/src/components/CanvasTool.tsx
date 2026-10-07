@@ -6,7 +6,7 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
-import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
+import { layoutModel, layoutIncomingModel } from '../utils/layoutModel'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
@@ -176,7 +176,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // placed off to the side. Pass excludeDataset to override. Excluded datasets
   // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
   function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
-    const excludeDataset = options?.excludeDataset ?? (activeLayer !== 'data')
+    // the current layer (via the ref: model loads call this from a callback created at startup)
+    const excludeDataset = options?.excludeDataset ?? (activeLayerRef.current !== 'data')
     const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
     if (fitted.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
@@ -224,7 +225,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
-  // layer so it is visible: the default SEM layer hides dataset nodes.
+  // layer so it is visible (the default SEM layer hides dataset nodes), and
+  // refit the view to include it: R places a new dataset at a fixed spot that
+  // a fit of the other nodes can leave off-screen.
   const datasetIdsKey = nodes.filter((n) => n.type === 'dataset').map((n) => n.id).sort().join(',')
   const prevDatasetIdsRef = useRef<{ modelId: string | null; ids: Set<string> } | null>(null)
   React.useEffect(() => {
@@ -232,6 +235,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const prev = prevDatasetIdsRef.current
     if (prev && prev.modelId === currentModelId && [...ids].some((id) => !prev.ids.has(id))) {
       setActiveLayer('all')
+      fitViewToNodes(nodes, paths, { excludeDataset: false })
     }
     prevDatasetIdsRef.current = { modelId: currentModelId, ids }
   }, [datasetIdsKey, currentModelId])
@@ -429,7 +433,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           // Auto-layout only when no node of the model has a position
           try {
-            layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
+            layoutIncomingModel(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
           } catch (layoutError) {
             console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
@@ -464,7 +468,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           
           // Auto-layout only when no node of the model has a position
           try {
-            if (layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
+            if (layoutIncomingModel(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
               setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
           } catch (layoutError) {

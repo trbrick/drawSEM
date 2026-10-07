@@ -139,7 +139,8 @@ NULL
 
 # Add (or refresh) an embedded dataset node labelled `label` holding `df` in
 # the schema's first model. An existing dataset node with that label gets the
-# new data; otherwise a node is appended below any existing dataset nodes.
+# new data; otherwise a node is appended with no position: the editor places
+# it beside the diagram, as Auto Layout would (layoutIncomingModel()).
 .attachDatasetNode <- function(schema, label, df) {
   model_ids <- names(schema$models %||% list())
   if (length(model_ids) == 0) return(schema)
@@ -165,12 +166,10 @@ NULL
   if (!is.na(existing_idx)) {
     nodes[[existing_idx]]$datasetSource <- dataset_source
   } else {
-    n_datasets <- length(Filter(function(n) identical(n$type, "dataset"), nodes))
     nodes[[length(nodes) + 1]] <- list(
       label = label,
       type = "dataset",
-      datasetSource = dataset_source,
-      visual = list(x = 300, y = 450 + n_datasets * 100)
+      datasetSource = dataset_source
     )
   }
   schema$models[[model_id]]$nodes <- nodes

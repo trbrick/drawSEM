@@ -9,7 +9,7 @@ import { join } from 'path'
 import { convertDocToRuntime, docPassthroughOf } from '../../src/utils/runtimeConverter'
 import { modelsToSchema } from '../../src/utils/runtimeToSchema'
 import { autoLayout } from '../../src/utils/autoLayout'
-import { layoutOnLoad, layoutModel } from '../../src/utils/layoutModel'
+import { layoutIncomingModel, layoutModel } from '../../src/utils/layoutModel'
 import { validateGraph } from '../../src/validateGraph'
 import {
   OWNED_DOC_KEYS,
@@ -402,7 +402,7 @@ describe('round trip: owned keys', () => {
 // Auto-layout on load
 // ---------------------------------------------------------------------------
 
-describe('layoutOnLoad', () => {
+describe('layoutIncomingModel', () => {
   for (const { name, path } of fixtureFiles()) {
     it(`${name}: runs only when no node has a position; adds only visual.x/y`, () => {
       const doc = readJson(path)
@@ -410,7 +410,7 @@ describe('layoutOnLoad', () => {
       const models = convertDocToRuntime(doc)
       const firstKey = Object.keys(doc.models)[0]
       const positioned = before.models[firstKey].nodes.some((n: any) => n.visual?.x !== undefined || n.visual?.y !== undefined)
-      const result = layoutOnLoad(models, { excludeDatasets: true })
+      const result = layoutIncomingModel(models, { excludeDatasets: true })
       expect(doc).toEqual(before) // input not mutated
       const out = modelsToSchema(models, docPassthroughOf(doc))
       if (positioned) {
@@ -425,22 +425,57 @@ describe('layoutOnLoad', () => {
     })
   }
 
-  it('does not run when only some nodes are positioned', () => {
+  it('does not lay out a partly positioned model (only unplaced datasets get placed)', () => {
     const doc = readJson(join(FIXTURES, 'layout/diamond.json'))
     const key = Object.keys(doc.models)[0]
     doc.models[key].nodes[0].visual = { x: 1, y: 2 }
     const before = clone(doc)
     const models = convertDocToRuntime(doc)
-    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('not-needed')
-    expect(modelsToSchema(models, docPassthroughOf(doc))).toEqual(before)
+    layoutIncomingModel(models, { excludeDatasets: true })
+    const out = modelsToSchema(models, docPassthroughOf(doc))
+    const nonDatasets = (d: any) => d.models[key].nodes.filter((n: any) => n.type !== 'dataset')
+    expect(nonDatasets(out)).toEqual(nonDatasets(before))
+    expect(out.models[key].paths).toEqual(before.models[key].paths)
   })
 
   it('uses the same layout as the Auto Layout button (layoutModel)', () => {
     const doc = readJson(join(FIXTURES, 'layout/diamond.json'))
     const models = convertDocToRuntime(doc)
     const expected = layoutModel(models[0], { excludeDatasets: true })!
-    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('applied')
+    expect(layoutIncomingModel(models, { excludeDatasets: true })).toBe('applied')
     expect(models[0].nodes.map((n) => [n.label, n.x, n.y])).toEqual(expected.map((n) => [n.label, n.x, n.y]))
+  })
+
+  it('in a laid-out model, places only datasets without a position (e.g. just attached)', () => {
+    const doc: any = {
+      schemaVersion: 0,
+      models: { m: {
+        nodes: [
+          { label: 'F', type: 'variable', visual: { x: 100, y: 0 } },
+          { label: 'x1', type: 'variable', visual: { x: 0, y: 150 } },
+          { label: 'x2', type: 'variable', visual: { x: 200, y: 150 } },
+          { label: 'fed', type: 'dataset' },
+          { label: 'loose', type: 'dataset' },
+        ],
+        paths: [
+          { from: 'F', to: 'x1', numberOfArrows: 1 },
+          { from: 'F', to: 'x2', numberOfArrows: 1 },
+          { from: 'fed', to: 'x1', type: 'data', label: 'x1' },
+        ],
+      } },
+    }
+    const models = convertDocToRuntime(doc)
+    expect(layoutIncomingModel(models, { excludeDatasets: true })).toBe('applied')
+    const byLabel = (l: string) => models[0].nodes.find((n) => n.label === l)!
+    // placed nodes untouched
+    expect([byLabel('F').x, byLabel('F').y, byLabel('x1').x, byLabel('x2').y]).toEqual([100, 0, 0, 150])
+    // datasets to the right of the diagram
+    expect(byLabel('fed').x).toBeGreaterThan(200)
+    expect(byLabel('loose').x).toBe(byLabel('fed').x)
+    // the fed one below its variables' row, the loose one beside the middle, not on top of each other
+    expect(Math.abs(byLabel('fed').y! - byLabel('loose').y!)).toBeGreaterThanOrEqual(100)
+    // a second pass changes nothing
+    expect(layoutIncomingModel(models, { excludeDatasets: true })).toBe('not-needed')
   })
 
   it('puts a dataset to the side, as Auto Layout does', () => {
@@ -464,7 +499,7 @@ describe('layoutOnLoad', () => {
       },
     }
     const models = convertDocToRuntime(doc)
-    expect(layoutOnLoad(models, { excludeDatasets: true })).toBe('applied')
+    expect(layoutIncomingModel(models, { excludeDatasets: true })).toBe('applied')
     const ds = models[0].nodes.find((n) => n.type === 'dataset')!
     const xs = models[0].nodes.filter((n) => n.type === 'variable')
     expect(ds.x!).toBeGreaterThan(Math.max(...xs.map((n) => n.x!)))

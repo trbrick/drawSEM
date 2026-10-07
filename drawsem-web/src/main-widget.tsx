@@ -5,7 +5,7 @@ import { AdapterContext } from './context/AdapterContext'
 import { createWidgetAdapter } from './adapters/widget/widgetAdapter'
 import { createLocalAdapter } from './adapters/standalone/localAdapter'
 import { modelToSVG, SvgExportOptions } from './utils/svgRenderer'
-import { layoutModel } from './utils/layoutModel'
+import { layoutModel, placeUnplacedDatasets } from './utils/layoutModel'
 import { convertModelToRuntime } from './utils/runtimeConverter'
 import { GraphSchema } from './core/types'
 import './index.css'
@@ -114,6 +114,19 @@ export function exportModelToSVG(
         if (anyPositioned && (!isLayoutEligible(n) || isPlaced(n))) return
         const placed = byLabel.get(n.label)
         if (placed && placed.x !== undefined && placed.y !== undefined) {
+          n.visual = { ...(n.visual ?? {}), x: placed.x, y: placed.y }
+        }
+      })
+    }
+    // Datasets without a position in an otherwise laid-out model are placed as
+    // in the editor (placeUnplacedDatasets), so they appear in the image.
+    const runtimeNow = convertModelToRuntime(model)
+    const withDatasets = placeUnplacedDatasets(runtimeNow.nodes, runtimeNow.paths)
+    if (withDatasets) {
+      const byLabel = new Map(withDatasets.map((n) => [n.label, n]))
+      model.nodes.forEach((n) => {
+        const placed = byLabel.get(n.label)
+        if (n.type === 'dataset' && !isPlaced(n) && placed?.x !== undefined && placed?.y !== undefined) {
           n.visual = { ...(n.visual ?? {}), x: placed.x, y: placed.y }
         }
       })

@@ -19,11 +19,11 @@ test_that(".attachDatasetNode refreshes an existing dataset node in place", {
   expect_equal(out$models$m1$nodes[[1]]$datasetSource$rowCount, 5)
 })
 
-test_that(".attachDatasetNode stacks new dataset nodes below existing ones", {
+test_that(".attachDatasetNode adds new dataset nodes without a position (the editor places them)", {
   s <- .attachDatasetNode(schemaWith(list()), "a", data.frame(x = 1))
   s <- .attachDatasetNode(s, "b", data.frame(x = 1))
-  ys <- vapply(s$models$m1$nodes, function(n) n$visual$y, numeric(1))
-  expect_equal(ys, c(450, 550))
+  expect_length(s$models$m1$nodes, 2)
+  for (n in s$models$m1$nodes) expect_null(n$visual)
 })
 
 test_that("the dataset label defaults to the file name without its extension", {
