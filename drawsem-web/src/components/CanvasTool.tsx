@@ -1490,7 +1490,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
       // add variance path automatically for variable nodes (free error variance by default)
       if (type !== 'constant') {
-        const variance = makeVariancePath(n.id, convertToUnicode(n.label))
+        const variance = makeVariancePath(n.id, n.label)
         setPaths((ps) => [...ps, variance])
       }
 
@@ -1514,7 +1514,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setNodes((s) => [...s, n])
     selectElement(n.id, 'node')
     // Add a free error variance self-loop automatically
-    const variance = makeVariancePath(n.id, convertToUnicode(n.label))
+    const variance = makeVariancePath(n.id, n.label)
     setPaths((ps) => [...ps, variance])
     setMode('select')
   }
@@ -1554,7 +1554,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
-      const variance = makeVariancePath(newNode.id, displayName)
+      const variance = makeVariancePath(newNode.id, newNode.label)
       setPaths((ps) => [...ps, variance])
     }
   }

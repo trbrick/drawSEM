@@ -1,3 +1,4 @@
+import { convertToUnicode } from './converters'
 // Helper utilities for node and path operations
 export function uid(prefix = ''): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -253,14 +254,26 @@ export function makePath(fields: Omit<Path, 'id'>): Path {
 }
 
 /** The free error-variance self-loop added with a new variable. */
-export function makeVariancePath(nodeId: string, displayLabel: string): Path {
+/** Default label for a new variable's error variance: V_{<variable label>}. */
+export function defaultVarianceLabel(nodeLabel: string): string {
+  return `V_{${nodeLabel}}`
+}
+
+/**
+ * A free error-variance self-loop for a new variable, labelled
+ * V_{<variable label>} (see defaultVarianceLabel). Its display name is the
+ * unicode form of that label, as when a labelled path is loaded.
+ */
+export function makeVariancePath(nodeId: string, nodeLabel: string): Path {
+  const label = defaultVarianceLabel(nodeLabel)
   return makePath({
     from: nodeId,
     to: nodeId,
     twoSided: true,
+    label,
     freeParameter: true,
     parameterType: 'errorVariance',
-    displayName: displayLabel + ' ↔ ' + displayLabel,
+    displayName: convertToUnicode(label),
   })
 }
 

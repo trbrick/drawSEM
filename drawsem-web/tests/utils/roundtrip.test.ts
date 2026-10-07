@@ -220,6 +220,13 @@ describe('round trip: edits change only what they edit', () => {
     expect(out.models.fitted.nodes[5]).toEqual({ label: 'V9', type: 'variable', visual: { x: 1, y: 2 } })
   })
 
+  it('(h0) a new variance is labelled V_{<variable>}, never a runtime id', () => {
+    const v = makeVariancePath('n_x1_runtime', 'x1')
+    expect(v.label).toBe('V_{x1}')
+    expect(v.displayName).toBe('Vx₁')
+    expect(v.label).not.toContain('n_x1_runtime')
+  })
+
   it('(h) new paths are minimal and carry no runtime ids', () => {
     const k = loadKitchenSink()
     const n = makeNode({ label: 'V9', type: 'variable', x: 1, y: 2 })
@@ -231,7 +238,7 @@ describe('round trip: edits change only what they edit', () => {
     const out = k.serialize()
     const paths = out.models.fitted.paths
     expect(paths.slice(-3)).toEqual([
-      { from: 'V9', to: 'V9', numberOfArrows: 2, freeParameter: true, parameterType: 'errorVariance' },
+      { from: 'V9', to: 'V9', numberOfArrows: 2, label: 'V_{V9}', freeParameter: true, parameterType: 'errorVariance' },
       { from: 'F', to: 'V9', numberOfArrows: 1 },
       { from: 'data', to: 'V9', type: 'data', label: 'V9' },
     ])
