@@ -100,3 +100,15 @@ test_that("runModel() records the standard errors OpenMx computed", {
   osd <- fitted@lastBuiltModel$output$standardErrors
   expect_equal(se[["b"]], unname(osd["b", 1]))
 })
+
+test_that("summary() of a fitted GraphModel copes with missing standard errors", {
+  fitted <- fitQuietly(fittableModel())
+  # as after the widget's JSON round trip: NA SEs come back as NULL
+  fr <- fitted@schema$models[[1]]$provenance$fitResults
+  fr[[length(fr)]]$standardErrors <- lapply(fr[[length(fr)]]$standardErrors, function(x) NULL)
+  fitted@schema$models[[1]]$provenance$fitResults <- fr
+  out <- NULL
+  expect_no_error(capture.output(out <- summary(fitted)))
+  expect_length(out$standardErrors, length(out$parameterEstimates))
+  expect_true(all(is.na(out$standardErrors)))
+})
