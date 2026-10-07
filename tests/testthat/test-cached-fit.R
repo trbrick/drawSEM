@@ -89,3 +89,14 @@ test_that("a fresh fit is not stale, even with named free parameters", {
   # an actual edit still makes it stale
   expect_warning(getFitResults(changePath(fitted, "x", "y", 1, value = 0.9)), "stale")
 })
+
+test_that("runModel() records the standard errors OpenMx computed", {
+  fitted <- fitQuietly(fittableModel())
+  res <- getFitResults(fitted)
+  se <- unlist(res$standardErrors)
+  expect_setequal(names(se), names(res$parameterEstimates))
+  expect_false(anyNA(se))
+  expect_true(all(se > 0))
+  osd <- fitted@lastBuiltModel$output$standardErrors
+  expect_equal(se[["b"]], unname(osd["b", 1]))
+})

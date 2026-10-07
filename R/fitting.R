@@ -377,11 +377,14 @@ runModel <- function(
   
   # Extract parameter estimates and SEs
   estimates <- fit_result$output$estimate
-  se_object <- try(OpenMx::SE(fit_result), silent = TRUE)
-  standard_errors <- if (inherits(se_object, "try-error")) {
-    setNames(rep(NA_real_, length(estimates)), names(estimates))
-  } else {
-    se_object
+  # OpenMx stores SEs as a one-column matrix with parameter names as row names;
+  # align them to the estimates by name (NA where OpenMx has none).
+  se_matrix <- fit_result$output$standardErrors
+  standard_errors <- setNames(rep(NA_real_, length(estimates)), names(estimates))
+  if (!is.null(se_matrix) && length(se_matrix) > 0) {
+    se_values <- setNames(as.numeric(se_matrix), rownames(se_matrix) %||% names(estimates))
+    shared <- intersect(names(estimates), names(se_values))
+    standard_errors[shared] <- se_values[shared]
   }
   
   # Get sample size and DF
