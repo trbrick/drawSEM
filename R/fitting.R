@@ -411,8 +411,32 @@ runModel <- function(
     }
   )
   
-  # Step 4: Create fit result entry
-  current_hash <- hashStructure(graphModel, model_id)
+  # Step 4: Write fitted estimates into the named free parameters' values
+  # (so the schema shows them for inspection and export). Done before the
+  # structure hash is taken, so the fit records the model as it is returned;
+  # hashing first left every fit with a named free parameter stale at once.
+  result_model <- graphModel
+  model <- result_model@schema$models[[model_id]]
+  if (converged && length(estimates) > 0) {
+    model$paths <- lapply(model$paths, function(path) {
+      # If this path has a freeParameter label, look up its fitted estimate
+      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
+        param_name <- path$freeParameter
+        if (param_name %in% names(estimates)) {
+          path$value <- as.numeric(estimates[[param_name]])
+        }
+      } else if (isTRUE(path$freeParameter)) {
+        # For anonymous free parameters (freeParameter = true),
+        # the Backend names them; we'd need the OpenMx parameter table to match.
+        # For now, skip these (they're not commonly used).
+      }
+      path
+    })
+  }
+  result_model@schema$models[[model_id]] <- model
+
+  # Step 5: Create fit result entry
+  current_hash <- hashStructure(result_model, model_id)
 
   # Capture a snapshot of the data that produced this fit, for
   # reproducibility/staleness checks. Pulled from the model's dataset node;
@@ -449,9 +473,7 @@ runModel <- function(
     fit_entry$dataBinding <- data_binding
   }
   
-  # Step 5: Store in GraphModel schema
-  result_model <- graphModel
-  model <- result_model@schema$models[[model_id]]
+  # Step 6: Store in GraphModel schema
   
   # Initialize provenance if needed
   if (is.null(model$provenance)) {
@@ -467,27 +489,6 @@ runModel <- function(
   # Update hashes and timestamp
   model$provenance$structureHash <- current_hash
   model$provenance$lastModified <- fit_entry$timestamp
-  
-  result_model@schema$models[[model_id]] <- model
-  
-  # Step 6: Update path.value fields with fitted parameter estimates
-  # This allows the schema to display fitted values for inspection and export
-  if (converged && length(estimates) > 0) {
-    model$paths <- lapply(model$paths, function(path) {
-      # If this path has a freeParameter label, look up its fitted estimate
-      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
-        param_name <- path$freeParameter
-        if (param_name %in% names(estimates)) {
-          path$value <- as.numeric(estimates[[param_name]])
-        }
-      } else if (isTRUE(path$freeParameter)) {
-        # For anonymous free parameters (freeParameter = true),
-        # the Backend names them; we'd need the OpenMx parameter table to match.
-        # For now, skip these (they're not commonly used).
-      }
-      path
-    })
-  }
   
   result_model@schema$models[[model_id]] <- model
   

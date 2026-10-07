@@ -76,3 +76,16 @@ test_that("the Shiny server keeps the fit across widget echoes and drags", {
     expect_length(as.MxModel(st$currentModel())@output, 0)
   })
 })
+
+test_that("a fresh fit is not stale, even with named free parameters", {
+  # runModel() writes estimates into named free parameters' values; the fit
+  # must record the model as returned, or it is stale the moment it is stored.
+  fitted <- fitQuietly(fittableModel())          # has freeParameter = "b"
+  expect_no_warning(res <- getFitResults(fitted))
+  expect_false(identical(res, NA))
+  expect_false(isTRUE(res$isStale))
+  b <- Filter(function(p) identical(p$freeParameter, "b"), fitted@schema$models[[1]]$paths)[[1]]
+  expect_equal(b$value, res$parameterEstimates$b)
+  # an actual edit still makes it stale
+  expect_warning(getFitResults(changePath(fitted, "x", "y", 1, value = 0.9)), "stale")
+})
