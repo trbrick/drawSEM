@@ -131,6 +131,10 @@ interface CanvasToolProps {
 
 type RuntimeModel = { id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }
 
+const EMPTY_NODES: Node[] = []
+const EMPTY_PATHS: Path[] = []
+const EMPTY_PARAMETER_TYPES: Record<string, any> = {}
+
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full', editMode = 'full' }: CanvasToolProps): JSX.Element {
   const isLayoutOnly = editMode === 'layout'
   const adapter = useAdapter()
@@ -163,9 +167,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   
   // Convenience accessors for current model
   const currentModel = models.find((m) => m.id === currentModelId)
-  const nodes = currentModel?.nodes || []
-  const paths = currentModel?.paths || []
-  const parameterTypes = currentModel?.parameterTypes || {}
+  // Stable empties: a fresh [] each render would re-run every effect keyed on
+  // nodes/paths and loop forever while no model is loaded (e.g. an invalid
+  // initial schema).
+  const nodes = currentModel?.nodes || EMPTY_NODES
+  const paths = currentModel?.paths || EMPTY_PATHS
+  const parameterTypes = currentModel?.parameterTypes || EMPTY_PARAMETER_TYPES
   
   // Setters for current model (convenience wrappers)
   const setNodes = (updater: React.SetStateAction<Node[]>) => {
@@ -269,6 +276,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
+
+  // When a dataset node is added (e.g. data loaded from R), switch to the All
+  // layer so it is visible: the default SEM layer hides dataset nodes.
+  const datasetIdsKey = nodes.filter((n) => n.type === 'dataset').map((n) => n.id).sort().join(',')
+  const prevDatasetIdsRef = useRef<{ modelId: string | null; ids: Set<string> } | null>(null)
+  React.useEffect(() => {
+    const ids = new Set(datasetIdsKey ? datasetIdsKey.split(',') : [])
+    const prev = prevDatasetIdsRef.current
+    if (prev && prev.modelId === currentModelId && [...ids].some((id) => !prev.ids.has(id))) {
+      setActiveLayer('all')
+    }
+    prevDatasetIdsRef.current = { modelId: currentModelId, ids }
+  }, [datasetIdsKey, currentModelId])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [validationWarnings, setValidationWarnings] = useState<string[]>([])
 
