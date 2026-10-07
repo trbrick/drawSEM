@@ -151,12 +151,19 @@ resolveDataPath <- function(location, schemaDir, dataPath = ".") {
   }
   
   # If dataPath is ".", use schemaDir
+  in_schema_dir <- normalizePath(file.path(schemaDir, location), mustWork = FALSE)
   if (dataPath == ".") {
-    return(normalizePath(file.path(schemaDir, location), mustWork = FALSE))
+    return(in_schema_dir)
   }
-  
-  # Otherwise, resolve relative to dataPath
-  return(normalizePath(file.path(dataPath, location), mustWork = FALSE))
+
+  # Otherwise, resolve relative to dataPath; if the file is not there but is
+  # next to the schema (the usual layout, e.g. a model and its CSV in one
+  # folder), use that.
+  in_data_path <- normalizePath(file.path(dataPath, location), mustWork = FALSE)
+  if (!file.exists(in_data_path) && file.exists(in_schema_dir)) {
+    return(in_schema_dir)
+  }
+  return(in_data_path)
 }
 
 #' Normalize Schema from JSON Parsing

@@ -481,3 +481,23 @@ test_that("loadSchema smart-loads based on file size", {
   expect_true("data" %in% names(g@data))
   expect_s3_class(g@data$data, "data.frame")
 })
+
+test_that("resolveDataPath finds a data file next to the schema when it is not in dataPath", {
+  schema_dir <- tempfile("schemadir"); dir.create(schema_dir)
+  other_dir <- tempfile("otherdir"); dir.create(other_dir)
+  writeLines("x\n1", file.path(schema_dir, "beside.csv"))
+  expect_equal(resolveDataPath("beside.csv", schema_dir, other_dir),
+               normalizePath(file.path(schema_dir, "beside.csv")))
+  # a file present in dataPath still wins
+  writeLines("x\n2", file.path(other_dir, "beside.csv"))
+  expect_equal(resolveDataPath("beside.csv", schema_dir, other_dir),
+               normalizePath(file.path(other_dir, "beside.csv")))
+})
+
+test_that("loadGraphModel attaches the bundled example's data from the model's folder", {
+  f <- testthat::test_path("..", "..", "drawsem-web", "examples", "graph.example.json")
+  skip_if_not(file.exists(f), "example not available")
+  gm <- loadGraphModel(f)   # datapath defaults to getwd(), not the example's folder
+  expect_true("sample" %in% names(gm@data))
+  expect_equal(nrow(gm@data$sample), 10)
+})
