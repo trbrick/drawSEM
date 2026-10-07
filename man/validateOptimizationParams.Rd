@@ -15,7 +15,7 @@ Invisibly returns TRUE. Throws error if invalid.
 \description{
 Checks that:
 \itemize{
-\item Fixed parameters have values (not null)
+\item Fixed parameters may omit their value (it defaults to the schema's 1.0)
 \item Free parameters have valid values or are null (will default to 0.1)
 \item freeParameter is TRUE, a non-empty string, or absent (absent means fixed; FALSE is rejected)
 }

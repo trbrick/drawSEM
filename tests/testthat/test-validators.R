@@ -213,7 +213,7 @@ test_that("validatePathReferences passes with valid paths", {
   )
 })
 
-test_that("validateOptimizationParams detects fixed without value", {
+test_that("validateOptimizationParams accepts a fixed path without a value (schema default)", {
   schema <- list(
     schemaVersion = 0,
     models = list(
@@ -228,10 +228,7 @@ test_that("validateOptimizationParams detects fixed without value", {
     )
   )
 
-  expect_error(
-    validateOptimizationParams(schema),
-    "Fixed parameters must have a value"
-  )
+  expect_no_error(validateOptimizationParams(schema, verbose = FALSE))
 })
 
 test_that("validateOptimizationParams rejects invalid freeParameter values", {
@@ -321,4 +318,14 @@ test_that("validateSchema fails on any validation error", {
   )
 
   expect_error(validateSchema(schema))
+})
+
+test_that("a fixed path with no value converts with the schema's default value", {
+  expect_equal(.pathValueDefault(), 1)
+  paths <- buildPathList(
+    list(list(from = "x", to = "y", numberOfArrows = 1),
+         list(from = "x", to = "x", numberOfArrows = 2, freeParameter = TRUE),
+         list(from = "y", to = "y", numberOfArrows = 2, value = 0.5)),
+    character(0))
+  expect_equal(vapply(paths, function(p) p$values, numeric(1)), c(1, 0.1, 0.5))
 })

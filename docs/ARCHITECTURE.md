@@ -38,7 +38,7 @@ repo root/                        ← R package (DESCRIPTION, NAMESPACE here)
 ├── inst/
 │   ├── htmlwidgets/              ← htmlwidgets binding (YAML, JS bridge)
 │   │   └── lib/app/              ← Built web frontend (committed to git)
-│   └── extdata/                  ← Schema JSON examples
+│   └── extdata/                  ← graph.schema.json (committed copy of drawsem-web/schema/, synced by `make`)
 ├── drawsem-web/                  ← Web frontend source (NOT in R tarball)
 │   ├── src/                      ← TypeScript / React source
 │   ├── vite.config.ts            ← Standalone build config

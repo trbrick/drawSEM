@@ -186,7 +186,6 @@ NULL
   fitStatus                <- shiny::reactiveVal("unfitted")
   svgData                  <- shiny::reactiveVal(NULL)
   lastVarname              <- shiny::reactiveVal("myModel")
-  suppressNextEcho         <- shiny::reactiveVal(FALSE)
   lastStructuralFingerprint <- shiny::reactiveVal(NULL)
 
   # ── Tailwind modal helpers ─────────────────────────────────────────────
@@ -303,13 +302,10 @@ NULL
   })
 
   # ── Model updates from JS ──────────────────────────────────────────────
+  # After a fit, R pushes update_model and the widget echoes the model back.
+  # The echo is structurally identical, so the hashStructure() check below
+  # keeps the fit "converged"; no echo suppression is needed.
   shiny::observeEvent(input$graph_model, {
-    # When R pushes an update_model after fitting, JS echoes the model back.
-    # Suppress that single echo so it does not flip converged→stale.
-    if (isTRUE(suppressNextEcho())) {
-      suppressNextEcho(FALSE)
-      return()
-    }
     tryCatch({
       gm  <- as.GraphModel(input$graph_model)
       old <- currentModel()
@@ -318,6 +314,9 @@ NULL
           if (is.null(gm@data[[nm]])) gm@data[[nm]] <- old@data[[nm]]
         }
       }
+      # Keep the fitted MxModel across echoes; as.MxModel() uses it only while
+      # the model still matches what was fitted.
+      gm <- .carryCachedFit(gm, old)
       currentModel(gm)
       # Empty model (Clear) → reset to unfitted
       first_model <- (gm@schema$models %||% list())[[1]]
@@ -528,7 +527,6 @@ NULL
     currentModel(result)
     .sendFitStatus("converged")
     lastStructuralFingerprint(hashStructure(result))
-    suppressNextEcho(TRUE)
     session$sendCustomMessage("update_model", list(schema = result@schema))
 
     fit_res    <- getFitResults(result)
@@ -536,14 +534,9 @@ NULL
       ests  <- fit_res$parameterEstimates %||% list()
       ses   <- fit_res$standardErrors    %||% list()
       fit_v <- fit_res$fitValue          %||% NA_real_
-      df_v  <- fit_res$degreesOfFreedom  %||% NA_integer_
-      n_v   <- fit_res$sampleSize        %||% NA_integer_
 
-      idx <- list(`-2LL` = fit_v)
-      if (!is.na(df_v) && !is.na(fit_v)) {
-        idx$AIC <- fit_v + 2L * df_v
-        if (!is.na(n_v) && n_v > 0L) idx$BIC <- fit_v + log(n_v) * df_v
-      }
+      # AIC/BIC as OpenMx computed them (the fit record's backendOutput)
+      idx <- c(list(`-2LL` = fit_v), .fitInfoCriteria(fit_res))
       idx_rows <- lapply(names(idx), function(nm) {
         val <- idx[[nm]]
         shiny::tags$tr(
@@ -555,8 +548,11 @@ NULL
 
       param_content <- if (length(ests) > 0) {
         nms    <- names(ests)
-        se_vec <- unlist(ses)
-        if (is.null(names(se_vec))) names(se_vec) <- nms
+        # SEs aligned to the estimates by name (a missing SE may arrive as NULL)
+        se_vec <- vapply(nms, function(nm) {
+          v <- ses[[nm]]
+          if (is.null(v) || length(v) == 0) NA_real_ else as.numeric(v[[1]])
+        }, numeric(1))
         est_vec <- unlist(ests)
         p_rows  <- lapply(nms, function(nm) {
           shiny::tags$tr(
@@ -734,6 +730,11 @@ NULL
     }
     shiny::stopApp(returnValue = gm)
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+  # Reactive state handles, for tests (shiny::testServer exposes a module's
+  # return value as session$returned). Unused by the app itself.
+  invisible(list(currentModel = currentModel, fitStatus = fitStatus,
+                 lastStructuralFingerprint = lastStructuralFingerprint))
 }
 
 

@@ -231,6 +231,7 @@ normalizeSchemaFromJSON <- function(obj) {
 #' metadata(g)
 #' }
 #'
+#' @name as.GraphModel
 #' @export
 #' @rdname as.GraphModel
 NULL
@@ -366,7 +367,11 @@ setMethod(
 #' 3. Attempting to lazy-load data from schema-specified files
 #' 4. If no data found, building model without mxData and issuing a warning
 #'
-#' Caches the built model in the GraphModel object.
+#' If `x` was fitted with [runModel()] and has not changed since (same
+#' structure, values and data; moving nodes does not count), the fitted
+#' MxModel from that run is returned instead of a fresh build, so its output
+#' (estimates, fit statistics, `summary()`) is kept. Its layout hints are
+#' refreshed. Supplying `data` always builds afresh.
 #'
 #' Also attaches layout/provenance `drawSemHints` at `@options$drawSemHints`
 #' (see `?drawSemHints`) so a later `as.GraphModel()` on this model recovers
@@ -383,6 +388,7 @@ setMethod(
 #' fit <- mxRun(om_model)
 #' }
 #'
+#' @name as.MxModel
 #' @export as.MxModel
 #' @exportMethod as.MxModel
 #' @rdname as.MxModel
@@ -401,7 +407,18 @@ setMethod(
     if (is.null(model_id)) {
       model_id <- names(x@schema$models)[1]
     }
-    
+
+    # A fit from runModel() that still matches this model is returned as is,
+    # so its output survives (see .cachedFit()); only its layout hints are
+    # refreshed, since layout changes do not invalidate a fit.
+    if (is.null(data)) {
+      fit <- .cachedFit(x, model_id)
+      if (!is.null(fit)) {
+        fit@options$drawSemHints <- buildDrawSemHints(x@schema, model_id)
+        return(fit)
+      }
+    }
+
     # Start with existing bound data
     working_data <- x@data
     
@@ -1182,7 +1199,14 @@ setMethod(
     )
     
     gm@dataConnections <- data_connections
-    
+
+    # A fitted MxModel is kept as the cached fit, so as.MxModel() on the
+    # unchanged result gives it back, output (and anything the schema does
+    # not carry) included.
+    if (length(x@output) > 0) {
+      gm <- .cacheFit(gm, x, names(gm@schema$models)[1])
+    }
+
     gm
   }
 )

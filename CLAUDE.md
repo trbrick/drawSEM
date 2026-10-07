@@ -33,7 +33,7 @@ drawSEM/                    ← R package root (DESCRIPTION, NAMESPACE here)
 ├── tests/testthat/         ← R tests (testthat)
 ├── inst/
 │   ├── htmlwidgets/        ← htmlwidgets binding; lib/app/ holds the built widget
-│   └── extdata/            ← graph.schema.json (canonical copy, synced from drawsem-web/schema/)
+│   └── extdata/            ← graph.schema.json (committed copy of drawsem-web/schema/, synced by `make`)
 ├── drawsem-web/            ← TypeScript/React frontend source
 │   ├── src/
 │   │   ├── components/CanvasTool.tsx  ← main canvas component (all editing logic)
@@ -100,7 +100,7 @@ make test-all            # Run both test suites
 git config core.hooksPath .githooks
 chmod +x .githooks/*
 ```
-The pre-commit hook runs `npm run build:widget` automatically so committed widget assets stay in sync.
+The pre-commit hook fails if `inst/extdata/graph.schema.json` differs from `drawsem-web/schema/graph.schema.json` (run `make`), and runs `npm run build:widget` automatically so committed widget assets stay in sync. `tests/testthat/test-schema-sync.R` checks the schema copy too, for clones without hooks enabled.
 
 ## Scope by session context
 

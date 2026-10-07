@@ -445,12 +445,23 @@ setMethod("summary", "GraphModel", function(object, ...) {
   if (!is.null(latest_fit$sampleSize) && !is.na(latest_fit$sampleSize)) {
     cat(sprintf("Sample Size: %d\n", latest_fit$sampleSize))
   }
+
+  # Information criteria as the backend computed them
+  info_criteria <- .fitInfoCriteria(latest_fit)
+  for (nm in names(info_criteria)) cat(sprintf("%s: %.4f\n", nm, info_criteria[[nm]]))
   
   cat("\n")
   
   # Parameter estimates table
   params <- unlist(latest_fit$parameterEstimates %||% list())
-  se_vals <- unlist(latest_fit$standardErrors %||% list())
+  # Align SEs to the estimates by name. A missing SE can arrive as NULL (an NA
+  # sent through the widget's JSON comes back as null), which unlist() would
+  # drop; fill those with NA instead.
+  se_list <- latest_fit$standardErrors %||% list()
+  se_vals <- vapply(names(params), function(nm) {
+    v <- se_list[[nm]]
+    if (is.null(v) || length(v) == 0) NA_real_ else as.numeric(v[[1]])
+  }, numeric(1))
   
   if (length(params) > 0) {
     est_table <- data.frame(
@@ -468,6 +479,7 @@ setMethod("summary", "GraphModel", function(object, ...) {
     fitValue = latest_fit$fitValue,
     parameterEstimates = params,
     standardErrors = se_vals,
+    informationCriteria = info_criteria,
     isStale = is_stale
   ))
 })

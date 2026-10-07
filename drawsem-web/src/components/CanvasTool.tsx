@@ -3,10 +3,12 @@ import Papa from 'papaparse'
 import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
-import { convertDocToRuntime } from '../utils/runtimeConverter'
-import { modelToSchema } from '../utils/runtimeToSchema'
-import { autoLayout, PositionMap } from '../utils/autoLayout'
-import { uid, isDatasetPath, modelFilename } from '../utils/helpers'
+import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
+import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
+import type { RuntimeModel } from '../utils/runtimeToSchema'
+import { autoLayout, layoutOnLoad, PositionMap } from '../utils/autoLayout'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
+import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
@@ -15,78 +17,7 @@ import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 
-type NodeType = 'variable' | 'constant' | 'dataset'
-
-type Node = {
-  id: string
-  x: number
-  y: number
-  label: string
-  type: NodeType
-  description?: string
-  tags?: string[]
-  // optional display name (for UI only) - separate from label used for matching/export
-  displayName?: string
-  // for variable nodes: semantic characteristics (manifestLatent, exogeneity)
-  variableCharacteristics?: {
-    manifestLatent?: 'manifest' | 'latent'
-    exogeneity?: 'exogenous' | 'endogenous'
-  }
-  // optional size for manifest nodes
-  width?: number
-  height?: number
-  // optional dataset metadata attached to dataset nodes (internal only)
-  dataset?: {
-    fileName: string
-    headers: string[]
-    columns: any[]
-  }
-  // optional logical binding names for dataset nodes: { sourceColumn: bindingName }
-  bindingMappings?: Record<string, string>
-  // optional dataset source metadata from schema (file-based or embedded)
-  datasetSource?: {
-    type: 'file' | 'embedded'
-    location?: string          // For type='file': path to CSV file
-    format?: string            // 'csv', 'tsv', 'xlsx', 'json'
-    encoding?: string          // e.g., 'UTF-8'
-    columnTypes?: Record<string, string>  // mapping of column names to data types
-    md5?: string              // For integrity verification
-    rowCount?: number         // Number of data rows (excluding header)
-    object?: any[]            // For type='embedded': array of row objects
-  }
-}
-
-type Path = {
-  id: string
-  from: string
-  to: string
-  twoSided: boolean
-  // optional side for self-loop attachment: 'top', 'right', 'bottom', 'left'
-  side?: 'top' | 'right' | 'bottom' | 'left'
-  // optional human-facing label (editable). If null or absent, UI will not display a label.
-  label?: string | null
-  // optional display name (for UI only) - separate from label used for matching/export
-  displayName?: string | null
-  // numeric value for the path; defaults to 1.0 (null for dataset paths)
-  value?: number | null
-  // whether the path parameter is freely estimated; true = free anonymous, absent = fixed
-  freeParameter?: boolean | string
-  // path type: 'data' = dataset mapping; 'constant' = mean/intercept; absent = structural
-  type?: 'data' | 'constant'
-  // optional semantic category from optimization.parameterTypes
-  parameterType?: string
-  // when true and twoSided=false, the visual arrow direction is reversed (to→from instead of from→to)
-  reversed?: boolean
-  // optional path-specific optimization overrides
-  optimization?: {
-    prior?: Record<string, any> | null
-    bounds?: [number | null, number | null] | null
-    start?: number | string | null
-  }
-  visual?: {
-    midpointOffset?: { x: number; y: number }
-  }
-}
+type NodeType = Node['type']
 
 type Mode =
   | 'select'
@@ -129,7 +60,6 @@ interface CanvasToolProps {
   editMode?: 'full' | 'layout'
 }
 
-type RuntimeModel = { id: string; label: string; nodes: Node[]; paths: Path[]; parameterTypes: Record<string, any> }
 
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
@@ -164,6 +94,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+  // Document-level keys the editor does not own (schemaVersion, meta), captured
+  // at load and re-emitted verbatim with every serialization of `models`.
+  const [docPassthrough, setDocPassthrough] = useState<Record<string, any>>({})
   
   // Convenience accessors for current model
   const currentModel = models.find((m) => m.id === currentModelId)
@@ -213,7 +146,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         m.id === modelId
           ? {
               ...m,
-              parameterTypes: typeof updater === 'function' ? updater(m.parameterTypes) : updater,
+              parameterTypes: typeof updater === 'function' ? updater(m.parameterTypes ?? {}) : updater,
             }
           : m
       )
@@ -327,17 +260,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Helper: Update a path's optimization field
   const updatePathOptimization = (pathId: string, updates: Partial<Path['optimization']>) => {
     setPaths((ps) =>
-      ps.map((p) =>
-        p.id === pathId
-          ? {
-              ...p,
-              optimization: {
-                ...(p.optimization || {}),
-                ...updates,
-              },
-            }
-          : p
-      )
+      ps.map((p) => {
+        if (p.id !== pathId) return p
+        // Drop cleared (undefined) entries, and the whole object once empty, so
+        // setting then clearing an override leaves the path as it was.
+        const merged: Record<string, any> = { ...(p.optimization || {}), ...updates }
+        for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k]
+        const { optimization: _old, ...rest } = p
+        return Object.keys(merged).length > 0 ? { ...rest, optimization: merged } : rest
+      })
     )
   }
 
@@ -483,34 +414,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
           const modelsOut = convertDocToRuntime(g as any)
 
-          // Auto-layout: run whenever variable nodes all lack valid positions
-          // (same logic as the onModelReceived Shiny update path)
-          if (modelsOut.length > 0) {
-            const firstModel = modelsOut[0]
-            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
-            const needsLayout = variableNodes.length > 0 && variableNodes.every(
-              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
-            )
-            if (needsLayout) {
-              try {
-                const positions: PositionMap = autoLayout(g as GraphSchema)
-                const anyValid = variableNodes.some((n: any) => {
-                  const pos = positions[n.label || n.id]
-                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
-                })
-                if (anyValid) {
-                  firstModel.nodes.forEach((n: any) => {
-                    const pos = positions[n.label || n.id]
-                    if (pos) { n.x = pos.x; n.y = pos.y }
-                  })
-                }
-              } catch (layoutError) {
-                console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
-              }
-            }
+          // Auto-layout only when no node of the model has a position
+          try {
+            layoutOnLoad(modelsOut, g as GraphSchema)
+          } catch (layoutError) {
+            console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
 
-          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut)
+          setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -537,43 +449,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
           const modelsOut = convertDocToRuntime(schema as any)
           
-          // Attempt auto-layout if variable nodes lack valid positions.
-          // Only variable nodes are considered — constant and dataset nodes
-          // may legitimately have no visual hints.
-          if (modelsOut.length > 0) {
-            const firstModel = modelsOut[0]
-            const variableNodes = firstModel.nodes.filter((n: any) => n.type === 'variable')
-            const needsLayout = variableNodes.length > 0 && variableNodes.every(
-              (n: any) => (n.x === 0 && n.y === 0) || isNaN(n.x) || isNaN(n.y)
-            )
-            
-            if (needsLayout) {
-              try {
-                const positions: PositionMap = autoLayout(schema as GraphSchema)
-                
-                // Validate: at least one variable node got a non-origin position
-                const anyValid = variableNodes.some((n: any) => {
-                  const pos = positions[n.label || n.id]
-                  return pos && !isNaN(pos.x) && !isNaN(pos.y) && (pos.x !== 0 || pos.y !== 0)
-                })
-                
-                if (anyValid) {
-                  firstModel.nodes.forEach((n: any) => {
-                    const pos = positions[n.label || n.id]
-                    if (pos) {
-                      n.x = pos.x
-                      n.y = pos.y
-                    }
-                  })
-                } else {
-                  setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
-                }
-              } catch (layoutError) {
-                setErrorMessage('Auto-layout failed: ' + (layoutError instanceof Error ? layoutError.message : String(layoutError)) + '. Click "Auto Layout" to try again.')
-              }
+          // Auto-layout only when no node of the model has a position
+          try {
+            if (layoutOnLoad(modelsOut, schema) === 'no-usable-positions') {
+              setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
+          } catch (layoutError) {
+            setErrorMessage('Auto-layout failed: ' + (layoutError instanceof Error ? layoutError.message : String(layoutError)) + '. Click "Auto Layout" to try again.')
           }
-          
+
           // If the schema has fit results, auto-switch label mode to show values
           const firstModelSchema = Object.values((schema as any).models || {})[0] as any
           const hasFitResults = firstModelSchema?.provenance?.fitResults?.length > 0
@@ -585,7 +469,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })
           }
 
-          loadModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+          loadModels(modelsOut)
+          setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -769,17 +654,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }, [nodes.filter((n) => n.type === 'dataset' && n.datasetSource?.type === 'embedded' && !n.dataset).map((n) => n.id).join(',')])
 
-  // Call onModelChange callback whenever the current model changes (for Shiny integration)
+  // Call onModelChange whenever the models change (for Shiny integration). The
+  // whole document is sent (every model plus document-level pass-through), so
+  // an unedited load echoes back exactly what was loaded.
   React.useEffect(() => {
-    if (onModelChange && currentModel) {
+    if (onModelChange && models.length > 0) {
       try {
-        const modelSchema = modelToSchema(currentModel)
-        onModelChange(modelSchema)
+        onModelChange(modelsToSchema(models, docPassthrough))
       } catch (e) {
         console.error('[onModelChange] Error calling callback:', e)
       }
     }
-  }, [currentModel, onModelChange])
+  }, [models, docPassthrough, onModelChange])
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
@@ -864,8 +750,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // TODO: Apply to all node rendering positions for complete canonical->display transformation
   const getNodeDisplayCoordinates = (n: Node): { displayX: number; displayY: number } => {
     return {
-      displayX: n.x + displayAnchor.x,
-      displayY: n.y + displayAnchor.y,
+      displayX: nodeX(n) + displayAnchor.x,
+      displayY: nodeY(n) + displayAnchor.y,
     }
   }
 
@@ -939,54 +825,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (!currentManifestLatent) {
       // No lock: set manifestLatent to opposite of current display
       const opposite = currentDisplay === 'manifest' ? 'latent' : 'manifest'
-      setNodes((ns) =>
-        ns.map((n) =>
-          n.id === nodeId 
-            ? { 
-                ...n, 
-                variableCharacteristics: {
-                  ...n.variableCharacteristics,
-                  manifestLatent: opposite
-                }
-              } 
-            : n
-        )
-      )
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? withManifestLatent(n, opposite) : n)))
     } else {
       // Locked: test if removing the lock would change display
       const autoInferredDisplay = hasPath ? 'manifest' : 'latent'
       
       if (autoInferredDisplay !== currentManifestLatent) {
         // Removing lock would change display: remove it
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId 
-              ? { 
-                  ...n, 
-                  variableCharacteristics: {
-                    ...n.variableCharacteristics,
-                    manifestLatent: undefined
-                  }
-                } 
-              : n
-          )
-        )
+        setNodes((ns) => ns.map((n) => (n.id === nodeId ? withManifestLatent(n, undefined) : n)))
       } else {
         // Removing lock wouldn't change display: toggle to other option
         const newCharacteristic = currentManifestLatent === 'manifest' ? 'latent' : 'manifest'
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === nodeId 
-              ? { 
-                  ...n, 
-                  variableCharacteristics: {
-                    ...n.variableCharacteristics,
-                    manifestLatent: newCharacteristic
-                  }
-                } 
-              : n
-          )
-        )
+        setNodes((ns) => ns.map((n) => (n.id === nodeId ? withManifestLatent(n, newCharacteristic) : n)))
       }
     }
   }
@@ -1046,7 +896,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
+  // An unlabeled path's displayName is generated from its endpoints and arrow
+  // type; regenerate it after a direction change so it stays truthful.
+  function withAutoDisplayName(p: Path): Path {
+    if (p.label) return p
+    const from = nodes.find((n) => n.id === p.from)
+    const to = nodes.find((n) => n.id === p.to)
+    const name = (n: Node | undefined, id: string) => convertToUnicode(n?.label ?? id)
+    return { ...p, displayName: name(from, p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(to, p.to) }
+  }
+
   // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
+  // Reversal swaps from/to in state, so it is serialized like any other edit.
   function cyclePath(pathId: string) {
     if (isLayoutOnly) return
     const p = paths.find((x) => x.id === pathId)
@@ -1056,14 +917,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // Disallow cycling when sourced from a dataset or constant node
     const fromNode = nodes.find((n) => n.id === p.from)
     if (fromNode?.type === 'dataset' || fromNode?.type === 'constant') return
-    setPaths((ps) =>
-      ps.map((x) => {
-        if (x.id !== pathId) return x
-        if (x.twoSided) return { ...x, twoSided: false, reversed: false }
-        if (!x.reversed) return { ...x, reversed: true }
-        return { ...x, twoSided: true, reversed: false }
-      })
-    )
+    setPaths((ps) => ps.map((x) => (x.id === pathId ? withAutoDisplayName(cyclePathDirection(x)) : x)))
   }
 
   // Helper function to get path display text based on label mode
@@ -1146,9 +1000,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     csvFileInputRef.current?.click()
   }
 
+  // The full document (all models + document-level pass-through): what Save,
+  // code export and the Shiny sync send.
   function buildCurrentSchema(): GraphSchema | null {
+    if (models.length === 0) return null
+    return modelsToSchema(models, docPassthrough)
+  }
+
+  // A single-model schema of the current model for image export. Unplaced nodes
+  // are drawn where the canvas draws them (nodeX/nodeY), so the image matches
+  // the screen. Not a serialization: never sent or saved.
+  function buildRenderSchema(): GraphSchema | null {
     if (!currentModel) return null
-    return modelToSchema(currentModel)
+    return modelToSchema({
+      ...currentModel,
+      nodes: currentModel.nodes.map((n) => ({ ...n, x: nodeX(n), y: nodeY(n) })),
+    })
   }
 
   async function handleSaveClick() {
@@ -1165,7 +1032,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleExportSvg() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       downloadSvg(svgString, modelFilename(currentModel?.label, 'svg'))
@@ -1178,7 +1045,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   async function handleExportPng() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       const blob = new Blob([svgString], { type: 'image/svg+xml' })
@@ -1212,7 +1079,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleImageExportShiny() {
     try {
-      const schema = buildCurrentSchema()
+      const schema = buildRenderSchema()
       if (!schema) return
       const svgString = exportToSvg(schema)
       adapter.exportImage?.(svgString)
@@ -1283,7 +1150,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const modelsOut = convertDocToRuntime(loadedSchema)
         
         // apply into runtime state
-        setModels(modelsOut.map((m: any) => ({ ...m, parameterTypes: m.parameterTypes || {} })))
+        setModels(modelsOut)
+        setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
           fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
@@ -1431,7 +1299,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
             const w = DATASET_DEFAULT_W
             const h = DATASET_DEFAULT_H
-            function nodeBBox(n: Node) {
+            function nodeBBox(node: Node) {
+              const n = { ...node, x: nodeX(node), y: nodeY(node) }
               if (n.type === 'variable') {
                 const renderType = getVariableRenderType(n.id)
                 if (renderType === 'latent') return { minX: n.x - LATENT_RADIUS, maxX: n.x + LATENT_RADIUS, minY: n.y - LATENT_RADIUS, maxY: n.y + LATENT_RADIUS }
@@ -1468,7 +1337,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               if (i % 2 === 0) candidateX += 40 * (i % 4 === 0 ? 1 : -1)
             }
 
-            const newNode: Node = { id: uid('d_'), x, y, label: baseName, type: 'dataset', width: w, height: h, dataset: meta }
+            const newNode: Node = { ...makeNode({ label: baseName, type: 'dataset', x, y }), dataset: meta }
             return [...cur, newNode]
           })
         } catch (err) {
@@ -1576,31 +1445,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const srcNode = nodes.find((n) => n.id === src)
       const dstNode = nodes.find((n) => n.id === dst)
 
-      const np: Path = { id: uid('p_'), from: src as string, to: dst as string, twoSided }
-      // Dataset paths carry the target node label as the column name; structural paths have no label.
+      // Dataset paths carry the target node label as the column name (type='data',
+      // fixed, no value); structural paths get no label and no value (schema default).
       const newPath: Path = srcNode?.type === 'dataset'
-        ? { ...np, label: dstNode?.label || np.id }
-        : { ...np }
-      
-      // For paths from dataset nodes, set type='data'; no parameterType, no freeParameter
-      if (srcNode?.type === 'dataset') {
-        // freeParameter absent = fixed; dataset paths are always fixed
-        newPath.value = null as any // null value for data mapping
-        newPath.type = 'data'
-        newPath.displayName = convertToUnicode(newPath.label ?? '')
-      } else {
-        // Default all non-dataset paths to value 1.0
-        newPath.value = 1.0
-        // Self-loops default to free error variance
-        if (src === dst && twoSided) {
-          newPath.freeParameter = true
-          newPath.parameterType = 'errorVariance'
-        }
-        // Auto-generate a readable unicode display name from node labels
-        const arrow = twoSided ? ' ↔ ' : ' → '
-        newPath.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
-      }
-      
+        ? makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
+        : makePath({
+            from: src,
+            to: dst,
+            twoSided,
+            // Self-loops default to free error variance
+            ...(src === dst && twoSided ? { freeParameter: true, parameterType: 'errorVariance' } : {}),
+            displayName: convertToUnicode(srcNode?.label ?? src) + (twoSided ? ' ↔ ' : ' → ') + convertToUnicode(dstNode?.label ?? dst),
+          })
+
       setPaths((ps) => [...ps, newPath])
       setTempLine(null)
       setPathSource(null)
@@ -1627,19 +1484,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const p = clientToSvg(e)
     if ((mode === 'add-variable' || mode === 'add-constant') && !isLayoutOnly) {
       const type: NodeType = mode === 'add-variable' ? 'variable' : 'constant'
-      const n: Node = { id: uid('n_'), x: p.x, y: p.y, label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type }
-      if (type === 'variable') {
-        n.width = MANIFEST_DEFAULT_W
-        n.height = MANIFEST_DEFAULT_H
-      }
+      const n = makeNode({ label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type, x: p.x, y: p.y })
       setNodes((s) => [...s, n])
       selectElement(n.id, 'node')
 
       // add variance path automatically for variable nodes (free error variance by default)
       if (type !== 'constant') {
-        const vid = uid('p_')
-        const uniLabel = convertToUnicode(n.label)
-        const variance: Path = { id: vid, from: n.id, to: n.id, twoSided: true, label: vid, displayName: uniLabel + ' ↔ ' + uniLabel, freeParameter: true, parameterType: 'errorVariance', value: 1.0 }
+        const variance = makeVariancePath(n.id, n.label)
         setPaths((ps) => [...ps, variance])
       }
 
@@ -1659,31 +1510,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (pathSource) return
     if (isLayoutOnly) return
     const p = clientToSvg(e)
-    const n: Node = {
-      id: uid('n_'),
-      x: p.x,
-      y: p.y,
-      label: `V${nodes.length + 1}`,
-      type: 'variable',
-      width: MANIFEST_DEFAULT_W,
-      height: MANIFEST_DEFAULT_H,
-    }
+    const n = makeNode({ label: `V${nodes.length + 1}`, type: 'variable', x: p.x, y: p.y })
     setNodes((s) => [...s, n])
     selectElement(n.id, 'node')
     // Add a free error variance self-loop automatically
-    const vid = uid('p_')
-    const uniLabel = convertToUnicode(n.label)
-    const variance: Path = {
-      id: vid,
-      from: n.id,
-      to: n.id,
-      twoSided: true,
-      label: vid,
-      displayName: uniLabel + ' ↔ ' + uniLabel,
-      freeParameter: true,
-      parameterType: 'errorVariance',
-      value: 1.0,
-    }
+    const variance = makeVariancePath(n.id, n.label)
     setPaths((ps) => [...ps, variance])
     setMode('select')
   }
@@ -1698,8 +1529,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     // Check if we're dropping on an existing variable node
     const targetNode = nodes.find((n) => {
-      const cx = n.x
-      const cy = n.y
+      const cx = nodeX(n)
+      const cy = nodeY(n)
       const w = n.width ?? 60
       const h = n.height ?? 60
       return Math.abs(dropX - cx) < w / 2 && Math.abs(dropY - cy) < h / 2
@@ -1709,57 +1540,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       // Remove any existing database paths to this node
       setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
 
-      // Create new database path from dataset to variable with column name as label
-      const newPath: Path = {
-        id: uid('p_'),
-        from: selectedNode.id,
-        to: targetNode.id,
-        twoSided: false,
-        type: 'data',  // a data link: no numberOfArrows, no parameter
-        label: columnName,
-        displayName: displayName,
-      }
+      // Create new data path from dataset to variable with column name as label
+      const newPath = makeDataPath(selectedNode.id, targetNode.id, columnName, displayName)
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
       // Keep label as simple columnName for matching, use displayName for UI
-      const newNode: Node = {
-        id: uid('n_'),
-        x: dropX,
-        y: dropY,
-        label: columnName,
-        displayName: displayName,
-        type: 'variable',
-        width: MANIFEST_DEFAULT_W,
-        height: MANIFEST_DEFAULT_H,
-      }
+      const newNode = makeNode({ label: columnName, displayName, type: 'variable', x: dropX, y: dropY })
       setNodes((ns) => [...ns, newNode])
 
-      // Create path from dataset to new variable with column name as label
-      const newPath: Path = {
-        id: uid('p_'),
-        from: selectedNode.id,
-        to: newNode.id,
-        twoSided: false,
-        type: 'data',  // a data link: no numberOfArrows, no parameter
-        label: columnName,
-        displayName: displayName,
-      }
+      // Create data path from dataset to new variable with column name as label
+      const newPath = makeDataPath(selectedNode.id, newNode.id, columnName, displayName)
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
-      const varianceId = uid('p_')
-      const variance: Path = {
-        id: varianceId,
-        from: newNode.id,
-        to: newNode.id,
-        twoSided: true,
-        label: varianceId,
-        displayName: displayName + ' ↔ ' + displayName,
-        freeParameter: true,
-        parameterType: 'errorVariance',
-        value: 1.0,
-      }
+      const variance = makeVariancePath(newNode.id, newNode.label)
       setPaths((ps) => [...ps, variance])
     }
   }
@@ -1797,7 +1592,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // record selection immediately
     selectElement(n.id, 'node')
     if (mode === 'select') {
-      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - n.x, offsetY: cursor.y - n.y }
+      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - nodeX(n), offsetY: cursor.y - nodeY(n) }
     }
 
     // finish node drag if any
@@ -1826,23 +1621,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const srcNode = nodes.find((n) => n.id === src)
       const dstNode = nodes.find((n) => n.id === dst)
 
-      const newId = uid('p_')
-      // For paths from dataset nodes, use the target node's label as the default (column name)
-      // For other paths, use the id
-      const defaultLabel = srcNode?.type === 'dataset' ? (dstNode?.label || newId) : newId
-      const p: Path = { id: newId, from: src, to: dst, twoSided, label: defaultLabel }
-      
-      // For paths from dataset nodes, set type='data'; no parameterType, no freeParameter
-      if (srcNode?.type === 'dataset') {
-        // freeParameter absent = fixed (dataset paths are always fixed)
-        p.value = null as any // null value for data mapping
-        p.type = 'data'
-        p.displayName = convertToUnicode(defaultLabel)
-      } else {
-        // Auto-generate a readable unicode display name from node labels
-        const arrow = twoSided ? ' ↔ ' : ' → '
-        p.displayName = convertToUnicode(srcNode?.label ?? src) + arrow + convertToUnicode(dstNode?.label ?? dst)
-      }
+      // Dataset paths: target node label as the column name; other paths: no label
+      const p: Path = srcNode?.type === 'dataset'
+        ? makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
+        : makePath({
+            from: src,
+            to: dst,
+            twoSided,
+            displayName: convertToUnicode(srcNode?.label ?? src) + (twoSided ? ' ↔ ' : ' → ') + convertToUnicode(dstNode?.label ?? dst),
+          })
 
       setPaths((ps) => [...ps, p])
       setTempLine(null)
@@ -1890,8 +1677,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const node = selectedNode
         if (!node) return 'top-4 right-4'
 
-        objX = node.x
-        objY = node.y
+        objX = nodeX(node)
+        objY = nodeY(node)
 
         if (node.type === 'variable') {
           const renderType = getVariableRenderType(node.id)
@@ -1966,12 +1753,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // geometry helpers
   function centerOf(n: Node) {
-    return { x: n.x, y: n.y }
+    return { x: nodeX(n), y: nodeY(n) }
   }
 
   function getBoundaryPoint(n: Node, towards: { x: number; y: number }) {
-    const cx = n.x
-    const cy = n.y
+    const cx = nodeX(n)
+    const cy = nodeY(n)
     const dx = towards.x - cx
     const dy = towards.y - cy
     const dist = Math.hypot(dx, dy) || 1
@@ -1996,8 +1783,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     if (n.type === 'dataset') {
       // approximate dataset (cylinder) as a rounded rectangle for boundary calculations
-      const halfW = (n.width ?? 110) / 2
-      const halfH = (n.height ?? 48) / 2
+      const halfW = (n.width ?? DATASET_DEFAULT_W) / 2
+      const halfH = (n.height ?? DATASET_DEFAULT_H) / 2
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
       // When nodes are at the same position, there is no direction: return center to avoid 0*Infinity=NaN
@@ -2136,12 +1923,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function pathD(p: Path) {
-    // When reversed, swap the visual source/destination so the arrow points to→from
-    const fromId = p.reversed && !p.twoSided ? p.to : p.from
-    const toId   = p.reversed && !p.twoSided ? p.from : p.to
-    const from = nodes.find((n) => n.id === fromId)
-    const to = nodes.find((n) => n.id === toId)
-    
+    const from = nodes.find((n) => n.id === p.from)
+    const to = nodes.find((n) => n.id === p.to)
+
     if (!from || !to) {
       return ''
     }
@@ -2209,10 +1993,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   function pathLabelPos(p: Path): { x: number; y: number } | null {
-    const fromId = p.reversed && !p.twoSided ? p.to : p.from
-    const toId   = p.reversed && !p.twoSided ? p.from : p.to
-    const from = nodes.find((n) => n.id === fromId)
-    const to = nodes.find((n) => n.id === toId)
+    const from = nodes.find((n) => n.id === p.from)
+    const to = nodes.find((n) => n.id === p.to)
     if (!from || !to) return null
     const a = centerOf(from)
     const b = centerOf(to)
@@ -2288,10 +2070,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const { id, kind, value } = editing
     // Apply converter to normalize LaTeX notation to Unicode (idempotent, so safe to apply multiple times)
     const convertedValue = convertToUnicode(value)
+    // Only an actual change is written (opening and closing the editor is not an edit).
     if (kind === 'node') {
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, label: convertedValue } : n)))
+      setNodes((ns) => ns.map((n) => (n.id === id && n.label !== convertedValue ? { ...n, label: convertedValue } : n)))
     } else {
-      setPaths((ps) => ps.map((p) => (p.id === id ? { ...p, label: convertedValue } : p)))
+      setPaths((ps) =>
+        ps.map((p) =>
+          p.id === id && convertedValue !== (p.label ?? '') ? { ...p, label: convertedValue || null } : p
+        )
+      )
     }
     setEditing(null)
   }
@@ -2319,21 +2106,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           <input
             type="text"
             value={currentModel?.label ?? ''}
-            placeholder="Untitled Model"
+            placeholder={currentModel?.id || 'Untitled Model'}
             title="Model name — click to edit"
             className="text-lg font-semibold text-slate-800 placeholder-slate-400 bg-transparent border border-transparent rounded px-1 w-full max-w-lg hover:border-slate-200 focus:outline-none focus:ring-0 focus:border-sky-400"
             onChange={(e) => setCurrentModelLabel(e.target.value)}
             onBlur={(e) => {
+              // Only trim; focusing and leaving the field is not an edit (an
+              // absent label must not become "").
               const trimmed = e.target.value.trim()
-              if (trimmed === '') setCurrentModelLabel(currentModel?.label ?? '')
-              else setCurrentModelLabel(trimmed)
+              if (trimmed !== (currentModel?.label ?? '')) setCurrentModelLabel(trimmed)
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-              if (e.key === 'Escape') {
-                setCurrentModelLabel(currentModel?.label ?? '')
-                ;(e.target as HTMLInputElement).blur()
-              }
+              if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
             }}
           />
           )}
@@ -2726,13 +2510,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           setNodes((ns) =>
                             ns.map((n) =>
                               n.id === selectedNode.id
-                                ? {
-                                    ...n,
-                                    variableCharacteristics: {
-                                      ...n.variableCharacteristics,
-                                      manifestLatent: val === 'auto' ? undefined : (val as 'manifest' | 'latent')
-                                    }
-                                  }
+                                ? withManifestLatent(n, val === 'auto' ? undefined : (val as 'manifest' | 'latent'))
                                 : n
                             )
                           )
@@ -2756,33 +2534,31 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 {selectedPath && (() => {
                   const fromNode = nodes.find((n) => n.id === selectedPath.from)
                   const canCycle = fromNode?.type !== 'dataset' && fromNode?.type !== 'constant' && selectedPath.from !== selectedPath.to
-                  const currentDirection = selectedPath.twoSided ? 'twoSided' : (selectedPath.reversed ? 'reversed' : 'forward')
+                  const currentDirection = selectedPath.twoSided ? 'twoSided' : 'forward'
+                  const fromName = fromNode?.displayName || fromNode?.label || selectedPath.from
+                  const toNode = nodes.find((n) => n.id === selectedPath.to)
+                  const toName = toNode?.displayName || toNode?.label || selectedPath.to
                   return (
                     <>
                       <div className="text-sm font-semibold">Path: {selectedPath.displayName || selectedPath.label || selectedPath.id}</div>
                       <div className="text-xs text-slate-600 mt-1 flex items-center gap-2">
                         <span>Type:</span>
                         {isLayoutOnly ? (
-                          <span className="font-medium">{currentDirection === 'twoSided' ? '↔ Two-headed' : currentDirection === 'reversed' ? '← Reversed' : '→ One-headed'}</span>
+                          <span className="font-medium">{currentDirection === 'twoSided' ? '↔ Two-headed' : '→ One-headed'}</span>
                         ) : (
                         <select
                           value={currentDirection}
                           disabled={!canCycle}
                           onChange={(e) => {
                             const val = e.target.value
-                            setPaths((ps) => ps.map((p) => {
-                              if (p.id !== selectedPath.id) return p
-                              if (val === 'twoSided') return { ...p, twoSided: true, reversed: false }
-                              if (val === 'forward') return { ...p, twoSided: false, reversed: false }
-                              if (val === 'reversed') return { ...p, twoSided: false, reversed: true }
-                              return p
-                            }))
+                            if (val !== 'twoSided' && val !== 'forward' && val !== 'reversed') return
+                            setPaths((ps) => ps.map((p) => (p.id === selectedPath.id ? withAutoDisplayName(setPathDirection(p, val)) : p)))
                           }}
                           className={`px-2 py-1 border rounded text-xs bg-white ${!canCycle ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           <option value="twoSided">↔ Two-headed</option>
-                          <option value="forward">→ One-headed</option>
-                          <option value="reversed">← Reversed</option>
+                          <option value="forward">→ One-headed ({fromName} → {toName})</option>
+                          <option value="reversed">⇄ Reverse ({toName} → {fromName})</option>
                         </select>
                         )}
                       </div>
@@ -2931,7 +2707,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   />
                   )}
                 </div>
-                <div><span className="font-medium">Position:</span> ({selectedNode.x.toFixed(1)}, {selectedNode.y.toFixed(1)})</div>
+                <div><span className="font-medium">Position:</span> {selectedNode.x === undefined || selectedNode.y === undefined ? 'unplaced' : `(${selectedNode.x.toFixed(1)}, ${selectedNode.y.toFixed(1)})`}</div>
                 {selectedNode.type === 'variable' && getVariableRenderType(selectedNode.id) === 'manifest' && (
                   <div><span className="font-medium">Size:</span> {selectedNode.width ?? 60}×{selectedNode.height ?? 60}</div>
                 )}
@@ -2994,11 +2770,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         setPaths((ps) =>
                           ps.map((p) =>
                             p.id === selectedPath.id
-                              ? { ...p, value: isNaN(val) ? 1.0 : val }
+                              ? { ...p, value: isNaN(val) ? undefined : val }
                               : p
                           )
                         )
                       }}
+                      placeholder="1 (default)"
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-36 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
@@ -3292,7 +3069,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 style={{ pointerEvents: 'auto', cursor: 'text', opacity, zIndex }}
                 onDoubleClick={(e) => {
                   e.stopPropagation()
-                  startEditing('path', p.id, p.label ?? p.id, pos)
+                  startEditing('path', p.id, p.label ?? '', pos)
                 }}
               >
                 <rect
@@ -3360,8 +3137,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           {/* drag preview path - shows connection while dragging column */}
           {dragPreviewPos && draggedColumnName && selectedNode?.type === 'dataset' && (
             <line
-              x1={selectedNode.x}
-              y1={selectedNode.y}
+              x1={nodeX(selectedNode)}
+              y1={nodeY(selectedNode)}
               x2={dragPreviewPos.x}
               y2={dragPreviewPos.y}
               stroke="#888"
@@ -3390,7 +3167,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       const halfW = w / 2
                       const halfH = h / 2
                       return (
-                        <g key={n.id} transform={`translate(${n.x - halfW}, ${n.y - halfH})`} style={{ opacity, zIndex }}>
+                        <g key={n.id} transform={`translate(${nodeX(n) - halfW}, ${nodeY(n) - halfH})`} style={{ opacity, zIndex }}>
                           <rect
                             width={w}
                             height={h}
@@ -3422,7 +3199,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       )
               } else if ( renderType === 'latent' ) {
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+                <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                   <circle r={LATENT_RADIUS} cx={0} cy={0} fill={DISPLAY_COLORS.fill} stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : DISPLAY_COLORS.stroke)} strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : DISPLAY_COLORS.defaultStrokeWidth)} pointerEvents="auto" onMouseDown={(e) => onNodeMouseDown(e, n)} onMouseEnter={() => (hoverNodeRef.current = n.id)} onMouseLeave={() => (hoverNodeRef.current = null)} onDoubleClick={(e) => { e.stopPropagation(); toggleVariableCharacteristic(n.id) }} style={{ cursor: 'grab' }} />
                   <text
                     x={0}
@@ -3448,7 +3225,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               // then draw vertical side strokes and top ellipse stroke so the bottom of the rectangle
               // and the top of the bottom ellipse are not visible; rectangle corners are not rounded.
               return (
-                <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+                <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                   {/* Invisible shape for click/hover detection - covers entire cylinder */}
                   <ellipse
                     cx={0}
@@ -3528,7 +3305,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             } else if (n.type === 'constant') {
             // constant triangle
             return (
-              <g key={n.id} transform={`translate(${n.x}, ${n.y})`} style={{ opacity, zIndex }}>
+              <g key={n.id} transform={`translate(${nodeX(n)}, ${nodeY(n)})`} style={{ opacity, zIndex }}>
                 <polygon
                   points="0,-22 19,11 -19,11"
                   fill={DISPLAY_COLORS.fill}

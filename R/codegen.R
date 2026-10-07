@@ -83,8 +83,8 @@
   # A lone NA is "no value", the same as an absent field (as.GraphModel() on an
   # MxModel leaves label = NA; the JSON round trip turns it into null).
   if (is.atomic(x) && length(x) == 1 && is.na(x)) return(NULL)
-  # 12 significant digits: the widget's JSON round trip perturbs doubles in
-  # the last bits (~1e-16), which is not an edit.
+  # 12 significant digits: JSON transport can perturb doubles in the last
+  # bits (~1e-16), which is not an edit.
   if (is.numeric(x)) return(signif(as.numeric(x), 12))
   if (is.atomic(x) && length(x) == 0) return(NULL)
   x
@@ -128,7 +128,7 @@
 
 # What the layout-only editor must leave alone: node labels/types and path
 # keys. Deliberately coarse -- it guards against structural edits, not against
-# the widget's field-level round-trip losses, which a projection never reads.
+# field-level differences, which a projection never reads.
 .structureKey <- function(model) {
   nodes <- vapply(model$nodes %||% list(),
                   function(n) paste(as.character(n$label), as.character(n$type), sep = "\u241f"),

@@ -83,10 +83,12 @@ export function autoLayout(schema: GraphSchema, options?: LayoutOptions): Positi
     rankHeight: options?.rankHeight ?? 150,
   }
 
-  // Get the first (or only) model
+  // Get the first (or only) model. Work on a deep copy: later phases (e.g.
+  // determineLoopSides) annotate the model, and the caller's schema must never
+  // be mutated (it may be the very object the editor round-trips).
   const modelKey = Object.keys(schema.models)[0]
   if (!modelKey) throw new Error('No models found in schema')
-  const model = schema.models[modelKey]
+  const model = JSON.parse(JSON.stringify(schema.models[modelKey]))
 
   // PHASE 1: Prepare data — full arrow index over all variable nodes
   const { variableNodes, arrowIndex: fullArrowIndex } = prepareData(model)
@@ -799,4 +801,49 @@ function positionConstantsAndDatabases(model: any, positions: PositionMap, optio
       }
     })
   }
+}
+
+// ============================================================================
+// Auto-layout on load
+// ============================================================================
+
+export type LoadLayoutResult = 'not-needed' | 'applied' | 'no-usable-positions'
+
+/**
+ * Auto-layout applied when a document is loaded into the editor.
+ *
+ * Runs only when the first model has variable nodes and NO node of it has a
+ * position (visual.x and visual.y absent everywhere): a model that carries any
+ * layout is shown as written. When it runs, the runtime nodes of `models[0]`
+ * that receive a position get `x`/`y` set (in place); nothing else changes.
+ * `schema` is the loaded document (`models[0]` must be its first model); it is
+ * not mutated. Throws if the layout algorithm throws.
+ */
+export function layoutOnLoad(
+  models: Array<{ nodes: Array<{ label: string; type: string; x?: number; y?: number }> }>,
+  schema: GraphSchema
+): LoadLayoutResult {
+  const first = models[0]
+  if (!first) return 'not-needed'
+  const variableNodes = first.nodes.filter((n) => n.type === 'variable')
+  const anyPositioned = first.nodes.some((n) => n.x !== undefined || n.y !== undefined)
+  if (variableNodes.length === 0 || anyPositioned) return 'not-needed'
+
+  const positions = autoLayout(schema)
+  const usable = (pos: { x: number; y: number } | undefined) =>
+    !!pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)
+  // at least one variable node must get a non-origin position
+  const anyValid = variableNodes.some((n) => {
+    const pos = positions[n.label]
+    return usable(pos) && (pos.x !== 0 || pos.y !== 0)
+  })
+  if (!anyValid) return 'no-usable-positions'
+  first.nodes.forEach((n) => {
+    const pos = positions[n.label]
+    if (usable(pos)) {
+      n.x = pos.x
+      n.y = pos.y
+    }
+  })
+  return 'applied'
 }

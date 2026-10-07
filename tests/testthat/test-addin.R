@@ -172,3 +172,49 @@ test_that("the gadget's Done handler calls onDone with the model before stopping
   })
   expect_s4_class(got, "GraphModel")
 })
+
+# ---- graph_model echo vs fit status -----------------------------------------
+# After a fit, R pushes update_model and the widget echoes the schema back
+# through Shiny's JSON transport. Only a structural change may flip a converged
+# fit to stale; the echo itself must not (there is no echo suppression).
+
+viaShinyInput <- function(gm) {
+  jsonlite::fromJSON(
+    jsonlite::toJSON(gm@schema, auto_unbox = TRUE, null = "null", na = "null", digits = NA),
+    simplifyVector = FALSE)
+}
+
+# The server as a module, so testServer exposes its reactive state handles
+# (session$returned) and the state a successful fit leaves behind can be set.
+echoModule <- function(id, initialGM) {
+  shiny::moduleServer(id, function(input, output, session) {
+    .drawSEM_server(input, output, session, initialGM = initialGM)
+  })
+}
+
+fitStatusAfterEchoes <- function(gm, echoes) {
+  status <- NULL
+  shiny::testServer(echoModule, args = list(initialGM = gm), {
+    st <- session$returned
+    st$fitStatus("converged")                          # as the fit observer leaves it
+    st$lastStructuralFingerprint(hashStructure(gm))
+    for (e in echoes) session$setInputs(graph_model = viaShinyInput(e))
+    status <<- st$fitStatus()
+  })
+  status
+}
+
+test_that("an identical-structure graph_model echo keeps a converged fit converged", {
+  skip_if_not_installed("shiny")
+  gm <- addinBase()
+  # the post-fit echo, then a drag: neither is structural
+  expect_equal(fitStatusAfterEchoes(gm, list(gm, setLocation(gm, "A", 40, 50))), "converged")
+})
+
+test_that("a structural change through graph_model flips a converged fit to stale", {
+  skip_if_not_installed("shiny")
+  gm <- addinBase()
+  expect_equal(
+    fitStatusAfterEchoes(gm, list(gm, addPath(gm, "B", "B", 2, freeParameter = TRUE))),
+    "stale")
+})
