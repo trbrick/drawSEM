@@ -6,9 +6,7 @@ test_that("validateSchema accepts valid schema list", {
         nodes = list(),
         paths = list()
       )
-    ),
-    expansions = list(),
-    levelMap = list()
+    )
   )
   
   expect_invisible(validateSchema(schema, verbose = FALSE))
@@ -48,9 +46,7 @@ test_that("saveSchema writes valid JSON", {
         nodes = list(),
         paths = list()
       )
-    ),
-    expansions = list(),
-    levelMap = list()
+    )
   )
   
   temp_file <- tempfile(fileext = ".json")

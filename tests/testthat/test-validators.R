@@ -42,6 +42,41 @@ test_that("validateSchemaStructure fails without models", {
   )
 })
 
+test_that("validateSchemaStructure rejects an unsupported schemaVersion", {
+  schema <- list(
+    schemaVersion = 1,
+    models = list(model1 = list(nodes = list(), paths = list()))
+  )
+
+  expect_error(
+    validateSchemaStructure(schema, verbose = FALSE),
+    "Unsupported schemaVersion 1"
+  )
+})
+
+test_that("validateSchemaStructure rejects unrecognized top-level fields", {
+  schema <- list(
+    schemaVersion = 0,
+    notAField = list(v = 1),
+    models = list(model1 = list(nodes = list(), paths = list()))
+  )
+
+  expect_error(
+    validateSchemaStructure(schema, verbose = FALSE),
+    "unrecognized top-level field\\(s\\): notAField"
+  )
+})
+
+test_that("validateSchemaStructure accepts the declared optional meta field", {
+  schema <- list(
+    schemaVersion = 0,
+    meta = list(),
+    models = list(model1 = list(nodes = list(), paths = list()))
+  )
+
+  expect_no_error(validateSchemaStructure(schema, verbose = FALSE))
+})
+
 test_that("validateNodeIntegrity detects duplicate node IDs", {
   schema <- list(
     schemaVersion = 0,
