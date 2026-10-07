@@ -6,7 +6,7 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
-import { autoLayout, layoutOnLoad, PositionMap } from '../utils/autoLayout'
+import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
 import { effectiveLoopSide, nearestLoopSide, LoopSide } from '../utils/loopSide'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
@@ -215,6 +215,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
+  // For long-lived callbacks (model loads) that would otherwise see a stale layer
+  const activeLayerRef = useRef(activeLayer)
+  activeLayerRef.current = activeLayer
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
@@ -423,7 +426,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           // Auto-layout only when no node of the model has a position
           try {
-            layoutOnLoad(modelsOut, g as GraphSchema)
+            layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
           } catch (layoutError) {
             console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
@@ -458,7 +461,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           
           // Auto-layout only when no node of the model has a position
           try {
-            if (layoutOnLoad(modelsOut, schema) === 'no-usable-positions') {
+            if (layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
               setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
           } catch (layoutError) {
@@ -1128,64 +1131,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   // Apply auto-layout to current model: recompute all node positions via RAMPath algorithm
-  // Move dataset nodes to the right of the rest of the diagram, half a rank
-  // above or below the row of variables they feed (keeping the side the layout
-  // put them on), so their data cables read as a side bus instead of sharing a
-  // row with constants and tangling with mean paths. Multiple datasets stack
-  // in the order of the rows they feed. (Ported from coordinate-expansion 0aec616.)
-  function repositionDatasetsToSide(allNodes: Node[], allPaths: Path[]): Node[] {
-    const datasetNodes = allNodes.filter((n) => n.type === 'dataset')
-    const others = allNodes.filter((n) => n.type !== 'dataset')
-    if (datasetNodes.length === 0 || others.length === 0) return allNodes
-
-    const SIDE_GAP = 90
-    const STACK_GAP = 140
-    const HALF_RANK = 75 // half of autoLayout's default rankHeight (150, see utils/autoLayout.ts)
-    let maxX = -Infinity
-    others.forEach((n) => {
-      maxX = Math.max(maxX, nodeX(n) + (n.width ?? MANIFEST_DEFAULT_W) / 2)
-    })
-    const sideX = maxX + SIDE_GAP
-
-    const withTargetY = datasetNodes
-      .map((ds) => {
-        const targetYs = allPaths
-          .filter((p) => p.from === ds.id && isDatasetPath(p, allNodes))
-          .map((p) => others.find((n) => n.id === p.to))
-          .filter((n): n is Node => n !== undefined)
-          .map((n) => nodeY(n))
-        const targetAvgY = targetYs.length > 0 ? targetYs.reduce((a, b) => a + b, 0) / targetYs.length : nodeY(ds)
-        const wasAbove = nodeY(ds) < targetAvgY
-        return { id: ds.id, y: targetAvgY + (wasAbove ? -HALF_RANK : HALF_RANK) }
-      })
-      .sort((a, b) => a.y - b.y)
-
-    const yById = new Map(withTargetY.map((w, idx) => [w.id, w.y + (idx - (withTargetY.length - 1) / 2) * STACK_GAP]))
-    return allNodes.map((n) => (n.type === 'dataset' ? { ...n, x: sideX, y: yById.get(n.id) ?? nodeY(n) } : n))
-  }
-
   function handleAutoLayout() {
     if (!currentModel || isLayingOut) return
     setIsLayingOut(true)
     try {
-      // Outside the Data layer the dataset isn't the focus: leave it out of the
-      // layout (so it doesn't split a row with constants such as the mean
-      // node) and move it to the side afterwards.
-      const excludeDatasets = activeLayer !== 'data'
-      const modelForLayout = excludeDatasets
-        ? {
-            ...currentModel,
-            nodes: currentModel.nodes.filter((n) => n.type !== 'dataset'),
-            paths: currentModel.paths.filter((p) => !isDatasetPath(p, currentModel.nodes)),
-          }
-        : currentModel
-      const schema = modelToSchema(modelForLayout, { forAutoLayout: true })
-      const positions: PositionMap = autoLayout(schema)
-      let newNodes = currentModel.nodes.map((n) => {
-        const pos = positions[n.label]
-        return pos ? { ...n, x: pos.x, y: pos.y } : n
-      })
-      if (excludeDatasets) newNodes = repositionDatasetsToSide(newNodes, currentModel.paths)
+      // Same code as layout on load (layoutModel). Outside the Data layer the
+      // dataset isn't the focus: it is left out of the layout and moved to the side.
+      const newNodes = layoutModel(currentModel, { excludeDatasets: activeLayer !== 'data' })
+      if (!newNodes) throw new Error('the layout produced no usable coordinates')
       setNodes(newNodes)
       fitViewToNodes(newNodes, currentModel.paths)
     } catch (e) {
