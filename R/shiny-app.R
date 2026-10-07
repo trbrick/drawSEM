@@ -86,6 +86,52 @@ NULL
 }
 
 
+# Default dataset label for a chosen file: its name without the extension.
+.datasetLabelFromFile <- function(fileName) {
+  tools::file_path_sans_ext(basename(fileName))
+}
+
+# Add (or refresh) an embedded dataset node labelled `label` holding `df` in
+# the schema's first model. An existing dataset node with that label gets the
+# new data; otherwise a node is appended below any existing dataset nodes.
+.attachDatasetNode <- function(schema, label, df) {
+  model_ids <- names(schema$models %||% list())
+  if (length(model_ids) == 0) return(schema)
+  model_id <- model_ids[[1]]
+  nodes <- schema$models[[model_id]]$nodes %||% list()
+
+  data_as_json <- dataFrameToJSON(df)
+  dataset_source <- list(
+    type = "embedded",
+    format = "json",
+    encoding = "UTF-8",
+    # Named list so JSON serialization produces an object map.
+    columnTypes = as.list(data_as_json$columnTypes),
+    object = data_as_json$object,
+    rowCount = nrow(df)
+  )
+
+  # Position() returns NA (not NULL) when nothing matches.
+  existing_idx <- Position(
+    function(n) identical(n$type, "dataset") && identical(n$label, label),
+    nodes
+  )
+  if (!is.na(existing_idx)) {
+    nodes[[existing_idx]]$datasetSource <- dataset_source
+  } else {
+    n_datasets <- length(Filter(function(n) identical(n$type, "dataset"), nodes))
+    nodes[[length(nodes) + 1]] <- list(
+      label = label,
+      type = "dataset",
+      datasetSource = dataset_source,
+      visual = list(x = 300, y = 450 + n_datasets * 100)
+    )
+  }
+  schema$models[[model_id]]$nodes <- nodes
+  schema
+}
+
+
 #' Build the drawSEM Shiny server
 #' @noRd
 .drawSEM_server <- function(input, output, session, initialGM) {
@@ -285,6 +331,14 @@ NULL
     })
   })
 
+  # Default the dataset label to the chosen file's name, unless one was typed.
+  shiny::observeEvent(input$load_csv_file, {
+    if (!nzchar(trimws(input$csv_dataset_name %||% ""))) {
+      shiny::updateTextInput(session, "csv_dataset_name",
+                             value = .datasetLabelFromFile(input$load_csv_file$name))
+    }
+  })
+
   shiny::observeEvent(input$attach_csv_btn, {
     shiny::req(input$load_csv_file)
     label <- trimws(input$csv_dataset_name %||% "")
@@ -304,41 +358,7 @@ NULL
       # Surface the loaded data as a dataset node on the canvas (embedded source)
       # and push the updated model to the widget. Without this the data would sit
       # only in the R session, with no node to bind columns from.
-      schema <- gm@schema
-      model_ids <- names(schema$models %||% list())
-      if (length(model_ids) > 0) {
-        model_id <- model_ids[[1]]
-        nodes <- schema$models[[model_id]]$nodes %||% list()
-
-        data_as_json <- dataFrameToJSON(df)
-        dataset_source <- list(
-          type = "embedded",
-          format = "json",
-          encoding = "UTF-8",
-          # Named list so JSON serialization produces an object map.
-          columnTypes = as.list(data_as_json$columnTypes),
-          object = data_as_json$object,
-          rowCount = nrow(df)
-        )
-
-        existing_idx <- Position(
-          function(n) identical(n$type, "dataset") && identical(n$label, label),
-          nodes
-        )
-        if (!is.null(existing_idx)) {
-          nodes[[existing_idx]]$datasetSource <- dataset_source
-        } else {
-          n_datasets <- length(Filter(function(n) identical(n$type, "dataset"), nodes))
-          nodes[[length(nodes) + 1]] <- list(
-            label = label,
-            type = "dataset",
-            datasetSource = dataset_source,
-            visual = list(x = 300, y = 450 + n_datasets * 100)
-          )
-        }
-        schema$models[[model_id]]$nodes <- nodes
-        gm@schema <- schema
-      }
+      gm@schema <- .attachDatasetNode(gm@schema, label, df)
 
       currentModel(gm)
       session$sendCustomMessage("update_model", list(schema = gm@schema))
