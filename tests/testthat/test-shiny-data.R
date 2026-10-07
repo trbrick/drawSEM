@@ -110,3 +110,23 @@ test_that("jsonToDataFrame treats the string \"NA\" in a number column as missin
   out <- jsonToDataFrame(list(list(x = 1), list(x = "NA"), list(x = 3)), list(x = "number"))
   expect_equal(out$x, c(1, NA, 3))
 })
+
+test_that("Load Data for a given dataset pre-fills its label so Attach connects to that node", {
+  skip_if_not_installed("shiny")
+  gm <- GraphModel() |> addVariable("x")
+  gm@schema <- .attachDatasetNode(gm@schema, "sample", data.frame(x = 1))
+  dir <- tempfile("conn"); dir.create(dir)
+  write.csv(data.frame(x = 1:4), file.path(dir, "found.csv"), row.names = FALSE)
+  mod <- function(id, initialGM) shiny::moduleServer(id, function(input, output, session)
+    .drawSEM_server(input, output, session, initialGM = initialGM))
+  shiny::testServer(mod, args = list(initialGM = gm), {
+    session$setInputs(load_data_request = list(timestamp = 1, datasetLabel = "sample"))
+    session$setInputs(csv_browser_pick = file.path(dir, "found.csv"))
+    session$setInputs(csv_dataset_name = "sample")   # as pre-filled by the modal
+    session$setInputs(attach_csv_btn = 1)
+    nodes <- session$returned$currentModel()@schema$models[[1]]$nodes
+    datasets <- Filter(function(n) identical(n$type, "dataset"), nodes)
+    expect_length(datasets, 1)                          # connected, not added
+    expect_equal(datasets[[1]]$datasetSource$rowCount, 4)
+  })
+})

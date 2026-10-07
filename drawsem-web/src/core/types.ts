@@ -201,7 +201,8 @@ export interface GraphAdapter {
    * Optional: Request that the host environment (Shiny) open a data-loading UI.
    * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
    */
-  requestLoadData?(): void
+  /** Open the R-side Load Data dialog; with a label, to connect data to that existing dataset node. */
+  requestLoadData?(datasetLabel?: string): void
 
   /**
    * Optional: Request that the host environment (Shiny) open a model-loading UI.

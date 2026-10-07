@@ -232,7 +232,9 @@ NULL
   }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   # ── Data / Load helpers ───────────────────────────────────────────────
-  .showDataModal <- function(gm) {
+  # `forLabel`: connect data to this existing dataset node (its label is
+  # pre-filled, so Attach refreshes that node rather than adding one).
+  .showDataModal <- function(gm, forLabel = NULL) {
     dataset_list <- if (!is.null(gm) && length(gm@data) > 0) {
       rows <- lapply(names(gm@data), function(nm) {
         val  <- gm@data[[nm]]
@@ -257,8 +259,8 @@ NULL
       ),
       shiny::div(class = "dsem-field",
         shiny::tags$label(class = "dsem-label", `for` = "csv_dataset_name", "Dataset label"),
-        shiny::textInput("csv_dataset_name", NULL, placeholder = "e.g. mydata",
-                         width = "100%")
+        shiny::textInput("csv_dataset_name", NULL, value = forLabel %||% "",
+                         placeholder = "e.g. mydata", width = "100%")
       ),
       shiny::actionButton("attach_csv_btn", "Attach",
         style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;"),
@@ -270,7 +272,9 @@ NULL
       "Close"
     )
     shiny::insertUI("#drawsem-modal-host", "afterBegin",
-      .modal("dsem-modal-data", "Manage Datasets", body_ui, footer_ui),
+      .modal("dsem-modal-data",
+             if (is.null(forLabel)) "Manage Datasets" else paste0("Connect data to '", forLabel, "'"),
+             body_ui, footer_ui),
       immediate = TRUE)
   }
 
@@ -353,7 +357,8 @@ NULL
   # ── Data modal ("Load Data" toolbar button in Shiny mode) ─────────────
   shiny::observeEvent(input$load_data_request, {
     selectedCsv(NULL)
-    .showDataModal(currentModel())
+    label <- input$load_data_request$datasetLabel
+    .showDataModal(currentModel(), if (is.character(label) && nzchar(label)) label)
   }, ignoreNULL = TRUE)
 
   # ── Load Model modal ("Load Model" toolbar button in Shiny mode) ───────

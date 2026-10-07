@@ -1021,6 +1021,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleCsvImportClick() {
     if (isLayoutOnly) return
+    csvTargetNodeIdRef.current = null   // a toolbar import is never for a chosen node
     csvFileInputRef.current?.click()
   }
 
@@ -1227,6 +1228,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return out
   }
 
+  // "Find data file..." on a dataset node without data: in Shiny, open R's Load
+  // Data dialog for this dataset (Attach then connects the data to this node);
+  // otherwise pick a CSV locally and load it into this node.
+  const csvTargetNodeIdRef = useRef<string | null>(null)
+  function findDataFileFor(node: Node) {
+    if (viewMode === 'shiny' && adapter.requestLoadData) {
+      adapter.requestLoadData(node.label)
+      return
+    }
+    csvTargetNodeIdRef.current = node.id
+    csvFileInputRef.current?.click()
+  }
+
   function onCsvSelected(e: React.ChangeEvent<HTMLInputElement>) {
     if (isLayoutOnly) return
     const f = e.target.files && e.target.files[0]
@@ -1290,6 +1304,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         })
 
         const meta = { fileName: f.name, headers, columns }
+
+        // Loading for a chosen dataset node ("Find data file..."): attach there.
+        const targetId = csvTargetNodeIdRef.current
+        csvTargetNodeIdRef.current = null
+        if (targetId) {
+          setNodes((cur) => cur.map((n) => (n.id === targetId ? { ...n, dataset: meta } : n)))
+          return
+        }
 
         // Add or update an internal-only dataset node representing this CSV (not part of persisted JSON)
         try {
@@ -2268,11 +2290,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             </button>
             {viewMode === 'shiny' ? (
               <button
-                title="Load Data into R session"
-                className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                title="Load Data (into the R session)"
+                className="py-2 px-3 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
                 onClick={() => adapter.requestLoadData?.()}
               >
-                Load Data
+                ⛁
               </button>
             ) : (
               <button
@@ -2740,7 +2762,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 {selectedNode.datasetSource && (
                   <div>Expected file: <span className="font-mono text-[10px] break-all">{selectedNode.datasetSource.location}</span></div>
                 )}
-                <div className="pt-1">Use the "⛁ Add Dataset" button in the toolbar to import or reload the CSV file.</div>
+                {!isLayoutOnly && (
+                  <>
+                    <div className="pt-1">
+                      Find the file to connect it here, or use the ⛁ {viewMode === 'shiny' ? 'Load Data' : 'Add Dataset'} button in the toolbar.
+                    </div>
+                    <button
+                      className="mt-1 px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                      title="Choose the data file for this dataset"
+                      onClick={() => findDataFileFor(selectedNode)}
+                    >
+                      Find data file…
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

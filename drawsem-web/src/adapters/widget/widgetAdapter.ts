@@ -303,8 +303,8 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
     /**
      * Ask R to open the data-loading modal
      */
-    requestLoadData(): void {
-      shiny.setInputValue('load_data_request', { timestamp: Date.now() }, { priority: 'event' })
+    requestLoadData(datasetLabel?: string): void {
+      shiny.setInputValue('load_data_request', { timestamp: Date.now(), ...(datasetLabel ? { datasetLabel } : {}) }, { priority: 'event' })
     },
 
     /**
