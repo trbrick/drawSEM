@@ -388,3 +388,42 @@ test_that("runModel threads onUnsupported through to the converter", {
     "non-core feature"
   )
 })
+
+# ---- OpenMx parameter labels ------------------------------------------------
+# OpenMx equates parameters that share a label; only a shared named free
+# parameter may do that.
+
+test_that(".mxParamLabels keeps named free parameters and makes display labels unique", {
+  paths <- list(
+    list(from = "F", to = "x1", numberOfArrows = 1, freeParameter = "lam"),
+    list(from = "F", to = "x2", numberOfArrows = 1, freeParameter = "lam"),   # shared: equal
+    list(from = "x1", to = "x1", numberOfArrows = 2, freeParameter = TRUE, label = "e"),
+    list(from = "x2", to = "x2", numberOfArrows = 2, freeParameter = TRUE, label = "e"),  # repeat
+    list(from = "F", to = "F", numberOfArrows = 2, value = 1, label = "lam"),             # collides with named
+    list(from = "F", to = "x3", numberOfArrows = 1, value = 1),                           # no label
+    list(from = "d", to = "x1", type = "data", label = "x1"),                             # data path
+    list(from = "x3", to = "x3", numberOfArrows = 2, freeParameter = TRUE, label = "e_2") # pre-existing e_2
+  )
+  expect_equal(.mxParamLabels(paths), c("lam", "lam", "e", "e_3", "lam_2", NA, NA, "e_2"))
+})
+
+test_that("paths sharing only a display label are estimated separately in OpenMx", {
+  skip_if_not_installed("OpenMx")
+  set.seed(5)
+  d <- data.frame(x = rnorm(200, sd = 1), y = rnorm(200, sd = 3))
+  gm <- GraphModel() |>
+    addVariable("x") |> addVariable("y") |> addConstant() |>
+    addData("data", d) |> connectData("data", c("x", "y")) |>
+    addPath("x", "x", 2, freeParameter = TRUE, value = 1) |>
+    addPath("y", "y", 2, freeParameter = TRUE, value = 1) |>
+    addPath("1", "x", 1, freeParameter = TRUE, value = 0) |>
+    addPath("1", "y", 1, freeParameter = TRUE, value = 0)
+  # give both variances the same display label
+  m <- gm@schema$models[[1]]
+  for (i in seq_along(m$paths)) if (isTRUE(m$paths[[i]]$numberOfArrows == 2)) m$paths[[i]]$label <- "var"
+  gm@schema$models[[1]] <- m
+  fit <- suppressMessages(runModel(gm))@lastBuiltModel
+  est <- fit$output$estimate
+  expect_true(all(c("var", "var_2") %in% names(est)))
+  expect_gt(abs(est[["var"]] - est[["var_2"]]), 1)   # sd 1 vs sd 3: clearly unequal
+})

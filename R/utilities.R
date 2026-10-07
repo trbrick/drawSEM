@@ -470,6 +470,45 @@ storeOptimizationMetadata <- function(paths) {
   metadata
 }
 
+# OpenMx parameter labels for `paths`, one per path (NA where none).
+# OpenMx constrains every parameter that shares a label to be equal, so only a
+# shared named free parameter (freeParameter = the same string) may share one.
+# A named free parameter is labelled with its name. Any other path is labelled
+# with its display label, made unique where it repeats another path's display
+# label or coincides with a named free parameter (suffix _2, _3, ...), so
+# display labels never create equality constraints drawSEM did not declare.
+.mxParamLabels <- function(paths) {
+  is_named <- function(p) is.character(p$freeParameter) && length(p$freeParameter) == 1 && nzchar(p$freeParameter)
+  display <- function(p) {
+    if (is.character(p$label) && length(p$label) == 1 && nzchar(p$label)) p$label else NA_character_
+  }
+  is_data <- function(p) isTRUE(p$type == "data") ||
+    (!is.null(p$parameterType) && identical(p$parameterType, "dataMapping"))
+
+  named <- unique(unlist(lapply(paths, function(p) if (is_named(p)) p$freeParameter)))
+  taken <- unique(c(named, stats::na.omit(vapply(paths, display, character(1)))))
+  used <- named
+  out <- rep(NA_character_, length(paths))
+  for (i in seq_along(paths)) {
+    p <- paths[[i]]
+    if (is_data(p)) next
+    if (is_named(p)) {
+      out[[i]] <- p$freeParameter
+      next
+    }
+    lab <- display(p)
+    if (is.na(lab)) next
+    if (lab %in% used) {
+      k <- 2L
+      while (paste0(lab, "_", k) %in% c(taken, used)) k <- k + 1L
+      lab <- paste0(lab, "_", k)
+    }
+    used <- c(used, lab)
+    out[[i]] <- lab
+  }
+  out
+}
+
 #' Build Path List for mxModel
 #'
 #' Converts schema paths to a list of mxPath specifications.
@@ -485,8 +524,10 @@ storeOptimizationMetadata <- function(paths) {
 buildPathList <- function(paths, constantNodeLabels = character(0)) {
   constantNodeLabels <- as.character(constantNodeLabels %||% character(0))
   paths_list <- list()
-  
-  for (path in paths) {
+  param_labels <- .mxParamLabels(paths)
+
+  for (i in seq_along(paths)) {
+    path <- paths[[i]]
     # Skip data paths (dataset→variable mappings, no structural mxPath entry)
     if (isTRUE(path$type == "data") ||
         (!is.null(path$parameterType) && path$parameterType == "dataMapping")) {
@@ -508,17 +549,8 @@ buildPathList <- function(paths, constantNodeLabels = character(0)) {
       from_label <- "one"
     }
     
-    # Parameter label for mxPath:
-    # - named free parameter (freeParameter is a non-empty string): use it as the
-    #   equality-constraint label in OpenMx
-    # - anonymous free or fixed: fall back to path$label (display label), else NA
-    param_name <- if (is.character(path$freeParameter) && nzchar(path$freeParameter)) {
-      path$freeParameter
-    } else if (!is.null(path$label) && is.character(path$label) && nzchar(path$label)) {
-      path$label
-    } else {
-      NA
-    }
+    # Parameter label for mxPath (see .mxParamLabels())
+    param_name <- param_labels[[i]]
     
     # Extract starting value
     start_value <- if (!is.null(path$value)) path$value else NA
