@@ -284,6 +284,17 @@
                         "rowCount": { "type": "integer", "minimum": 0, "description": "Row count of the dataset at fit time, copied from the dataset node's datasetSource.rowCount" }
                       },
                       "additionalProperties": false
+                    },
+                    "backendOutput": {
+                      "type": "object",
+                      "description": "Everything the fitting backend computed for this fit, as that backend names it (e.g. OpenMx's summary(): -2LL, information criteria, fit indices, parameter table). Tagged with the producing tool and version. Interim open container: standard elements are expected to be promoted to dedicated fields over time.",
+                      "required": ["tool"],
+                      "properties": {
+                        "tool": { "type": "string", "description": "Backend that produced the output, e.g. 'OpenMx'" },
+                        "version": { "type": "string", "description": "Backend version, e.g. '2.22.11'" },
+                        "summary": { "type": "object", "description": "The backend's own summary of the fit, keyed by the backend's names", "additionalProperties": true }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false

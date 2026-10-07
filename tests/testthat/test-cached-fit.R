@@ -112,3 +112,37 @@ test_that("summary() of a fitted GraphModel copes with missing standard errors",
   expect_length(out$standardErrors, length(out$parameterEstimates))
   expect_true(all(is.na(out$standardErrors)))
 })
+
+test_that("the fit record keeps OpenMx's own summary, tagged as from OpenMx", {
+  fitted <- fitQuietly(fittableModel())
+  rec <- getFitResults(fitted)
+  bo <- rec$backendOutput
+  expect_equal(bo$tool, "OpenMx")
+  expect_equal(bo$version, as.character(utils::packageVersion("OpenMx")))
+  s <- summary(fitted@lastBuiltModel)
+  expect_equal(bo$summary$Minus2LogLikelihood, s$Minus2LogLikelihood)
+  expect_equal(bo$summary$estimatedParameters, s$estimatedParameters)
+  expect_equal(bo$summary$informationCriteria$AIC$par, unname(s$informationCriteria["AIC:", "par"]))
+  expect_equal(bo$summary$informationCriteria$BIC$par, unname(s$informationCriteria["BIC:", "par"]))
+  expect_null(bo$summary$dataSummary)
+  expect_length(bo$summary$parameters, nrow(s$parameters))
+
+  ic <- .fitInfoCriteria(rec)
+  expect_equal(ic$AIC, unname(s$informationCriteria["AIC:", "par"]))
+  expect_equal(ic$BIC, unname(s$informationCriteria["BIC:", "par"]))
+
+  # JSON-safe, and survives a round trip through the schema
+  json <- jsonlite::toJSON(fitted@schema, auto_unbox = TRUE, null = "null", na = "null", digits = NA)
+  back <- as.GraphModel(jsonlite::fromJSON(json, simplifyVector = FALSE))
+  bo2 <- back@schema$models[[1]]$provenance$fitResults[[1]]$backendOutput
+  expect_equal(bo2$summary$informationCriteria$AIC$par, bo$summary$informationCriteria$AIC$par)
+})
+
+test_that("summary() of a GraphModel reports OpenMx's AIC and BIC", {
+  fitted <- fitQuietly(fittableModel())
+  out <- NULL
+  txt <- capture.output(out <- summary(fitted))
+  expect_true(any(grepl("^AIC: ", txt)))
+  expect_equal(out$informationCriteria$AIC,
+               unname(summary(fitted@lastBuiltModel)$informationCriteria["AIC:", "par"]))
+})

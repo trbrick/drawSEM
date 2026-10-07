@@ -401,18 +401,12 @@ runModel <- function(
     }
   }
   
-  # Try to get DF from summary
-  tryCatch(
-    {
-      summary_obj <- summary(fit_result)
-      if (!is.null(summary_obj$degreesOfFreedom)) {
-        degrees_of_freedom <- summary_obj$degreesOfFreedom
-      }
-    },
-    error = function(e) {
-      # Silently continue if summary fails
-    }
-  )
+  # OpenMx's own summary: DF here, and everything else it computed goes into
+  # the fit record's backendOutput (see .mxSummaryForRecord()).
+  summary_obj <- tryCatch(summary(fit_result), error = function(e) NULL)
+  if (!is.null(summary_obj$degreesOfFreedom)) {
+    degrees_of_freedom <- summary_obj$degreesOfFreedom
+  }
   
   # Step 4: Write fitted estimates into the named free parameters' values
   # (so the schema shows them for inspection and export). Done before the
@@ -474,6 +468,13 @@ runModel <- function(
   )
   if (!is.null(data_binding) && length(data_binding) > 0) {
     fit_entry$dataBinding <- data_binding
+  }
+  if (!is.null(summary_obj)) {
+    fit_entry$backendOutput <- list(
+      tool    = "OpenMx",
+      version = as.character(utils::packageVersion("OpenMx")),
+      summary = .mxSummaryForRecord(summary_obj)
+    )
   }
   
   # Step 6: Store in GraphModel schema
@@ -618,4 +619,54 @@ generateData <- function(
   to@lastBuiltModel <- from@lastBuiltModel
   to@metadata$lastBuilt <- from@metadata$lastBuilt
   to
+}
+
+# ---- backend output -------------------------------------------------------------
+# OpenMx's summary() as plain, JSON-safe data for the fit record's
+# backendOutput$summary, keeping OpenMx's own names: scalars as is (factors as
+# strings, times as ISO strings, durations in seconds, versions as strings),
+# short vectors as named lists, matrices (informationCriteria) as nested
+# objects, data frames (parameters, CI) as lists of rows. dataSummary describes
+# the data rather than the fit and is left out, as is anything without a plain
+# data representation.
+.mxSummaryForRecord <- function(s) {
+  plain <- function(v) {
+    if (inherits(v, "difftime")) return(as.numeric(v, units = "secs"))
+    if (inherits(v, "POSIXt")) return(format(v, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
+    if (inherits(v, "numeric_version")) return(as.character(v))
+    if (is.factor(v)) return(as.character(v))
+    if (is.data.frame(v)) {
+      if (nrow(v) == 0) return(list())
+      rows <- lapply(seq_len(nrow(v)), function(i) lapply(as.list(v[i, , drop = FALSE]), plain))
+      return(rows)
+    }
+    if (is.matrix(v)) {
+      rn <- sub(":$", "", rownames(v) %||% as.character(seq_len(nrow(v))))
+      cn <- colnames(v) %||% as.character(seq_len(ncol(v)))
+      return(stats::setNames(lapply(seq_len(nrow(v)), function(i)
+        stats::setNames(as.list(unname(v[i, ])), cn)), rn))
+    }
+    if (is.atomic(v)) {
+      if (length(v) == 1) return(unname(v))
+      return(if (is.null(names(v))) as.list(v) else as.list(v))
+    }
+    NULL
+  }
+  keep <- setdiff(names(s), "dataSummary")
+  out <- lapply(stats::setNames(keep, keep), function(nm) plain(s[[nm]]))
+  out[!vapply(out, is.null, logical(1))]
+}
+
+# Information criteria from a fit record, as OpenMx computed them (the
+# parameter-penalty AIC and BIC, and sample-size-adjusted BIC). Empty for fits
+# recorded without backendOutput: they are never recomputed here.
+.fitInfoCriteria <- function(fit) {
+  ic <- fit$backendOutput$summary$informationCriteria
+  num <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else as.numeric(x[[1]])
+  out <- list(
+    AIC = num(ic$AIC$par),
+    BIC = num(ic$BIC$par),
+    `BIC (sample-size adjusted)` = num(ic$BIC$sample)
+  )
+  out[!is.na(unlist(out))]
 }

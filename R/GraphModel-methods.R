@@ -445,6 +445,10 @@ setMethod("summary", "GraphModel", function(object, ...) {
   if (!is.null(latest_fit$sampleSize) && !is.na(latest_fit$sampleSize)) {
     cat(sprintf("Sample Size: %d\n", latest_fit$sampleSize))
   }
+
+  # Information criteria as the backend computed them
+  info_criteria <- .fitInfoCriteria(latest_fit)
+  for (nm in names(info_criteria)) cat(sprintf("%s: %.4f\n", nm, info_criteria[[nm]]))
   
   cat("\n")
   
@@ -475,6 +479,7 @@ setMethod("summary", "GraphModel", function(object, ...) {
     fitValue = latest_fit$fitValue,
     parameterEstimates = params,
     standardErrors = se_vals,
+    informationCriteria = info_criteria,
     isStale = is_stale
   ))
 })

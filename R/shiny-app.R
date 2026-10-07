@@ -534,14 +534,9 @@ NULL
       ests  <- fit_res$parameterEstimates %||% list()
       ses   <- fit_res$standardErrors    %||% list()
       fit_v <- fit_res$fitValue          %||% NA_real_
-      df_v  <- fit_res$degreesOfFreedom  %||% NA_integer_
-      n_v   <- fit_res$sampleSize        %||% NA_integer_
 
-      idx <- list(`-2LL` = fit_v)
-      if (!is.na(df_v) && !is.na(fit_v)) {
-        idx$AIC <- fit_v + 2L * df_v
-        if (!is.na(n_v) && n_v > 0L) idx$BIC <- fit_v + log(n_v) * df_v
-      }
+      # AIC/BIC as OpenMx computed them (the fit record's backendOutput)
+      idx <- c(list(`-2LL` = fit_v), .fitInfoCriteria(fit_res))
       idx_rows <- lapply(names(idx), function(nm) {
         val <- idx[[nm]]
         shiny::tags$tr(
@@ -553,8 +548,11 @@ NULL
 
       param_content <- if (length(ests) > 0) {
         nms    <- names(ests)
-        se_vec <- unlist(ses)
-        if (is.null(names(se_vec))) names(se_vec) <- nms
+        # SEs aligned to the estimates by name (a missing SE may arrive as NULL)
+        se_vec <- vapply(nms, function(nm) {
+          v <- ses[[nm]]
+          if (is.null(v) || length(v) == 0) NA_real_ else as.numeric(v[[1]])
+        }, numeric(1))
         est_vec <- unlist(ests)
         p_rows  <- lapply(nms, function(nm) {
           shiny::tags$tr(
