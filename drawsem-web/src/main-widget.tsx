@@ -51,11 +51,16 @@ export function initializeWidget(el: HTMLElement): void {
     adapter = createLocalAdapter()
   }
   
+  // editMode: 'layout' restricts editing to visual changes (set by R's
+  // semWidget(editMode = "layout") via window.drawSEMConfig); anything else = 'full'.
+  const editMode: 'full' | 'layout' =
+    (window as any).drawSEMConfig?.editMode === 'layout' ? 'layout' : 'full'
+
   try {
     createRoot(el).render(
       <React.StrictMode>
         <AdapterContext.Provider value={adapter}>
-          <App viewMode={viewMode} />
+          <App viewMode={viewMode} editMode={editMode} />
         </AdapterContext.Provider>
       </React.StrictMode>
     )

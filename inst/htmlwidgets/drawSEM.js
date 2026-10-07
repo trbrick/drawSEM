@@ -48,6 +48,8 @@ HTMLWidgets.widget({
           initialModel: data.initialModel,
           config: data.config,
           data: data.data,
+          // 'layout' = layout-only editing (visual changes only); absent/'full' = normal
+          editMode: data.editMode,
           timestamp: Date.now()
         };
         

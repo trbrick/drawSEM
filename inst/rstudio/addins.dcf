@@ -1,0 +1,4 @@
+Name: Lay out GraphModel visually
+Description: Open the layout-only drawSEM editor on the model under the cursor and insert the new node positions as a setLocation() call.
+Binding: drawSEMAddin
+Interactive: true
