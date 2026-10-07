@@ -5,7 +5,8 @@ import { AdapterContext } from './context/AdapterContext'
 import { createWidgetAdapter } from './adapters/widget/widgetAdapter'
 import { createLocalAdapter } from './adapters/standalone/localAdapter'
 import { modelToSVG, SvgExportOptions } from './utils/svgRenderer'
-import { autoLayout } from './utils/autoLayout'
+import { layoutModel } from './utils/layoutModel'
+import { convertModelToRuntime } from './utils/runtimeConverter'
 import { GraphSchema } from './core/types'
 import './index.css'
 
@@ -95,22 +96,25 @@ export function exportModelToSVG(
   const model = modelKey ? clone.models[modelKey] : undefined
 
   if (model) {
-    const needsLayout = model.nodes.some(
-      (n) =>
-        n.type !== 'dataset' &&
-        n.type !== 'constant' &&
-        (n.visual?.x === undefined || n.visual?.y === undefined)
-    )
+    // Same layout as the editor (layoutModel): a model with no positions is
+    // laid out in full, as on load (datasets to the side); a partly positioned
+    // model only has its unplaced variables filled in, from that same layout.
+    const isLayoutEligible = (n: any) => n.type !== 'dataset' && n.type !== 'constant'
+    const isPlaced = (n: any) => n.visual?.x !== undefined && n.visual?.y !== undefined
+    const needsLayout = model.nodes.some((n) => isLayoutEligible(n) && !isPlaced(n))
     if (needsLayout) {
-      // autoLayout positions the first model of whatever schema it is given, so
-      // hand it a single-model schema to support a non-default modelId.
-      const positions = autoLayout({ ...clone, models: { [modelKey]: model } })
+      const anyPositioned = model.nodes.some((n) => n.visual?.x !== undefined || n.visual?.y !== undefined)
+      const runtime = convertModelToRuntime(model)
+      const laidOut = layoutModel(
+        { id: modelKey, label: model.label, nodes: runtime.nodes, paths: runtime.paths },
+        { excludeDatasets: true }
+      )
+      const byLabel = new Map((laidOut ?? []).map((n) => [n.label, n]))
       model.nodes.forEach((n) => {
-        if (n.type === 'dataset' || n.type === 'constant') return
-        if (n.visual?.x !== undefined && n.visual?.y !== undefined) return
-        const pos = positions[n.label]
-        if (pos) {
-          n.visual = { ...(n.visual ?? {}), x: pos.x, y: pos.y }
+        if (anyPositioned && (!isLayoutEligible(n) || isPlaced(n))) return
+        const placed = byLabel.get(n.label)
+        if (placed && placed.x !== undefined && placed.y !== undefined) {
+          n.visual = { ...(n.visual ?? {}), x: placed.x, y: placed.y }
         }
       })
     }

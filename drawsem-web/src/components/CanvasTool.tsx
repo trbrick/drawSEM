@@ -7,6 +7,8 @@ import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
 import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
+import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
+import type { CableTrunk } from '../utils/dataCables'
 import { effectiveLoopSide, nearestLoopSide, LoopSide } from '../utils/loopSide'
 import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
@@ -2105,82 +2107,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return { x: (startOut.x + endOut.x) / 2, y: (startOut.y + endOut.y) / 2 }
   }
 
-  // ---- Data cables (display only; never touches the schema) ----
-  // Data paths are drawn as a wiring-diagram bus: all data paths leaving the
-  // same dataset share one short trunk, then fan out with rounded,
-  // axis-aligned branches to their variables, attaching slightly off-centre
-  // so they don't sit on top of the variable's other paths. Ported from the
-  // coordinate-expansion branch (0aec616).
-  type Pt = { x: number; y: number }
-  const CABLE_COLOR = '#a7adb8'
-  const CABLE_WIDTH = 1.75
-  const CABLE_TRUNK_LEN = 28
-  const CABLE_CORNER_R = 12
-  const CABLE_ATTACH_ANGLE = 0.375 // ~21 degrees off the target's centre-facing point
-
-  // Trunk from the dataset's boundary towards `towards`, along the dominant axis.
-  function cableExitAndManifold(source: Node, towards: Pt): { exit: Pt; manifold: Pt; axis: 'x' | 'y' } {
-    const c = centerOf(source)
-    const dx = towards.x - c.x
-    const dy = towards.y - c.y
-    const axis: 'x' | 'y' = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
-    const sign = axis === 'x' ? (dx >= 0 ? 1 : -1) : (dy >= 0 ? 1 : -1)
-    const far = axis === 'x' ? { x: c.x + sign * 1e4, y: c.y } : { x: c.x, y: c.y + sign * 1e4 }
-    const exit = getBoundaryPoint(source, far)
-    const manifold: Pt =
-      axis === 'x' ? { x: exit.x + sign * CABLE_TRUNK_LEN, y: exit.y } : { x: exit.x, y: exit.y + sign * CABLE_TRUNK_LEN }
-    return { exit, manifold, axis }
-  }
-
-  // Polyline p0 -> corner -> p1 with the corner rounded off (radius clamped to leg length).
-  function roundedElbowPath(p0: Pt, corner: Pt, p1: Pt, radius: number): string {
-    const d1 = Math.hypot(corner.x - p0.x, corner.y - p0.y)
-    const d2 = Math.hypot(p1.x - corner.x, p1.y - corner.y)
-    const r = Math.min(radius, d1 / 2, d2 / 2)
-    if (r < 1 || d1 < 1e-6 || d2 < 1e-6) {
-      return `M ${p0.x} ${p0.y} L ${corner.x} ${corner.y} L ${p1.x} ${p1.y}`
-    }
-    const u1 = { x: (corner.x - p0.x) / d1, y: (corner.y - p0.y) / d1 }
-    const u2 = { x: (p1.x - corner.x) / d2, y: (p1.y - corner.y) / d2 }
-    const a = { x: corner.x - u1.x * r, y: corner.y - u1.y * r }
-    const b = { x: corner.x + u2.x * r, y: corner.y + u2.y * r }
-    return `M ${p0.x} ${p0.y} L ${a.x} ${a.y} Q ${corner.x} ${corner.y} ${b.x} ${b.y} L ${p1.x} ${p1.y}`
-  }
-
-  // Rotate `point` around `center`: finds an off-centre point on the target's
-  // boundary, away from where its regular SEM paths attach.
-  function rotateAround(center: Pt, point: Pt, angleRad: number): Pt {
-    const dx = point.x - center.x
-    const dy = point.y - center.y
-    const cos = Math.cos(angleRad)
-    const sin = Math.sin(angleRad)
-    return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos }
-  }
-
-  // One branch: from the shared manifold point to the target's boundary.
-  function cableBranchGeometry(manifold: Pt, axis: 'x' | 'y', target: Node): { d: string; labelPos: Pt } {
-    const tc = centerOf(target)
-    const aligned = axis === 'x' ? Math.abs(tc.y - manifold.y) < 0.5 : Math.abs(tc.x - manifold.x) < 0.5
-    if (aligned) {
-      const end = getBoundaryPoint(target, rotateAround(tc, manifold, CABLE_ATTACH_ANGLE))
-      return {
-        d: `M ${manifold.x} ${manifold.y} L ${end.x} ${end.y}`,
-        labelPos: { x: (manifold.x + end.x) / 2, y: (manifold.y + end.y) / 2 },
-      }
-    }
-    const corner: Pt = axis === 'x' ? { x: tc.x, y: manifold.y } : { x: manifold.x, y: tc.y }
-    const end = getBoundaryPoint(target, rotateAround(tc, corner, CABLE_ATTACH_ANGLE))
-    // Keep the final leg axis-aligned: slide the corner to match the offset end point.
-    const adjustedCorner: Pt = axis === 'x' ? { x: end.x, y: corner.y } : { x: corner.x, y: end.y }
-    return {
-      d: roundedElbowPath(manifold, adjustedCorner, end, CABLE_CORNER_R),
-      labelPos: { x: (adjustedCorner.x + end.x) / 2, y: (adjustedCorner.y + end.y) / 2 },
-    }
-  }
+  // ---- Data cables (geometry in utils/dataCables.ts; display only) ----
 
   // One trunk per dataset, aimed at the centroid of its targets. A trunk is in
   // the active layer if any of its branches is, and is drawn once per dataset.
-  function buildCableGroups(): Map<string, { source: Node; axis: 'x' | 'y'; exit: Pt; manifold: Pt; inLayer: boolean }> {
+  function buildCableGroups(): Map<string, CableTrunk & { inLayer: boolean }> {
     const bySource = new Map<string, { targets: Node[]; inLayer: boolean }>()
     paths.forEach((p) => {
       if (!isDatasetPath(p, nodes)) return
@@ -2191,25 +2122,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       g.inLayer = g.inLayer || isPathInLayer(p)
       bySource.set(p.from, g)
     })
-    const groups = new Map<string, { source: Node; axis: 'x' | 'y'; exit: Pt; manifold: Pt; inLayer: boolean }>()
+    const groups = new Map<string, CableTrunk & { inLayer: boolean }>()
     bySource.forEach(({ targets, inLayer }, from) => {
       const source = nodes.find((n) => n.id === from)
       if (!source || targets.length === 0) return
-      const centroid = {
-        x: targets.reduce((sum, n) => sum + nodeX(n), 0) / targets.length,
-        y: targets.reduce((sum, n) => sum + nodeY(n), 0) / targets.length,
-      }
-      groups.set(from, { source, ...cableExitAndManifold(source, centroid), inLayer })
+      const trunk = cableTrunk(centerOf(source), (t) => getBoundaryPoint(source, t), targets.map(centerOf))
+      groups.set(from, { ...trunk, inLayer })
     })
     return groups
   }
 
   // Branch geometry for a data path, or null for any other path.
-  function cableGeometryFor(p: Path, groups: ReturnType<typeof buildCableGroups>): { d: string; labelPos: Pt } | null {
+  function cableGeometryFor(p: Path, groups: ReturnType<typeof buildCableGroups>): { d: string; labelPos: { x: number; y: number } } | null {
     if (!isDatasetPath(p, nodes)) return null
-    const group = groups.get(p.from)
+    const trunk = groups.get(p.from)
     const target = nodes.find((n) => n.id === p.to)
-    return group && target ? cableBranchGeometry(group.manifold, group.axis, target) : null
+    return trunk && target ? cableBranch(trunk, centerOf(target), (t) => getBoundaryPoint(target, t)) : null
   }
 
   // start inline editing at an SVG coordinate (svg-space x,y)
@@ -3229,7 +3157,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <path
                   key={`cable-trunk-${fromId}`}
                   data-cable-trunk={fromId}
-                  d={`M ${g.exit.x} ${g.exit.y} L ${g.manifold.x} ${g.manifold.y}`}
+                  d={cableTrunkD(g)}
                   fill="none"
                   stroke={CABLE_COLOR}
                   strokeWidth={CABLE_WIDTH}

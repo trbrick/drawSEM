@@ -14,6 +14,8 @@ import {
 } from './constants'
 import { effectiveSchemaLoopSide } from './loopSide'
 import { escapeXml, getVariableRenderType, renderNodeSvg, DISPLAY_COLORS } from './nodeRender'
+import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from './dataCables'
+import type { CableTrunk } from './dataCables'
 
 /** Context carried through all geometry helpers so manifest/latent detection has model scope */
 interface ModelContext {
@@ -486,7 +488,8 @@ function renderPathLabel(
   fromNode: Node,
   toNode: Node,
   format: SvgExportOptions['pathLabelFormat'],
-  ctx: ModelContext
+  ctx: ModelContext,
+  labelPosOverride?: { x: number; y: number }
 ): string | null {
   if (!format || format === 'neither' || format === null) return null
 
@@ -512,7 +515,7 @@ function renderPathLabel(
 
   if (!labelText) return null
 
-  const labelPos = getPathLabelPos(path, fromPos, toPos, fromNode, toNode, ctx)
+  const labelPos = labelPosOverride ?? getPathLabelPos(path, fromPos, toPos, fromNode, toNode, ctx)
   if (!labelPos) return null
 
   const yOffset = 5
@@ -610,17 +613,43 @@ export function modelToSVG(
   const svgWidth = Math.min(viewBox.width, 1200)
   const svgHeight = svgWidth / aspectRatio
 
+  // Data paths are drawn as data cables, as on the canvas (see dataCables.ts):
+  // one trunk per dataset, then a branch per data path.
+  const isDataPath = (p: Path) => p.type === 'data' || nodesByLabel[p.from]?.type === 'dataset'
+  const boundaryOf = (label: string) => (towards: { x: number; y: number }) =>
+    getBoundaryPoint(nodesByLabel[label], positions[label], towards, ctx)
+  const trunks = new Map<string, CableTrunk>()
+  const targetsBySource = new Map<string, { x: number; y: number }[]>()
+  visiblePaths.forEach((p) => {
+    if (!isDataPath(p) || !positions[p.from] || !positions[p.to] || !nodesByLabel[p.to]) return
+    targetsBySource.set(p.from, [...(targetsBySource.get(p.from) ?? []), positions[p.to]])
+  })
+  targetsBySource.forEach((targets, from) => {
+    if (nodesByLabel[from]) trunks.set(from, cableTrunk(positions[from], boundaryOf(from), targets))
+  })
+  const cableFor = (p: Path) => {
+    const trunk = isDataPath(p) ? trunks.get(p.from) : undefined
+    return trunk && positions[p.to] ? cableBranch(trunk, positions[p.to], boundaryOf(p.to)) : null
+  }
+
   // Render paths (background layer)
-  const pathsElements = visiblePaths
+  const trunkElements = Array.from(trunks.values()).map(
+    (t) => `<path d="${cableTrunkD(t)}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`
+  )
+  const pathsElements = trunkElements.concat(visiblePaths
     .map((p) => {
       const fromNode = nodesByLabel[p.from]
       const toNode = nodesByLabel[p.to]
       const fromPos = positions[p.from]
       const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
+      const cable = cableFor(p)
+      if (cable) {
+        return `<path d="${cable.d}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`
+      }
       return renderPath(p, fromPos, toPos, fromNode, toNode, ctx)
     })
-    .filter((s) => s)
+    .filter((s) => s))
     .join('\n')
 
   // Render path labels
@@ -631,7 +660,7 @@ export function modelToSVG(
       const fromPos = positions[p.from]
       const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
-      return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat, ctx)
+      return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat, ctx, cableFor(p)?.labelPos)
     })
     .filter((s) => s && s.length > 0)
     .join('\n')
