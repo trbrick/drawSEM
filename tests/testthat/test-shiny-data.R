@@ -161,3 +161,65 @@ test_that(".columnSummary handles missing values and text columns", {
   t <- .columnSummary(c("u", "v", "", NA, "u"), "b")
   expect_equal(t$count, 3); expect_equal(t$distinct, 2); expect_null(t$mean)
 })
+
+# ---- data sources: file connection, embedded, R session ------------------------
+
+test_that(".attachDatasetNode records a file connection, embedded data, or a session-only dataset", {
+  dir <- tempfile("src"); dir.create(dir)
+  f <- file.path(dir, "d.csv"); write.csv(data.frame(a = 1:3, b = c("x", "y", "z")), f, row.names = FALSE)
+  df <- read.csv(f)
+  s <- .attachDatasetNode(schemaWith(list()), "d", df, "file", file = f, location = "d.csv")
+  ds <- s$models$m1$nodes[[1]]$datasetSource
+  expect_equal(ds$type, "file"); expect_equal(ds$location, "d.csv")
+  expect_equal(ds$md5, unname(tools::md5sum(f))); expect_equal(ds$rowCount, 3)
+  expect_equal(ds$columnTypes, list(a = "number", b = "string"))
+  expect_null(ds$object)
+
+  s2 <- .attachDatasetNode(s, "d", df, "session")     # existing node -> session only
+  expect_null(s2$models$m1$nodes[[1]]$datasetSource)
+  expect_length(s2$models$m1$nodes, 1)
+  expect_equal(.attachDatasetNode(s2, "d", df)$models$m1$nodes[[1]]$datasetSource$type, "embedded")
+})
+
+test_that(".locationFor is relative inside the launch folder and absolute outside it", {
+  base <- normalizePath(tempfile("base"), mustWork = FALSE); dir.create(file.path(base, "sub"), recursive = TRUE)
+  inside <- file.path(base, "sub", "x.csv"); writeLines("a", inside)
+  expect_equal(.locationFor(inside, base), "sub/x.csv")
+  outside <- tempfile("out", fileext = ".csv"); writeLines("a", outside)
+  expect_equal(.locationFor(outside, base), normalizePath(outside, winslash = "/"))
+})
+
+test_that(".sessionDataFrames lists data frames with their dimensions", {
+  env <- new.env()
+  env$df1 <- data.frame(a = 1:4, b = 1)
+  env$notdf <- 1:3
+  expect_equal(.sessionDataFrames(env), list(df1 = c(4L, 2L)))
+})
+
+test_that("Load Data from the R session: held in the session by default, embedded on request", {
+  skip_if_not_installed("shiny")
+  assign("dsem_test_frame_tmp", data.frame(u = 1:5, v = rnorm(5)), envir = globalenv())
+  on.exit(rm("dsem_test_frame_tmp", envir = globalenv()), add = TRUE)
+  mod <- function(id, initialGM) shiny::moduleServer(id, function(input, output, session)
+    .drawSEM_server(input, output, session, initialGM = initialGM))
+  run <- function(embed) {
+    out <- NULL
+    shiny::testServer(mod, args = list(initialGM = GraphModel() |> addVariable("u")), {
+      session$setInputs(load_data_request = list(timestamp = 1))
+      session$setInputs(data_tab = "r")
+      session$setInputs(data_r_pick = "dsem_test_frame_tmp")
+      session$setInputs(csv_dataset_name = "frame", data_embed = embed)
+      session$setInputs(attach_csv_btn = 1)
+      out <<- session$returned$currentModel()
+    })
+    out
+  }
+  gm <- run(FALSE)
+  node <- Filter(function(n) identical(n$label, "frame"), gm@schema$models[[1]]$nodes)[[1]]
+  expect_null(node$datasetSource)                       # session only
+  expect_equal(nrow(gm@data$frame), 5)                   # R holds the data
+  expect_named(.datasetSummaries(gm), "frame")           # and the editor gets its columns
+  gm2 <- run(TRUE)
+  node2 <- Filter(function(n) identical(n$label, "frame"), gm2@schema$models[[1]]$nodes)[[1]]
+  expect_equal(node2$datasetSource$type, "embedded")
+})

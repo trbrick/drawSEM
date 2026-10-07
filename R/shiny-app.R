@@ -175,25 +175,47 @@ NULL
   tools::file_path_sans_ext(basename(fileName))
 }
 
-# Add (or refresh) an embedded dataset node labelled `label` holding `df` in
-# the schema's first model. An existing dataset node with that label gets the
-# new data; otherwise a node is appended with no position: the editor places
-# it beside the diagram, as Auto Layout would (layoutIncomingModel()).
-.attachDatasetNode <- function(schema, label, df) {
+# Add (or refresh) the dataset node labelled `label` for data `df` in the
+# schema's first model, recording where the data lives:
+#   "embedded": copied into the model (datasetSource type embedded);
+#   "file":     a connection to the CSV `file` (stored as `location`, with column
+#               types, md5 and row count); R holds the data;
+#   "session":  no datasetSource; the data lives only in the R session (it
+#               travels with the GraphModel, and JSON exports can embed it).
+# An existing dataset node with that label is updated; otherwise a node is
+# appended with no position: the editor places it beside the diagram, as Auto
+# Layout would (layoutIncomingModel()).
+.attachDatasetNode <- function(schema, label, df, source = c("embedded", "file", "session"),
+                               file = NULL, location = NULL) {
+  source <- match.arg(source)
   model_ids <- names(schema$models %||% list())
   if (length(model_ids) == 0) return(schema)
   model_id <- model_ids[[1]]
   nodes <- schema$models[[model_id]]$nodes %||% list()
 
-  data_as_json <- dataFrameToJSON(df)
-  dataset_source <- list(
-    type = "embedded",
-    format = "json",
-    encoding = "UTF-8",
-    # Named list so JSON serialization produces an object map.
-    columnTypes = as.list(data_as_json$columnTypes),
-    object = data_as_json$object,
-    rowCount = nrow(df)
+  dataset_source <- switch(source,
+    embedded = {
+      data_as_json <- dataFrameToJSON(df)
+      list(
+        type = "embedded",
+        format = "json",
+        encoding = "UTF-8",
+        # Named list so JSON serialization produces an object map.
+        columnTypes = as.list(data_as_json$columnTypes),
+        object = data_as_json$object,
+        rowCount = nrow(df)
+      )
+    },
+    file = list(
+      type = "file",
+      location = location %||% file,
+      format = "csv",
+      encoding = "UTF-8",
+      columnTypes = as.list(dataFrameToJSON(utils::head(df, 1))$columnTypes),
+      md5 = unname(tools::md5sum(file)),
+      rowCount = nrow(df)
+    ),
+    session = NULL
   )
 
   # Position() returns NA (not NULL) when nothing matches.
@@ -202,16 +224,31 @@ NULL
     nodes
   )
   if (!is.na(existing_idx)) {
-    nodes[[existing_idx]]$datasetSource <- dataset_source
+    nodes[[existing_idx]]$datasetSource <- dataset_source   # NULL removes it (session)
   } else {
-    nodes[[length(nodes) + 1]] <- list(
-      label = label,
-      type = "dataset",
-      datasetSource = dataset_source
-    )
+    node <- list(label = label, type = "dataset")
+    if (!is.null(dataset_source)) node$datasetSource <- dataset_source
+    nodes[[length(nodes) + 1]] <- node
   }
   schema$models[[model_id]]$nodes <- nodes
   schema
+}
+
+# A data file's location as stored in a model: relative to `base` (the folder
+# drawSEM() was launched from) when the file is inside it, so reopening the
+# model from the same project finds it; absolute otherwise.
+.locationFor <- function(path, base) {
+  p <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  b <- normalizePath(base, winslash = "/", mustWork = FALSE)
+  if (startsWith(p, paste0(sub("/$", "", b), "/"))) substring(p, nchar(sub("/$", "", b)) + 2) else p
+}
+
+# Data frames (including tibbles) in `env`, for the Load Data dialog's
+# "From R session" tab: a named list of their dimensions.
+.sessionDataFrames <- function(env = globalenv()) {
+  nms <- ls(env)
+  keep <- nms[vapply(nms, function(nm) is.data.frame(get(nm, envir = env)), logical(1))]
+  stats::setNames(lapply(keep, function(nm) dim(get(nm, envir = env))), keep)
 }
 
 
@@ -290,15 +327,28 @@ NULL
     } else {
       shiny::p("No datasets loaded yet.", style = "color:#888; font-size:13px;")
     }
+    dataTab("file")
+    selectedRObject(NULL)
+    tab_btn <- function(id, text) {
+      shiny::tags$button(type = "button", id = paste0("dsem-data-tab-", id),
+        onclick = sprintf("Shiny.setInputValue('data_tab','%s',{priority:'event'})", id), text)
+    }
     body_ui <- shiny::tagList(
-      shiny::div(class = "dsem-field",
-        shiny::tags$label(class = "dsem-label", "CSV file"),
-        shiny::uiOutput("csv_browser")
+      shiny::tags$style(
+        "#dsem-modal-data .dsem-tabs { display:flex; gap:4px; border-bottom:1px solid #e2e8f0; margin-bottom:10px; }
+         #dsem-modal-data .dsem-tabs button { background:none; border:none; border-bottom:2px solid transparent;
+           padding:6px 10px; font-size:13px; cursor:pointer; color:#475569; }"
       ),
+      shiny::div(class = "dsem-tabs", tab_btn("file", "File"), tab_btn("r", "From R session")),
+      shiny::uiOutput("data_source_ui"),
       shiny::div(class = "dsem-field",
         shiny::tags$label(class = "dsem-label", `for` = "csv_dataset_name", "Dataset label"),
         shiny::textInput("csv_dataset_name", NULL, value = forLabel %||% "",
                          placeholder = "e.g. mydata", width = "100%")
+      ),
+      shiny::div(class = "dsem-field",
+        shiny::checkboxInput("data_embed", "Embed the data in the model", value = FALSE),
+        shiny::uiOutput("data_embed_help")
       ),
       shiny::actionButton("attach_csv_btn", "Attach",
         style = "background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;"),
@@ -435,6 +485,56 @@ NULL
   launchDir   <- normalizePath(getwd(), winslash = "/")
   csvDir      <- shiny::reactiveVal(launchDir)
   selectedCsv <- shiny::reactiveVal(NULL)
+  dataTab <- shiny::reactiveVal("file")            # Load Data tab: "file" or "r"
+  selectedRObject <- shiny::reactiveVal(NULL)      # data frame name picked on the "r" tab
+
+  shiny::observeEvent(input$data_tab, dataTab(input$data_tab))
+
+  output$data_source_ui <- shiny::renderUI({
+    active <- dataTab()
+    tab_css <- shiny::tags$style(sprintf(
+      "#dsem-data-tab-%s { border-bottom-color:#2563eb !important; color:#1e293b !important; font-weight:600; }", active))
+    if (identical(active, "r")) {
+      frames <- .sessionDataFrames()
+      chosen <- selectedRObject()
+      row_style <- "display:flex; justify-content:space-between; padding:3px 8px; cursor:pointer; border-radius:4px; font-size:13px;"
+      rows <- lapply(names(frames), function(nm) {
+        d <- frames[[nm]]
+        shiny::div(style = paste0(row_style, if (identical(nm, chosen)) "background:#dbeafe; font-weight:600;" else ""),
+                   onclick = sprintf("Shiny.setInputValue('data_r_pick', %s, {priority:'event'})",
+                                     jsonlite::toJSON(nm, auto_unbox = TRUE)),
+                   shiny::span(nm), shiny::span(style = "color:#64748b;", sprintf("%d \u00d7 %d", d[1], d[2])))
+      })
+      shiny::tagList(tab_css, shiny::div(class = "dsem-field",
+        shiny::tags$label(class = "dsem-label", "Data frame in the R session"),
+        shiny::div(style = "border:1px solid #e2e8f0; border-radius:6px; max-height:220px; overflow:auto; padding:4px;",
+          if (length(rows)) rows else shiny::div(style = "color:#94a3b8; font-size:12px; padding:6px 8px;",
+                                                  "No data frames in the global environment."))))
+    } else {
+      shiny::tagList(tab_css, shiny::div(class = "dsem-field",
+        shiny::tags$label(class = "dsem-label", "CSV file"),
+        shiny::uiOutput("csv_browser")))
+    }
+  })
+
+  output$data_embed_help <- shiny::renderUI({
+    off <- if (identical(dataTab(), "r")) {
+      "Off: the data stays in this R session. It travels with the model in R, and JSON exports can embed it."
+    } else {
+      "Off: the model records where the file is, and R reads it."
+    }
+    shiny::div(style = "font-size:12px; color:#64748b; margin-top:-6px;", off)
+  })
+
+  # Picking a data frame defaults the dataset label to its name, unless one was typed.
+  shiny::observeEvent(input$data_r_pick, {
+    nm <- as.character(input$data_r_pick)
+    if (!nm %in% names(.sessionDataFrames())) return()
+    selectedRObject(nm)
+    if (!nzchar(trimws(input$csv_dataset_name %||% ""))) {
+      shiny::updateTextInput(session, "csv_dataset_name", value = nm)
+    }
+  })
 
   # onclick handler that sends `path` to input `id` (paths JSON-escaped).
   .sendPath <- function(id, path) {
@@ -510,8 +610,14 @@ NULL
   })
 
   shiny::observeEvent(input$attach_csv_btn, {
+    from_r <- identical(dataTab(), "r")
     path <- selectedCsv()
-    if (is.null(path)) {
+    obj <- selectedRObject()
+    if (from_r && is.null(obj)) {
+      shiny::showNotification("Choose a data frame first.", type = "warning", duration = 4)
+      return()
+    }
+    if (!from_r && is.null(path)) {
       shiny::showNotification("Choose a CSV file first.", type = "warning", duration = 4)
       return()
     }
@@ -520,28 +626,34 @@ NULL
       shiny::showNotification("Enter a dataset label first.", type = "warning", duration = 4)
       return()
     }
+    embed <- isTRUE(input$data_embed)
     tryCatch({
-      df <- utils::read.csv(path, stringsAsFactors = FALSE)
       gm <- currentModel()
       if (is.null(gm)) {
         shiny::showNotification("No active model.", type = "warning", duration = 4)
         return()
       }
+      if (from_r) {
+        df <- as.data.frame(get(obj, envir = globalenv()))
+        source <- if (embed) "embedded" else "session"
+        gm@schema <- .attachDatasetNode(gm@schema, label, df, source)
+      } else {
+        df <- utils::read.csv(path, stringsAsFactors = FALSE)
+        source <- if (embed) "embedded" else "file"
+        gm@schema <- .attachDatasetNode(gm@schema, label, df, source,
+                                        file = path, location = .locationFor(path, launchDir))
+      }
       gm@data[[label]] <- df
-
-      # Surface the loaded data as a dataset node on the canvas (embedded source)
-      # and push the updated model to the widget. Without this the data would sit
-      # only in the R session, with no node to bind columns from.
-      gm@schema <- .attachDatasetNode(gm@schema, label, df)
 
       currentModel(gm)
       session$sendCustomMessage("update_model", list(schema = gm@schema))
       .sendDatasetSummaries(gm)
       .closeModal("dsem-modal-data")
-      shiny::showNotification(sprintf("Dataset '%s' attached (%d \u00d7 %d).", label, nrow(df), ncol(df)),
+      how <- c(embedded = "embedded in the model", file = "connected to the file", session = "held in the R session")[[source]]
+      shiny::showNotification(sprintf("Dataset '%s' attached (%d \u00d7 %d), %s.", label, nrow(df), ncol(df), how),
                               type = "message", duration = 4)
     }, error = function(e) {
-      shiny::showNotification(paste("Could not read CSV:", conditionMessage(e)),
+      shiny::showNotification(paste("Could not load the data:", conditionMessage(e)),
                               type = "error", duration = 8)
     })
   })
