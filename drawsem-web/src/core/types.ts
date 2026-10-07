@@ -201,13 +201,20 @@ export interface GraphAdapter {
    * Optional: Request that the host environment (Shiny) open a data-loading UI.
    * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
    */
-  requestLoadData?(): void
+  /** Open the R-side Load Data dialog; with a label, to connect data to that existing dataset node. */
+  requestLoadData?(datasetLabel?: string): void
 
   /**
    * Optional: Request that the host environment (Shiny) open a model-loading UI.
    * In standalone mode this method is absent; the toolbar renders a direct file picker instead.
    */
   requestLoadModel?(): void
+
+  /**
+   * Optional (Shiny): ask the host to save the model as a JSON file, so it can
+   * include data held only in the R session.
+   */
+  requestSaveJson?(): void
 
   /**
    * Optional: Push current schema to the host environment on every edit (Shiny reactive sync).
@@ -234,6 +241,13 @@ export interface GraphAdapter {
    * Shiny-only; absent in standalone mode.
    */
   onFitStatusChanged?(callback: (status: string) => void): void
+
+  /**
+   * Optional (Shiny): column names and summary statistics for file-based
+   * datasets whose data the host (R) holds, keyed by dataset label. Display
+   * only; the editor cannot read data files itself in that environment.
+   */
+  onDatasetSummaries?(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: any[] }>) => void): void
 
   /**
    * Optional: Send an SVG string to the host environment for server-side format

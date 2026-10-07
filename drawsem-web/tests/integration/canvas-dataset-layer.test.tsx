@@ -76,4 +76,74 @@ describe('dataset layer switching', () => {
     await new Promise((r) => setTimeout(r, 50))
     expect(screen.queryByText('All elements')).toBeNull()
   })
+
+  it('brings a newly attached dataset into view (as R places it, away from the other nodes)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
+    let receive: ((s: GraphSchema) => void) | null = null
+    const adapter: GraphAdapter = {
+      load: vi.fn(async () => { throw new Error('unused') }),
+      save: vi.fn(async () => {}),
+      export: vi.fn(async () => 'mock'),
+      onModelReceived: (cb) => { receive = cb },
+    }
+    // a fresh model with one unplaced variable, then Load Data adds a dataset
+    // at R's fixed spot (see .attachDatasetNode)
+    const fresh = { schemaVersion: 0, models: { model1: { nodes: [{ label: 'x', type: 'variable' }], paths: [] } } } as unknown as GraphSchema
+    const attached = { schemaVersion: 0, models: { model1: { nodes: [
+      { label: 'x', type: 'variable' },
+      { label: 'mydata', type: 'dataset', visual: { x: 300, y: 450 },
+        datasetSource: { type: 'embedded', format: 'json', encoding: 'UTF-8', columnTypes: { x: 'number' }, object: [{ x: 1 }], rowCount: 1 } },
+    ], paths: [] } } } as unknown as GraphSchema
+    const { container } = render(
+      <AdapterContext.Provider value={adapter}>
+        <CanvasTool initialSchema={fresh} />
+      </AdapterContext.Provider>
+    )
+    await waitFor(() => expect(receive).not.toBeNull())
+    act(() => receive!(attached))
+    const canvas = () => container.querySelector('marker#arrow-end')!.closest('svg')!
+    await waitFor(() => {
+      const [x, y, w, h] = canvas().getAttribute('viewBox')!.split(/\s+/).map(Number)
+      expect(300).toBeGreaterThan(x); expect(300).toBeLessThan(x + w)
+      expect(450).toBeGreaterThan(y); expect(450).toBeLessThan(y + h)
+    })
+  })
+
+  it('places a dataset attached from R beside the diagram, in view', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
+    let receive: ((s: GraphSchema) => void) | null = null
+    let last: any = null
+    const adapter: GraphAdapter = {
+      load: vi.fn(async () => { throw new Error('unused') }),
+      save: vi.fn(async () => {}),
+      export: vi.fn(async () => 'mock'),
+      onModelReceived: (cb) => { receive = cb },
+    }
+    // variables drawn in the editor, then Load Data attaches a dataset with no position
+    const drawn = { schemaVersion: 0, models: { model1: { nodes: [
+      { label: 'x', type: 'variable', visual: { x: -400, y: -300 } },
+      { label: 'y', type: 'variable', visual: { x: -250, y: -300 } },
+    ], paths: [] } } } as unknown as GraphSchema
+    const attached = JSON.parse(JSON.stringify(drawn))
+    attached.models.model1.nodes.push({ label: 'mydata', type: 'dataset',
+      datasetSource: { type: 'embedded', format: 'json', encoding: 'UTF-8', columnTypes: { x: 'number' }, object: [{ x: 1 }], rowCount: 1 } })
+    const { container } = render(
+      <AdapterContext.Provider value={adapter}>
+        <CanvasTool initialSchema={drawn} onModelChange={(s) => { last = s }} />
+      </AdapterContext.Provider>
+    )
+    await waitFor(() => expect(receive).not.toBeNull())
+    act(() => receive!(attached))
+    await waitFor(() => {
+      const ds = last.models.model1.nodes.find((n: any) => n.label === 'mydata')
+      expect(ds.visual.x).toBeGreaterThan(-250)        // to the right of the variables
+      const [vx, vy, vw, vh] = container.querySelector('marker#arrow-end')!.closest('svg')!
+        .getAttribute('viewBox')!.split(/\s+/).map(Number)
+      expect(ds.visual.x).toBeGreaterThan(vx); expect(ds.visual.x).toBeLessThan(vx + vw)
+      expect(ds.visual.y).toBeGreaterThan(vy); expect(ds.visual.y).toBeLessThan(vy + vh)
+    })
+    // the variables did not move
+    const xNode = last.models.model1.nodes.find((n: any) => n.label === 'x')
+    expect(xNode.visual).toEqual({ x: -400, y: -300 })
+  })
 })

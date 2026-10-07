@@ -6,7 +6,7 @@ import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
 import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
 import type { RuntimeModel } from '../utils/runtimeToSchema'
-import { layoutModel, layoutOnLoad } from '../utils/layoutModel'
+import { layoutModel, layoutIncomingModel } from '../utils/layoutModel'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
@@ -176,7 +176,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // placed off to the side. Pass excludeDataset to override. Excluded datasets
   // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
   function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
-    const excludeDataset = options?.excludeDataset ?? (activeLayer !== 'data')
+    // the current layer (via the ref: model loads call this from a callback created at startup)
+    const excludeDataset = options?.excludeDataset ?? (activeLayerRef.current !== 'data')
     const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
     if (fitted.length === 0) {
       setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
@@ -224,7 +225,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
-  // layer so it is visible: the default SEM layer hides dataset nodes.
+  // layer so it is visible (the default SEM layer hides dataset nodes), and
+  // refit the view to include it: R places a new dataset at a fixed spot that
+  // a fit of the other nodes can leave off-screen.
   const datasetIdsKey = nodes.filter((n) => n.type === 'dataset').map((n) => n.id).sort().join(',')
   const prevDatasetIdsRef = useRef<{ modelId: string | null; ids: Set<string> } | null>(null)
   React.useEffect(() => {
@@ -232,6 +235,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const prev = prevDatasetIdsRef.current
     if (prev && prev.modelId === currentModelId && [...ids].some((id) => !prev.ids.has(id))) {
       setActiveLayer('all')
+      fitViewToNodes(nodes, paths, { excludeDataset: false })
     }
     prevDatasetIdsRef.current = { modelId: currentModelId, ids }
   }, [datasetIdsKey, currentModelId])
@@ -429,7 +433,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           // Auto-layout only when no node of the model has a position
           try {
-            layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
+            layoutIncomingModel(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' })
           } catch (layoutError) {
             console.warn('[JSON Import] Auto-layout failed, proceeding without layout:', layoutError)
           }
@@ -464,7 +468,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           
           // Auto-layout only when no node of the model has a position
           try {
-            if (layoutOnLoad(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
+            if (layoutIncomingModel(modelsOut, { excludeDatasets: activeLayerRef.current !== 'data' }) === 'no-usable-positions') {
               setErrorMessage('Auto-layout produced no usable coordinates. Click "Auto Layout" to try again.')
             }
           } catch (layoutError) {
@@ -503,6 +507,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     
     adapterOptional.signalReady()
   }, [models, adapterOptional])
+
+  // Column information from R for file-based datasets it holds data for (shiny
+  // only): fills each matching dataset node's column panel. Applied to every
+  // model, since this callback outlives renders (no current-model closure).
+  React.useEffect(() => {
+    adapterOptional?.onDatasetSummaries?.((summaries) => {
+      setModels((ms) => ms.map((m) => ({
+        ...m,
+        nodes: m.nodes.map((n) => {
+          const s = n.type === 'dataset' ? summaries[n.label] : undefined
+          return s ? { ...n, dataset: { fileName: s.fileName, headers: s.headers, columns: s.columns } } : n
+        }),
+      })))
+    })
+  }, [adapterOptional])
 
   // Subscribe to fit status updates from R (shiny only)
   React.useEffect(() => {
@@ -544,6 +563,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     let mounted = true
     const loadDatasetFile = async (node: Node) => {
       if (!node.datasetSource || node.datasetSource.type !== 'file') return
+      // Where the host supplies column information (Shiny), it reads the file.
+      if (adapterOptional?.onDatasetSummaries) return
       const nodeId = node.id
       const fileName = node.datasetSource.location
       if (!fileName) return  // location is required for file type
@@ -1017,6 +1038,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   function handleCsvImportClick() {
     if (isLayoutOnly) return
+    csvTargetNodeIdRef.current = null   // a toolbar import is never for a chosen node
     csvFileInputRef.current?.click()
   }
 
@@ -1223,6 +1245,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return out
   }
 
+  // "Find data file..." on a dataset node without data: in Shiny, open R's Load
+  // Data dialog for this dataset (Attach then connects the data to this node);
+  // otherwise pick a CSV locally and load it into this node.
+  const csvTargetNodeIdRef = useRef<string | null>(null)
+  function findDataFileFor(node: Node) {
+    if (viewMode === 'shiny' && adapter.requestLoadData) {
+      adapter.requestLoadData(node.label)
+      return
+    }
+    csvTargetNodeIdRef.current = node.id
+    csvFileInputRef.current?.click()
+  }
+
   function onCsvSelected(e: React.ChangeEvent<HTMLInputElement>) {
     if (isLayoutOnly) return
     const f = e.target.files && e.target.files[0]
@@ -1286,6 +1321,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         })
 
         const meta = { fileName: f.name, headers, columns }
+
+        // Loading for a chosen dataset node ("Find data file..."): attach there.
+        const targetId = csvTargetNodeIdRef.current
+        csvTargetNodeIdRef.current = null
+        if (targetId) {
+          setNodes((cur) => cur.map((n) => (n.id === targetId ? { ...n, dataset: meta } : n)))
+          return
+        }
 
         // Add or update an internal-only dataset node representing this CSV (not part of persisted JSON)
         try {
@@ -2264,11 +2307,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             </button>
             {viewMode === 'shiny' ? (
               <button
-                title="Load Data into R session"
-                className="py-2 px-3 rounded text-sm flex items-center justify-center bg-white border hover:bg-sky-100"
+                title="Load Data (into the R session)"
+                className="py-2 px-3 rounded text-xl flex items-center justify-center bg-white border hover:bg-sky-100"
                 onClick={() => adapter.requestLoadData?.()}
               >
-                Load Data
+                ⛁
               </button>
             ) : (
               <button
@@ -2432,7 +2475,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <div className="absolute top-full left-0 mt-1 z-20 bg-white border rounded shadow-md min-w-max">
                   <button
                     className="w-full text-left px-4 py-2 text-sm hover:bg-sky-50"
-                    onClick={() => { handleSaveClick(); setShowSaveMenu(false) }}
+                    onClick={() => {
+                      // R writes it (it can embed data held only in the R session)
+                      if (adapter.requestSaveJson) adapter.requestSaveJson()
+                      else handleSaveClick()
+                      setShowSaveMenu(false)
+                    }}
                   >
                     JSON file
                   </button>
@@ -2736,7 +2784,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 {selectedNode.datasetSource && (
                   <div>Expected file: <span className="font-mono text-[10px] break-all">{selectedNode.datasetSource.location}</span></div>
                 )}
-                <div className="pt-1">Use the "⛁ Add Dataset" button in the toolbar to import or reload the CSV file.</div>
+                {!isLayoutOnly && (
+                  <>
+                    <div className="pt-1">
+                      Find the file to connect it here, or use the ⛁ {viewMode === 'shiny' ? 'Load Data' : 'Add Dataset'} button in the toolbar.
+                    </div>
+                    <button
+                      className="mt-1 px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                      title="Choose the data file for this dataset"
+                      onClick={() => findDataFileFor(selectedNode)}
+                    >
+                      Find data file…
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

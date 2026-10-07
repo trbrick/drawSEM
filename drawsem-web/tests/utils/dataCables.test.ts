@@ -67,4 +67,15 @@ describe('image export lays out a positionless model like the editor', () => {
     // F keeps its position: its label is drawn at x=100
     expect(svg).toMatch(/<text x="100" y="5"[^>]*>F</)
   })
+
+  it('places a dataset without a position beside an otherwise laid-out model', () => {
+    const doc = model(true)
+    const ds: any = doc.models.m.nodes.find((n: any) => n.type === 'dataset')
+    delete ds.visual
+    const svg = exportModelToSVG(doc, 'm')
+    expect(svg).toContain('>data<')
+    // to the right of the rightmost variable (x2 at 200)
+    const m = svg.match(/<text x="([-\d.]+)" y="[-\d.]+"[^>]*>data</)
+    expect(Number(m![1])).toBeGreaterThan(200)
+  })
 })

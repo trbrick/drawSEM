@@ -151,12 +151,19 @@ resolveDataPath <- function(location, schemaDir, dataPath = ".") {
   }
   
   # If dataPath is ".", use schemaDir
+  in_schema_dir <- normalizePath(file.path(schemaDir, location), mustWork = FALSE)
   if (dataPath == ".") {
-    return(normalizePath(file.path(schemaDir, location), mustWork = FALSE))
+    return(in_schema_dir)
   }
-  
-  # Otherwise, resolve relative to dataPath
-  return(normalizePath(file.path(dataPath, location), mustWork = FALSE))
+
+  # Otherwise, resolve relative to dataPath; if the file is not there but is
+  # next to the schema (the usual layout, e.g. a model and its CSV in one
+  # folder), use that.
+  in_data_path <- normalizePath(file.path(dataPath, location), mustWork = FALSE)
+  if (!file.exists(in_data_path) && file.exists(in_schema_dir)) {
+    return(in_schema_dir)
+  }
+  return(in_data_path)
 }
 
 #' Normalize Schema from JSON Parsing
@@ -510,13 +517,19 @@ setMethod(
 #' @param graph_obj A GraphModel object
 #' @param filepath Path where JSON should be written
 #' @param pretty Logical. If TRUE, format with indentation (default: TRUE)
+#' @param embedData Logical. If TRUE (default), datasets whose data exists only
+#'   in the R session (a dataset node with no `datasetSource`, e.g. a data frame
+#'   connected in drawSEM's Load Data dialog) are written with their data
+#'   embedded, so the file can be reopened without reconnecting the data. File
+#'   connections and already-embedded datasets are written as they are. If
+#'   FALSE, such datasets are written without data.
 #'
 #' @return Invisibly returns the filepath
 #'
 #' @details
 #' Validates the schema before writing. Does NOT save the cached built model,
-#' data objects, or runtime `@metadata` (these are transient / non-conformant and
-#' are reconstructed on import). Only schema-conformant content is written; non-
+#' other data objects, or runtime `@metadata` (these are transient /
+#' non-conformant and are reconstructed on import). Only schema-conformant content is written; non-
 #' core content that must round-trip lives in each model's extensions$pendingCore.
 #'
 #' @examples
@@ -526,7 +539,7 @@ setMethod(
 #' }
 #'
 #' @export
-exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
+exportSchema <- function(graph_obj, filepath, pretty = TRUE, embedData = TRUE) {
   if (!is(graph_obj, "GraphModel")) {
     stop("graph_obj must be a GraphModel", call. = FALSE)
   }
@@ -541,9 +554,11 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE) {
   # Build output list. Stamp the exporter onto each pendingCore entry's origin so
   # a future reader knows which tool/version serialized it (this writes a copy;
   # the GraphModel's stored schema is untouched).
+  models <- graph_obj@schema$models
+  if (isTRUE(embedData)) models <- .embedSessionData(models, graph_obj@data)
   output <- list(
     schemaVersion = graph_obj@schema$schemaVersion,
-    models = stampExporter(graph_obj@schema$models)
+    models = stampExporter(models)
   )
   
   # Add optional meta field if present in schema
@@ -1222,3 +1237,20 @@ setMethod(
     callNextMethod(x)
   }
 )
+
+# Give each dataset node that has no datasetSource (its data exists only in the
+# R session) an embedded datasetSource from `data`, keyed by node label. Used
+# by exportSchema(embedData = TRUE) on the copy it writes.
+.embedSessionData <- function(models, data) {
+  lapply(models, function(m) {
+    m$nodes <- lapply(m$nodes %||% list(), function(n) {
+      df <- data[[as.character(n$label %||% "")]]
+      if (!identical(n$type, "dataset") || !is.null(n$datasetSource) || !is.data.frame(df)) return(n)
+      j <- dataFrameToJSON(df)
+      n$datasetSource <- list(type = "embedded", format = "json", encoding = "UTF-8",
+                              columnTypes = as.list(j$columnTypes), object = j$object, rowCount = nrow(df))
+      n
+    })
+    m
+  })
+}
