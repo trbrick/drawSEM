@@ -177,7 +177,15 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
 - Web frontend: in-memory undo/redo (`src/hooks/useHistory.ts`; Cmd/Ctrl+Z,
   Cmd/Ctrl+Shift+Z, Ctrl+Y) and keyboard shortcuts scoped to the editor
   instance in use (`src/hooks/useEditorKeyboard.ts`): Escape, V/C/P/T tools,
-  arrow-key nudge, Delete/Backspace, Cmd/Ctrl+L
+  arrow-key nudge, Delete/Backspace, Cmd/Ctrl+A (select all in the active
+  layer), Cmd/Ctrl+L
+- Web frontend: multi-selection (`src/utils/selection.ts`; nodes and paths
+  together), the same in every context: Shift/Cmd/Ctrl-click toggles an
+  element; a left-drag on the background draws a selection rectangle (nodes
+  entirely inside it, plus paths with both endpoints selected; active layer
+  only; Shift/Cmd/Ctrl adds). Dragging, nudging and deleting act on the whole
+  selection, one undo step each; the element popup shows a summary for more
+  than one element
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results
@@ -189,7 +197,7 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   (mouse vs trackpad is a best-effort guess, `isTrackpadWheel()`); pinch and
   Cmd/Ctrl+wheel zoom; right-drag on the background, middle-drag and
   Space+drag pan (right-drag from a node still draws a path; left-drag on the
-  background is reserved for marquee selection). The one exception: the
+  background draws a selection rectangle). The one exception: the
   embedded widget (`plotGraphModel()`, Quarto/RMarkdown) leaves the plain wheel
   and two-finger scroll to the page and briefly shows a "Ctrl + scroll to zoom"
   (⌘ on macOS) hint. A "Show All" toolbar button (Shift+1) fits the view to

@@ -24,6 +24,8 @@ import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
 import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
 import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { EMPTY_SELECTION, selectionOf, selectionSize, toggleInSelection, pruneSelection, sameSelection, boundsFromPoints, unionBounds, marqueeSelection } from '../utils/selection'
+import type { Selection, SelectionKind, Bounds } from '../utils/selection'
 import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
 
 type NodeType = Node['type']
@@ -793,8 +795,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }, [models, docPassthrough, onModelChange])
   const [mode, setMode] = useState<Mode>('select')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
+  // The selection: any number of nodes and paths (runtime ids; see utils/selection)
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
@@ -820,9 +822,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   )
 
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
-  // pending drag holds initial press until movement threshold is reached
-  const pendingDragRef = useRef<{ id: string; startClientX: number; startClientY: number; offsetX: number; offsetY: number } | null>(null)
+  // A node drag moves every node in `origins` (the selected nodes) by the
+  // cursor's offset from `start` (canvas coordinates). The object is also the
+  // drag's undo key, so a whole drag is one step.
+  type NodeDrag = { origins: Map<string, { x: number; y: number }>; start: { x: number; y: number } }
+  const dragRef = useRef<NodeDrag | null>(null)
+  // pending drag holds initial press until movement threshold is reached.
+  // `collapseTo`: a press on a node of a multi-selection keeps the group for a
+  // drag; released without dragging (a plain click) it selects that node alone.
+  const pendingDragRef = useRef<(NodeDrag & { startClientX: number; startClientY: number; collapseTo: string | null }) | null>(null)
+  // Selection rectangle (canvas coordinates) while a background drag is active
+  const [marquee, setMarquee] = useState<Bounds | null>(null)
+  const marqueeCleanupRef = useRef<(() => void) | null>(null)
   // Self-loop drag-to-pin: armed on mousedown on a self-loop, becomes active past
   // the drag threshold; while active the loop previews the nearest side and on
   // release that side is pinned (Path.side).
@@ -997,10 +1008,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setValidationWarnings(getAllValidationWarnings())
   }, [nodes, paths])
 
+  const selectedNodeIds = React.useMemo(() => new Set(selection.nodeIds), [selection])
+  const selectedPathIds = React.useMemo(() => new Set(selection.pathIds), [selection])
+  const selectionCount = selectionSize(selection)
+
+  // The single-element views of the selection: set only when exactly one
+  // element is selected. Everything that shows or edits one element (the
+  // popup's details, the dataset column panel, column drag-and-drop) uses these.
   const selectedNode = React.useMemo(() => {
-    if (selectedType !== 'node' || !selectedId) return null
-    return nodes.find((n) => n.id === selectedId) || null
-  }, [selectedType, selectedId, nodes])
+    if (selection.nodeIds.length !== 1 || selection.pathIds.length !== 0) return null
+    return nodes.find((n) => n.id === selection.nodeIds[0]) || null
+  }, [selection, nodes])
 
   // Why the inspector's label draft wasn't applied, if it wasn't
   const labelDraftError = selectedNode && labelDraft?.nodeId === selectedNode.id && labelDraft.value !== selectedNode.label
@@ -1008,34 +1026,78 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     : null
 
   const selectedPath = React.useMemo(() => {
-    if (selectedType !== 'path' || !selectedId) return null
-    return paths.find((p) => p.id === selectedId) || null
-  }, [selectedType, selectedId, paths])
+    if (selection.pathIds.length !== 1 || selection.nodeIds.length !== 0) return null
+    return paths.find((p) => p.id === selection.pathIds[0]) || null
+  }, [selection, paths])
 
-  // Unified selection helper: select a node or path
-  function selectElement(id: string, type: 'node' | 'path') {
-    // Simply select the element (no toggle on every click)
-    setSelectedId(id)
-    setSelectedType(type)
+  // Selected ids that no longer exist (deleted, undone, another model shown)
+  // are dropped, so the selection only ever names live elements. While
+  // off-layer elements are hidden they are dropped too, so a group delete
+  // never removes something the user cannot see.
+  React.useEffect(() => {
+    const hideOffLayer = offLayerVisibility === 'invisible'
+    const nodeIds = new Set(nodes.filter((n) => !hideOffLayer || isNodeInLayer(n)).map((n) => n.id))
+    const pathIds = new Set(paths.filter((p) => !hideOffLayer || isPathInLayer(p)).map((p) => p.id))
+    setSelection((s) => pruneSelection(s, nodeIds, pathIds))
+  }, [nodes, paths, activeLayer, offLayerVisibility])
+
+  // Select just this element (a plain click)
+  function selectElement(id: string, type: SelectionKind) {
+    setSelection(selectionOf(type, id))
   }
 
-  // Unified deselection helper
+  // Add the element to the selection, or remove it (Shift / Cmd / Ctrl + click)
+  function toggleElement(id: string, type: SelectionKind) {
+    setSelection((s) => toggleInSelection(s, type, id))
+  }
+
   function deselectAll() {
-    setSelectedId(null)
-    setSelectedType(null)
+    setSelection((s) => (selectionSize(s) === 0 ? s : EMPTY_SELECTION))
   }
 
+  // Cmd/Ctrl+A: every node and path in the active layer
+  function selectAllInLayer() {
+    const next: Selection = {
+      nodeIds: nodes.filter((n) => isNodeInLayer(n)).map((n) => n.id),
+      pathIds: paths.filter((p) => isPathInLayer(p)).map((p) => p.id),
+    }
+    setSelection((s) => (sameSelection(s, next) ? s : next))
+  }
+
+  // Delete every selected node (with the paths touching it) and every selected
+  // path. One handler, so one undo step.
   function deleteSelected() {
     if (isLayoutOnly) return
-    if (selectedType === 'node' && selectedId) {
-      setNodes((s) => s.filter((n) => n.id !== selectedId))
-      // Also remove any paths connected to this node
-      setPaths((s) => s.filter((p) => p.from !== selectedId && p.to !== selectedId))
-      deselectAll()
-    } else if (selectedType === 'path' && selectedId) {
-      setPaths((s) => s.filter((p) => p.id !== selectedId))
-      deselectAll()
+    if (selectedNodeIds.size === 0 && selectedPathIds.size === 0) return
+    const nodeIds = selectedNodeIds
+    const pathIds = selectedPathIds
+    if (nodeIds.size > 0) setNodes((s) => s.filter((n) => !nodeIds.has(n.id)))
+    setPaths((s) => s.filter((p) => !pathIds.has(p.id) && !nodeIds.has(p.from) && !nodeIds.has(p.to)))
+    deselectAll()
+  }
+
+  /** Canvas-space bounding box of a node as drawn (its shape, not its label). */
+  function nodeBounds(n: Node): Bounds {
+    const x = nodeX(n)
+    const y = nodeY(n)
+    const box = (hw: number, top: number, bottom: number): Bounds => ({ minX: x - hw, maxX: x + hw, minY: y + top, maxY: y + bottom })
+    if (n.type === 'variable') {
+      if (getVariableRenderType(n.id) === 'manifest') {
+        const w = n.width ?? MANIFEST_DEFAULT_W
+        const h = n.height ?? MANIFEST_DEFAULT_H
+        return box(w / 2, -h / 2, h / 2)
+      }
+      return box(LATENT_RADIUS, -LATENT_RADIUS, LATENT_RADIUS)
     }
+    if (n.type === 'dataset') {
+      // the cylinder as drawn below: top ellipse to bottom ellipse
+      const w = n.width ?? MANIFEST_DEFAULT_W
+      const h = n.height ?? MANIFEST_DEFAULT_H
+      const ry = Math.max(5, Math.round(h * 0.18))
+      return box(w / 2, -h / 2 - ry / 2, h / 2 + 2 * ry)
+    }
+    // constant triangle: points 0,-22 19,11 -19,11
+    return box(19, -22, 11)
   }
 
   // An unlabeled path's displayName is generated from its endpoints and arrow
@@ -1094,12 +1156,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
-  // Debug effect: log selection state changes
-  React.useEffect(() => {
-    // Selection state tracking (no debug output needed)
-    return
-  }, [selectedId, selectedType])
-
   // ---- Undo/redo and keyboard shortcuts ----
 
   // Root element of this editor instance. Keyboard shortcuts apply only to the
@@ -1113,7 +1169,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (dragRef.current) return dragRef.current
     const active = typeof document !== 'undefined' ? document.activeElement : null
     if (active && active.tagName !== 'SELECT' && isTextEntryTarget(active) && editorRootRef.current?.contains(active)) {
-      return fieldKey(active, `${selectedType}:${selectedId}`)
+      return fieldKey(active, `nodes:${selection.nodeIds.join(',')};paths:${selection.pathIds.join(',')}`)
     }
     return undefined
   }
@@ -1133,33 +1189,33 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function undoRedo(direction: 'undo' | 'redo') {
     const restored = direction === 'undo' ? history.undo() : history.redo()
     if (!restored) return
-    // An in-progress path creation refers to the replaced state: drop it. Clear
-    // the selection if the selected element no longer exists.
+    // An in-progress path creation refers to the replaced state: drop it. Drop
+    // selected elements that no longer exist.
     rightClickDragRef.current = false
     setPathSource(null)
     setTempLine(null)
     const model = restored.models.find((m) => m.id === restored.currentModelId)
-    const stillExists = selectedType === 'node'
-      ? model?.nodes.some((n) => n.id === selectedId)
-      : model?.paths.some((p) => p.id === selectedId)
-    if (selectedId && !stillExists) deselectAll()
+    const nodeIds = new Set((model?.nodes ?? []).map((n) => n.id))
+    const pathIds = new Set((model?.paths ?? []).map((p) => p.id))
+    setSelection((s) => pruneSelection(s, nodeIds, pathIds))
   }
 
-  // Arrow-key nudge of the selected node. A run of nudges (e.g. key repeat)
-  // coalesces into one undo step.
+  // Arrow-key nudge of the selected nodes. A run of nudges (e.g. key repeat) of
+  // the same nodes coalesces into one undo step.
   const NUDGE_WINDOW_MS = 1000
-  function nudgeSelectedNode(dx: number, dy: number): boolean {
-    if (selectedType !== 'node' || !selectedId) return false
-    const id = selectedId
-    if (!nodes.some((n) => n.id === id)) return false
-    history.withKey(`nudge:${id}`, NUDGE_WINDOW_MS, () => {
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
+  function nudgeSelectedNodes(dx: number, dy: number): boolean {
+    const ids = selection.nodeIds.filter((id) => nodes.some((n) => n.id === id))
+    if (ids.length === 0) return false
+    const moving = new Set(ids)
+    history.withKey(`nudge:${[...ids].sort().join(',')}`, NUDGE_WINDOW_MS, () => {
+      setNodes((ns) => ns.map((n) => (moving.has(n.id) ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
     })
     return true
   }
 
   // Escape: close an open toolbar menu, else cancel an in-progress path, else
-  // leave an add mode, else deselect (which also closes the element popup).
+  // leave an add mode, else clear the whole selection (which also closes the
+  // element popup).
   function handleEscapeKey() {
     if (showExportMenu || showSaveMenu) {
       setShowExportMenu(false)
@@ -1208,6 +1264,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
+    // Select all (in the active layer): Cmd/Ctrl+A. Never while typing (the
+    // keyboard hook ignores text fields).
+    if (hasPrimaryModifier(e) && !e.altKey && !e.shiftKey && key === 'a') {
+      e.preventDefault()
+      selectAllInLayer()
+      return
+    }
+
     // Delete the selection. 'Backspace' is the physical delete key on macOS.
     if (key === 'Delete' || key === 'Backspace') {
       if (isLayoutOnly) return
@@ -1223,12 +1287,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     if (e.metaKey || e.ctrlKey || e.altKey) return
 
-    // Arrows nudge the selected node (Shift: 10 units). A visual change, so
+    // Arrows nudge the selected nodes (Shift: 10 units). A visual change, so
     // also allowed in layout-only mode.
     const arrow = ARROW_KEYS[key]
     if (arrow) {
       const step = e.shiftKey ? 10 : 1
-      if (nudgeSelectedNode(arrow[0] * step, arrow[1] * step)) e.preventDefault()
+      if (nudgeSelectedNodes(arrow[0] * step, arrow[1] * step)) e.preventDefault()
       return
     }
 
@@ -1683,8 +1747,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // The one difference: the embedded widget (viewMode 'widget') leaves plain
   // wheel / two-finger scroll to the document so the page still scrolls over a
   // diagram, and briefly shows a "Ctrl + scroll to zoom" hint instead.
-  // Plain left-drag on the background is left unused on purpose (reserved for
-  // marquee selection).
+  // Plain left-drag on the background draws a selection rectangle (see
+  // startMarquee).
   const pointerOverRootRef = useRef(false)
   const pointerOverCanvasRef = useRef(false)
   const spaceHeldRef = useRef(false)
@@ -1852,11 +1916,79 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Right-drag on the background pans. Bubble phase: a right press on a node
   // stops propagation there (it draws a path), so only background presses
-  // (and paths, which have no right-button action) reach this.
+  // (and paths, which have no right-button action) reach this. A left press
+  // on the empty background may start a selection rectangle.
   function onCanvasMouseDown(e: React.MouseEvent) {
+    if (e.button === 0 && e.target === svgRef.current && !pathSource) {
+      startMarquee(e)
+      return
+    }
     if (e.button !== 2) return
     startPan(e)
   }
+
+  // Selection rectangle: a left-drag on the empty background, in every mode
+  // and context (an add tool acts on a click, never on a drag). It becomes a
+  // rectangle once the pointer moves past the drag threshold; a press released
+  // before that is an ordinary background click. On release it selects the
+  // in-layer nodes lying entirely inside it, plus the in-layer paths whose two
+  // endpoints are selected. Shift / Cmd / Ctrl adds to the selection.
+  function startMarquee(e: React.MouseEvent) {
+    const svg = svgRef.current
+    const ctm = svg?.getScreenCTM?.()
+    if (!svg || !ctm) return
+    const toCanvas = (clientX: number, clientY: number) => {
+      const m = svg.getScreenCTM?.()
+      if (!m) return null
+      const pt = svg.createSVGPoint()
+      pt.x = clientX
+      pt.y = clientY
+      const c = pt.matrixTransform(m.inverse())
+      return { x: c.x, y: c.y }
+    }
+    // Anchored in canvas coordinates, so a zoom mid-drag keeps the start corner on the canvas
+    const start = toCanvas(e.clientX, e.clientY)
+    if (!start) return
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const base = e.shiftKey || e.metaKey || e.ctrlKey ? selection : null
+    let active = false
+    let rect: Bounds | null = null
+    function onMove(ev: MouseEvent) {
+      if (!active && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) <= 4) return
+      active = true
+      const cur = toCanvas(ev.clientX, ev.clientY)
+      if (!cur) return
+      rect = boundsFromPoints(start!, cur)
+      setMarquee(rect)
+    }
+    function end() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      marqueeCleanupRef.current = null
+      setMarquee(null)
+    }
+    function onUp(ev: MouseEvent) {
+      if (ev.button !== 0) return
+      end()
+      if (!active || !rect) return
+      const next = marqueeSelection(
+        rect,
+        nodes.filter((n) => isNodeInLayer(n)).map((n) => ({ id: n.id, bounds: nodeBounds(n) })),
+        paths.filter((p) => isPathInLayer(p)),
+        base
+      )
+      setSelection((s) => (sameSelection(s, next) ? s : next))
+      // the click that follows must not deselect or place a node
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    }
+    marqueeCleanupRef.current?.()
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    marqueeCleanupRef.current = end
+  }
+  React.useEffect(() => () => marqueeCleanupRef.current?.(), [])
 
   function startPan(e: React.MouseEvent) {
     const svg = svgRef.current
@@ -1911,7 +2043,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         setEditing((cur) => (cur ? { ...cur, left: pos.left, top: pos.top } : cur))
       }
     }
-    if (selectedId) setViewEpoch((n) => n + 1)
+    if (selectionCount > 0) setViewEpoch((n) => n + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewBoxAttr])
 
@@ -1944,15 +2076,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const dy = e.clientY - pd.startClientY
       const slop = 4 // pixels before starting actual drag
       if (Math.hypot(dx, dy) > slop) {
-        dragRef.current = { id: pd.id, offsetX: pd.offsetX, offsetY: pd.offsetY }
+        dragRef.current = { origins: pd.origins, start: pd.start }
         pendingDragRef.current = null
       }
     }
 
-    // if dragging a node, move it
+    // if dragging nodes, move them all by the cursor's offset
     if (dragRef.current) {
-      const { id, offsetX, offsetY } = dragRef.current
-      setNodes((list) => list.map((n) => (n.id === id ? { ...n, x: cursor.x - offsetX, y: cursor.y - offsetY } : n)))
+      const { origins, start } = dragRef.current
+      const dx = cursor.x - start.x
+      const dy = cursor.y - start.y
+      setNodes((list) => list.map((n) => {
+        const o = origins.get(n.id)
+        return o ? { ...n, x: o.x + dx, y: o.y + dy } : n
+      }))
       return
     }
 
@@ -1978,9 +2115,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
-    // clear pending drag if mouse released before moving
+    // clear pending drag if mouse released before moving; a plain click on a
+    // node of a multi-selection selects that node alone
     if (pendingDragRef.current) {
+      const collapseTo = pendingDragRef.current.collapseTo
       pendingDragRef.current = null
+      if (collapseTo) selectElement(collapseTo, 'node')
     }
 
     // finish node drag if any
@@ -2159,10 +2299,28 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     pt.x = e.clientX
     pt.y = e.clientY
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
-    // record selection immediately
-    selectElement(n.id, 'node')
-    if (mode === 'select') {
-      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - nodeX(n), offsetY: cursor.y - nodeY(n) }
+    // Record the selection immediately, and which nodes a drag would move:
+    //  - Shift / Cmd / Ctrl toggles the node; a drag then moves the selection
+    //    if the node is now in it;
+    //  - a press on a node of a multi-selection keeps the group (to drag it);
+    //  - otherwise the node is selected alone (and dragged alone).
+    let dragIds: readonly string[]
+    let collapseTo: string | null = null
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      const wasSelected = selectedNodeIds.has(n.id)
+      toggleElement(n.id, 'node')
+      dragIds = wasSelected ? [] : [...selection.nodeIds, n.id]
+    } else if (mode === 'select' && selectedNodeIds.has(n.id) && selectionCount > 1) {
+      dragIds = selection.nodeIds
+      collapseTo = n.id
+    } else {
+      selectElement(n.id, 'node')
+      dragIds = [n.id]
+    }
+    if (mode === 'select' && dragIds.length > 0) {
+      const moving = new Set(dragIds)
+      const origins = new Map(nodes.filter((x) => moving.has(x.id)).map((x) => [x.id, { x: nodeX(x), y: nodeY(x) }] as const))
+      pendingDragRef.current = { origins, start: { x: cursor.x, y: cursor.y }, startClientX: e.clientX, startClientY: e.clientY, collapseTo }
     }
 
     // finish node drag if any
@@ -2217,65 +2375,49 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
-  // Helper: Determine popup position to avoid covering selected node/path
-  // Returns position classes like "top-4 right-4" or "top-4 left-4" etc.
-  function getPopupPositionClasses(): string {
-    const POPUP_WIDTH = 420
-    const POPUP_HEIGHT = 300 // approximate
-    const MARGIN = 16
-    const PADDING = 16
+  // "3 nodes, 2 paths selected"
+  function selectionSummary(): string {
+    const part = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`
+    const parts: string[] = []
+    if (selection.nodeIds.length > 0) parts.push(part(selection.nodeIds.length, 'node'))
+    if (selection.pathIds.length > 0) parts.push(part(selection.pathIds.length, 'path'))
+    return `${parts.join(', ')} selected`
+  }
 
+  // Canvas point the element popup is placed relative to (see getPopupPositionClasses)
+  function selectionAnchor(): { x: number; y: number } | null {
+    if (selectedNode) return { x: nodeX(selectedNode), y: nodeY(selectedNode) }
+    if (selectedPath) return pathLabelPos(selectedPath)
+    const boxes: Bounds[] = []
+    for (const n of nodes) if (selectedNodeIds.has(n.id)) boxes.push(nodeBounds(n))
+    for (const p of paths) {
+      if (!selectedPathIds.has(p.id)) continue
+      const pos = cableGeometryFor(p, cableGroups)?.labelPos ?? pathLabelPos(p)
+      if (pos) boxes.push({ minX: pos.x, maxX: pos.x, minY: pos.y, maxY: pos.y })
+    }
+    const u = unionBounds(boxes)
+    return u ? { x: (u.minX + u.maxX) / 2, y: (u.minY + u.maxY) / 2 } : null
+  }
+
+  // Helper: Determine popup position to avoid covering the selection
+  // Returns position classes like "top-4 right-4" or "top-4 left-4" etc.
+  // The anchor is the selected node's centre or the selected path's label; for
+  // a multi-selection, the centre of the selection's bounding box.
+  function getPopupPositionClasses(): string {
     // If nothing selected, default to top-right
-    if (!selectedId || !selectedType || !svgRef.current) {
+    if (selectionCount === 0 || !svgRef.current) {
       return 'top-4 right-4'
     }
 
     try {
-      // Get SVG bounds in viewport
       const svg = svgRef.current
-      const svgRect = svg.getBoundingClientRect()
       const containerRect = svg.parentElement?.getBoundingClientRect()
       if (!containerRect) return 'top-4 right-4'
 
-      // Get selected object position in SVG coords
-      let objX = 0
-      let objY = 0
-      let objWidth = 0
-      let objHeight = 0
-
-      if (selectedType === 'node') {
-        const node = selectedNode
-        if (!node) return 'top-4 right-4'
-
-        objX = nodeX(node)
-        objY = nodeY(node)
-
-        if (node.type === 'variable') {
-          const renderType = getVariableRenderType(node.id)
-          if (renderType === 'manifest') {
-            objWidth = node.width ?? MANIFEST_DEFAULT_W
-            objHeight = node.height ?? MANIFEST_DEFAULT_H
-          } else {
-            objWidth = LATENT_RADIUS * 2
-            objHeight = LATENT_RADIUS * 2
-          }
-        } else if (node.type === 'dataset') {
-          objWidth = node.width ?? DATASET_DEFAULT_W
-          objHeight = node.height ?? DATASET_DEFAULT_H
-        } else if (node.type === 'constant') {
-          objWidth = 38
-          objHeight = 33
-        }
-      } else if (selectedType === 'path') {
-        const path = selectedPath
-        if (!path) return 'top-4 right-4'
-        const pos = pathLabelPos(path)
-        if (!pos) return 'top-4 right-4'
-        objX = pos.x
-        objY = pos.y
-        objWidth = 60
-        objHeight = 40
-      }
+      const anchor = selectionAnchor()
+      if (!anchor) return 'top-4 right-4'
+      const objX = anchor.x
+      const objY = anchor.y
 
       // Convert SVG coords to screen/viewport coords
       const pt = svg.createSVGPoint()
@@ -3163,11 +3305,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           </>
         )}
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
-        {viewMode !== 'widget' && (selectedNode || selectedPath) && (
+        {viewMode !== 'widget' && (selectedNode || selectedPath || selectionCount > 1) && (
           <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
             {/* Header section */}
             <div className="flex items-center justify-between mb-3">
               <div>
+                {selectionCount > 1 && (
+                  // A multi-selection: a read-only summary (its only actions are Delete and Close)
+                  <div className="text-sm font-semibold" data-testid="selection-summary">{selectionSummary()}</div>
+                )}
                 {selectedNode && selectedNode.type === 'dataset' && (
                   <>
                     <div className="text-sm font-semibold">Dataset: {selectedNode.displayName || selectedNode.label}</div>
@@ -3251,7 +3397,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               <div className="flex items-center gap-2">
                 {!isLayoutOnly && (
                 <button
-                  title="Delete (Backspace)"
+                  title={selectionCount > 1 ? 'Delete the selected elements (Backspace)' : 'Delete (Backspace)'}
                   className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
                   onClick={deleteSelected}
                 >
@@ -3783,7 +3929,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
               {/* draw paths with layer-based opacity */}
               {paths.map((p) => {
-                  const isSelected = selectedType === 'path' && selectedId === p.id
+                  const isSelected = selectedPathIds.has(p.id)
                   const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
@@ -3796,6 +3942,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       // propagation so no node drag, pan or path creation starts.
                       e.stopPropagation()
                       if (e.button !== 0 || mode !== 'select') return
+                      if (e.shiftKey || e.metaKey || e.ctrlKey) return // a modifier click toggles the loop instead
                       loopDragRef.current = { pathId: p.id, nodeId: p.from, startClientX: e.clientX, startClientY: e.clientY, active: false }
                     } : undefined,
                     onClick: (e: React.MouseEvent) => {
@@ -3804,7 +3951,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         suppressClickRef.current = false
                         return
                       }
-                      selectElement(p.id, 'path')
+                      if (e.shiftKey || e.metaKey || e.ctrlKey) toggleElement(p.id, 'path')
+                      else selectElement(p.id, 'path')
                     },
                     onDoubleClick: (e: React.MouseEvent) => {
                       e.stopPropagation()
@@ -3911,6 +4059,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             />
           )}
 
+          {/* selection rectangle (background drag); same stroke width at any zoom */}
+          {marquee && (
+            <rect
+              data-testid="selection-marquee"
+              x={marquee.minX}
+              y={marquee.minY}
+              width={marquee.maxX - marquee.minX}
+              height={marquee.maxY - marquee.minY}
+              fill="rgba(14, 165, 233, 0.08)"
+              stroke="#0ea5e9"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
+            />
+          )}
+
           {/* drag preview - translucent node while dragging a column */}
           {dragPreviewPos && draggedColumnName && (
             <g transform={`translate(${dragPreviewPos.x - MANIFEST_DEFAULT_W / 2}, ${dragPreviewPos.y - MANIFEST_DEFAULT_H / 2})`} style={{ opacity: 0.4, pointerEvents: 'none' }}>
@@ -3951,7 +4115,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           {/* draw nodes */}
           {nodes.map((n) => {
-            const isSelected = selectedType === 'node' && n.id === selectedId
+            const isSelected = selectedNodeIds.has(n.id)
             // Check if this node is connected to a hovered column (via a path from the selected dataset)
             const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
             const inLayer = isNodeInLayer(n)
