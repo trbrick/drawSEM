@@ -213,6 +213,181 @@ test_that("addPath() errors on an invalid numberOfArrows", {
   expect_error(addPath(gm, from = "x2", to = "y2", numberOfArrows = 3), "must be 1 or 2")
 })
 
+test_that("addPath() single-path behaviour is unchanged", {
+  gm <- as.GraphModel(verbFixtureSchema())
+  gm2 <- addPath(gm, "F2", "y2", 1, freeParameter = "b", value = 0.3, tags = "reg")
+  expect_length(paths(gm2), 3)
+  expect_equal(
+    pathByEndpoints(gm2, "F2", "y2"),
+    list(from = "F2", to = "y2", numberOfArrows = 1L, freeParameter = "b", value = 0.3, tags = "reg")
+  )
+  # fixed: freeParameter omitted entirely, as before
+  gm3 <- addPath(gm, "F2", "y2", 1, freeParameter = FALSE)
+  expect_null(pathByEndpoints(gm3, "F2", "y2")$freeParameter)
+  expect_null(pathByEndpoints(gm3, "F2", "y2")$value)
+  # the duplicate message is exactly the old one, with no list wrapper
+  expect_error(
+    addPath(gm, "F1", "x1", 1),
+    "^A path already exists between 'F1' and 'x1' with numberOfArrows = 1\\. Use changePath\\(\\) to modify it or convertPath\\(\\) to change its arrow count\\.$"
+  )
+  expect_error(addPath(gm, "x2", "y2", 1, freeParameter = ""), "non-empty string")
+})
+
+pathFanFixture <- function() {
+  GraphModel() |>
+    addConstant() |>
+    addVariable("F") |>
+    addVariable("x1") |>
+    addVariable("x2") |>
+    addVariable("x3") |>
+    addVariable("y")
+}
+
+test_that("addPath() fans out from one node to many", {
+  gm <- addPath(pathFanFixture(), "1", c("x1", "x2", "x3"), 1, freeParameter = TRUE, value = 0)
+  added <- paths(gm, from = "1")
+  expect_length(added, 3)
+  expect_equal(vapply(added, `[[`, "", "to"), c("x1", "x2", "x3"))
+  for (p in added) {
+    expect_equal(p$numberOfArrows, 1L)
+    expect_true(p$freeParameter)
+    expect_equal(p$value, 0)
+  }
+})
+
+test_that("addPath() fans in from many nodes to one", {
+  gm <- addPath(pathFanFixture(), c("x1", "x2", "x3"), "y", 1, freeParameter = TRUE)
+  added <- paths(gm, to = "y")
+  expect_length(added, 3)
+  expect_equal(vapply(added, `[[`, "", "from"), c("x1", "x2", "x3"))
+})
+
+test_that("addPath() adds pairwise paths, including self-loops", {
+  gm <- addPath(pathFanFixture(), c("x1", "x2", "x1"), c("x1", "x2", "x2"), 2, freeParameter = TRUE)
+  expect_length(paths(gm), 3)
+  expect_false(is.null(pathByEndpoints(gm, "x1", "x1", 2)))
+  expect_false(is.null(pathByEndpoints(gm, "x2", "x2", 2)))
+  expect_false(is.null(pathByEndpoints(gm, "x1", "x2", 2)))
+})
+
+test_that("addPath() accepts per-path numberOfArrows", {
+  gm <- addPath(pathFanFixture(), c("F", "x1"), c("x1", "x1"), c(1, 2))
+  expect_equal(pathByEndpoints(gm, "F", "x1")$numberOfArrows, 1L)
+  expect_equal(pathByEndpoints(gm, "x1", "x1")$numberOfArrows, 2L)
+  expect_error(
+    addPath(pathFanFixture(), "F", c("x1", "x2", "x3"), c(1, 1)),
+    "numberOfArrows (length 2) must be length 1 or the number of paths (3)", fixed = TRUE
+  )
+})
+
+test_that("addPath() errors on mismatched from/to lengths rather than recycling", {
+  gm <- pathFanFixture()
+  expect_error(
+    addPath(gm, c("x1", "x2"), c("x1", "x2", "x3"), 2),
+    "from (length 2) and to (length 3) must have the same length, or one of them must be length 1",
+    fixed = TRUE
+  )
+  expect_error(addPath(gm, character(0), "x1", 1), "non-empty character vector")
+  expect_error(addPath(gm, c("F", NA), "x1", 1), "no NAs")
+})
+
+test_that("addPath() takes freeParameter and value per path", {
+  gm <- addPath(pathFanFixture(), "F", c("x1", "x2", "x3"), 1,
+                freeParameter = list(FALSE, TRUE, "lam3"), value = c(1, 0.5, NA))
+  p1 <- pathByEndpoints(gm, "F", "x1")
+  p2 <- pathByEndpoints(gm, "F", "x2")
+  p3 <- pathByEndpoints(gm, "F", "x3")
+  expect_null(p1$freeParameter)
+  expect_equal(p1$value, 1)
+  expect_true(p2$freeParameter)
+  expect_equal(p2$value, 0.5)
+  expect_equal(p3$freeParameter, "lam3")
+  expect_null(p3$value)
+
+  # atomic character and logical vectors work too
+  gm2 <- addPath(pathFanFixture(), "F", c("x1", "x2"), 1, freeParameter = c("a", "b"))
+  expect_equal(pathByEndpoints(gm2, "F", "x2")$freeParameter, "b")
+  gm3 <- addPath(pathFanFixture(), "F", c("x1", "x2"), 1, freeParameter = c(FALSE, TRUE))
+  expect_null(pathByEndpoints(gm3, "F", "x1")$freeParameter)
+  expect_true(pathByEndpoints(gm3, "F", "x2")$freeParameter)
+
+  # a single name applies to every path (an equality constraint)
+  gm4 <- addPath(pathFanFixture(), "F", c("x1", "x2"), 1, freeParameter = "lam")
+  expect_equal(pathByEndpoints(gm4, "F", "x1")$freeParameter, "lam")
+  expect_equal(pathByEndpoints(gm4, "F", "x2")$freeParameter, "lam")
+
+  # tags apply to every path
+  gm5 <- addPath(pathFanFixture(), "F", c("x1", "x2"), 1, tags = c("loading", "cfa"))
+  expect_equal(pathByEndpoints(gm5, "F", "x2")$tags, c("loading", "cfa"))
+})
+
+test_that("addPath() rejects freeParameter/value of the wrong length or content", {
+  gm <- pathFanFixture()
+  expect_error(
+    addPath(gm, "F", c("x1", "x2", "x3"), 1, freeParameter = c(TRUE, FALSE)),
+    "freeParameter (length 2) must be length 1 or the number of paths (3)", fixed = TRUE
+  )
+  expect_error(
+    addPath(gm, "F", c("x1", "x2", "x3"), 1, value = c(1, 2)),
+    "value (length 2) must be length 1 or the number of paths (3)", fixed = TRUE
+  )
+  expect_error(addPath(gm, "F", c("x1", "x2"), 1, freeParameter = c("a", "")), "non-empty string")
+  expect_error(addPath(gm, "F", c("x1", "x2"), 1, freeParameter = c(TRUE, NA)), "non-empty string")
+  expect_error(addPath(gm, "F", "x1", 1, value = "1"), "value must be numeric")
+})
+
+test_that("addPath() is atomic: one bad pair adds nothing, and every bad pair is named", {
+  gm <- addPath(pathFanFixture(), "F", "x1", 1)
+  err <- tryCatch(
+    addPath(gm, "F", c("x1", "x2", "nope", "x3"), 1),
+    error = function(e) conditionMessage(e)
+  )
+  expect_match(err, "2 of 4 requested paths can't be added, so none were", fixed = TRUE)
+  expect_match(err, "A path already exists between 'F' and 'x1'", fixed = TRUE)
+  expect_match(err, "'F' -> 'nope': no node labeled 'nope'.", fixed = TRUE)
+  expect_length(paths(gm), 1)
+  expect_null(pathByEndpoints(gm, "F", "x2"))
+})
+
+test_that("addPath() rejects duplicates within one call, symmetrically for 2-arrow paths", {
+  gm <- pathFanFixture()
+  expect_error(
+    addPath(gm, c("x1", "x2"), c("x2", "x1"), 2),
+    "'x2' <-> 'x1': requested more than once in this call.", fixed = TRUE
+  )
+  expect_error(
+    addPath(gm, c("F", "F"), c("x1", "x1"), 1),
+    "'F' -> 'x1': requested more than once in this call.", fixed = TRUE
+  )
+  # opposite directions are distinct 1-arrow paths
+  gm2 <- addPath(gm, c("x1", "x2"), c("x2", "x1"), 1)
+  expect_length(paths(gm2), 2)
+  # same endpoints, different arrow counts, are distinct
+  gm3 <- addPath(gm, c("x1", "x1"), c("x2", "x2"), c(1, 2))
+  expect_length(paths(gm3), 2)
+})
+
+test_that("addPath() detects an existing 2-arrow path stored in the opposite order", {
+  gm <- as.GraphModel(verbFixtureSchema())  # has F1 <-> F2
+  expect_error(addPath(gm, "F2", "F1", 2), "already exists between 'F2' and 'F1'")
+  err <- tryCatch(
+    addPath(gm, c("x2", "F2"), c("y2", "F1"), 2),
+    error = function(e) conditionMessage(e)
+  )
+  expect_match(err, "1 of 2 requested paths", fixed = TRUE)
+  expect_null(pathByEndpoints(gm, "x2", "y2"))
+})
+
+test_that("addPath() enforces legal endpoints", {
+  gm <- pathFanFixture()
+  expect_error(addPath(gm, "F", "nope", 1), "'F' -> 'nope': no node labeled 'nope'.", fixed = TRUE)
+  expect_error(addPath(gm, "a", "b", 2), "no node labeled 'a' or 'b'", fixed = TRUE)
+  expect_error(addPath(gm, "x1", "1", 1), "constant node '1' can only be the source of a one-headed path", fixed = TRUE)
+  expect_error(addPath(gm, "1", "x1", 2), "constant node '1' can only be the source", fixed = TRUE)
+  expect_error(addPath(gm, "1", "1", 2), "constant node '1' can only be the source", fixed = TRUE)
+  expect_error(addPath(gm, "x1", "x1", 1), "a self-loop must be two-headed", fixed = TRUE)
+})
+
 # ---- removePath() -----------------------------------------------------------
 
 test_that("removePath() removes an existing path", {
@@ -348,10 +523,16 @@ test_that("convertPath() refuses to convert a data connection", {
   )
 })
 
-test_that("addPath() does not treat an existing data connection as a duplicate", {
+test_that("addPath() refuses a dataset endpoint and redirects to connectData()", {
+  # A structural path from a dataset node is never legal (the web editor
+  # draws dataset -> variable as a data connection), so addPath() redirects
+  # rather than adding a structural path alongside the data connection.
   gm <- as.GraphModel(dataPathFixtureSchema())
-  gm2 <- addPath(gm, from = "d1", to = "x1", numberOfArrows = 1, freeParameter = TRUE)
-  expect_length(paths(gm2, from = "d1", to = "x1"), 2)
+  expect_error(
+    addPath(gm, from = "d1", to = "x1", numberOfArrows = 1, freeParameter = TRUE),
+    "'d1' is a dataset node. Use connectData()", fixed = TRUE
+  )
+  expect_length(paths(gm, from = "d1", to = "x1"), 1)
 })
 
 # ---- convertPath() ----------------------------------------------------------

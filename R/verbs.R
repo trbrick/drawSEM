@@ -383,26 +383,102 @@ changeVariable <- function(graphModel, label, manifestLatent = NA, description =
   invisible(graphModel)
 }
 
-#' Add a Structural Path to a GraphModel
+# Normalize addPath()'s per-path arguments (freeParameter, value) to a list
+# of length `n`: NULL stays NULL (unset on every path), length 1 applies to
+# every path, length n is one per path. Anything else is an error -- no
+# recycling, matching connectData()'s rule for mismatched lengths.
+.perPathArg <- function(x, n, name) {
+  if (is.null(x)) {
+    return(NULL)
+  }
+  if (length(x) != 1 && length(x) != n) {
+    stop(sprintf(
+      "%s (length %d) must be length 1 or the number of paths (%d)",
+      name, length(x), n
+    ), call. = FALSE)
+  }
+  x <- as.list(x)
+  if (length(x) == 1) rep(x, n) else x
+}
+
+#' Add Structural Paths to a GraphModel
 #'
-#' Adds a new path between two nodes. Errors if a path already exists with
-#' the same `from`, `to`, and `numberOfArrows` -- there is no upsert form;
-#' use [changePath()] to modify an existing path's `freeParameter`/`value`,
-#' or [convertPath()] to change its arrow count.
+#' Adds one or more new paths between nodes. `from` and `to` are vectorized,
+#' so one call can fan out from one node, fan in to one node, or add a set
+#' of pairs:
+#'
+#' * `length(from) == 1`, `length(to) == n`: fan-out -- one path from `from`
+#'   to each element of `to` (e.g. means from the constant `"1"` to several
+#'   variables, or loadings from one factor).
+#' * `length(from) == n`, `length(to) == 1`: fan-in -- one path from each
+#'   element of `from` to `to` (e.g. several predictors of one outcome).
+#' * `length(from) == length(to)`: pairwise -- `from[i]` to `to[i]`.
+#'
+#' Any other combination of lengths is an error; there is no recycling, so a
+#' mismatched vector can't silently mispair endpoints (the same rule as
+#' [connectData()]).
+#'
+#' The call is atomic: every requested path is checked before any is added,
+#' and if any of them can't be added, none are, and the error names every
+#' offending pair. A path can't be added if an endpoint doesn't exist; if an
+#' endpoint isn't a legal path endpoint (a dataset node -- use
+#' [connectData()] for data connections -- or a constant node anywhere but
+#' the source of a one-headed path); if it is a one-headed self-loop (a
+#' variance is a two-headed path with `from == to`); if the same path is
+#' requested twice in one call; or if it already exists. There is no upsert
+#' form: use [changePath()] to modify an existing path's
+#' `freeParameter`/`value`, or [convertPath()] to change its arrow count.
+#' Two-headed paths are symmetric: `A <-> B` and `B <-> A` are the same path
+#' for both duplicate checks.
 #'
 #' @param graphModel A `GraphModel` object to modify.
-#' @param from Character. Label of the source node.
-#' @param to Character. Label of the target node.
-#' @param numberOfArrows Integer, `1` or `2`. `1` = directed path
+#' @param from Character vector. Label(s) of the source node(s).
+#' @param to Character vector. Label(s) of the target node(s). The constant
+#'   node is labeled `"1"` by convention.
+#' @param numberOfArrows Integer, `1` or `2`, applied to every path, or a
+#'   vector with one element per path. `1` = directed path
 #'   (regression/loading/mean); `2` = covariance or variance.
 #' @param freeParameter `NULL`/`FALSE` (fixed, the default), `TRUE` (free,
 #'   anonymous), or a non-empty string (free and named -- implies an
 #'   equality constraint if the same name is reused elsewhere). An empty
-#'   string is rejected.
-#' @param value Numeric or `NULL`. The path's fixed or starting value.
-#' @param tags Character vector or `NULL`. Optional tags for the path.
+#'   string is rejected. Either a single value, applied to every path, or
+#'   one value per path: a logical vector, a character vector, or a list
+#'   when mixing the two (e.g. `list(FALSE, TRUE, "b")`). Note that a single
+#'   name applied to several paths gives all of them the same parameter
+#'   label, which constrains them to be equal -- legal, and sometimes
+#'   intended, but easy to do by accident.
+#' @param value Numeric or `NULL`. The path's fixed or starting value. A
+#'   single value, applied to every path, or one value per path; an `NA`
+#'   element leaves that path's value unset.
+#' @param tags Character vector or `NULL`. Optional tags, applied to every
+#'   path added by this call.
 #'
 #' @return The modified `graphModel` object (invisibly).
+#'
+#' @examples
+#' gm <- GraphModel() |>
+#'   addConstant() |>
+#'   addVariable("F") |>
+#'   addVariable("x1") |>
+#'   addVariable("x2") |>
+#'   addVariable("x3")
+#'
+#' # fan-out: loadings from F, the first fixed at 1 for identification
+#' gm <- addPath(gm, "F", c("x1", "x2", "x3"), 1,
+#'               freeParameter = list(FALSE, TRUE, TRUE), value = 1)
+#'
+#' # pairwise: residual variances (self-loops) and the factor variance
+#' gm <- addPath(gm, c("x1", "x2", "x3", "F"), c("x1", "x2", "x3", "F"), 2,
+#'               freeParameter = TRUE, value = 1)
+#'
+#' # fan-out from the constant: means
+#' gm <- addPath(gm, "1", c("x1", "x2", "x3"), 1, freeParameter = TRUE, value = 0)
+#'
+#' # one shared name makes the paths equal -- here, equal residual variances
+#' gm2 <- GraphModel() |> addVariable("y1") |> addVariable("y2") |>
+#'   addPath(c("y1", "y2"), c("y1", "y2"), 2, freeParameter = "resid")
+#'
+#' paths(gm, from = "F")
 #'
 #' @export
 addPath <- function(graphModel, from, to, numberOfArrows,
@@ -410,15 +486,44 @@ addPath <- function(graphModel, from, to, numberOfArrows,
   if (!is(graphModel, "GraphModel")) {
     stop("graphModel must be a GraphModel object", call. = FALSE)
   }
-  if (!is.character(from) || length(from) != 1 || !is.character(to) || length(to) != 1) {
-    stop("from and to must each be a single character string", call. = FALSE)
+  if (!is.character(from) || length(from) == 0 || anyNA(from) ||
+        !is.character(to) || length(to) == 0 || anyNA(to)) {
+    stop("from and to must each be a non-empty character vector with no NAs", call. = FALSE)
   }
-  if (!isTRUE(numberOfArrows %in% c(1, 2))) {
+  if (length(from) != length(to) && length(from) != 1 && length(to) != 1) {
+    stop(sprintf(
+      "from (length %d) and to (length %d) must have the same length, or one of them must be length 1",
+      length(from), length(to)
+    ), call. = FALSE)
+  }
+  n <- max(length(from), length(to))
+  from <- rep(from, length.out = n)
+  to <- rep(to, length.out = n)
+
+  if (!is.numeric(numberOfArrows) || length(numberOfArrows) == 0 ||
+        !all(numberOfArrows %in% c(1, 2))) {
     stop("numberOfArrows must be 1 or 2", call. = FALSE)
   }
-  if (!is.null(freeParameter) && !isFALSE(freeParameter) && identical(freeParameter, "")) {
-    stop('freeParameter must be TRUE, FALSE, NULL, or a non-empty string; use FALSE or NULL to leave it fixed', call. = FALSE)
+  if (length(numberOfArrows) != 1 && length(numberOfArrows) != n) {
+    stop(sprintf(
+      "numberOfArrows (length %d) must be length 1 or the number of paths (%d)",
+      length(numberOfArrows), n
+    ), call. = FALSE)
   }
+  arrows <- rep(as.integer(numberOfArrows), length.out = n)
+
+  fp <- .perPathArg(freeParameter, n, "freeParameter")
+  for (f in fp) {
+    legal <- length(f) == 1 && !is.na(f) &&
+      (is.logical(f) || (is.character(f) && nzchar(f)))
+    if (!legal) {
+      stop('freeParameter must be TRUE, FALSE, NULL, or a non-empty string; use FALSE or NULL to leave it fixed', call. = FALSE)
+    }
+  }
+  if (!is.null(value) && !(is.numeric(value) || all(is.na(value)))) {
+    stop("value must be numeric or NULL", call. = FALSE)
+  }
+  vals <- .perPathArg(value, n, "value")
   if (!is.null(tags) && !is.character(tags)) {
     stop("tags must be a character vector or NULL", call. = FALSE)
   }
@@ -428,20 +533,90 @@ addPath <- function(graphModel, from, to, numberOfArrows,
     stop("graphModel has no models to add a path to", call. = FALSE)
   }
 
-  existing <- .findPathIndices(first_model$paths, from = from, to = to, numberOfArrows = numberOfArrows)
-  if (length(existing) > 0) {
+  # Validate every requested path before adding any, collecting one problem
+  # per offending path so the error can name all of them at once. Endpoint
+  # rules mirror the web editor's (CanvasTool getPathValidationError()).
+  node_types <- vapply(first_model$nodes, function(nd) nd$type %||% NA_character_, character(1))
+  names(node_types) <- vapply(first_model$nodes, function(nd) nd$label %||% NA_character_, character(1))
+  problems <- character(0)
+  seen_keys <- character(0)
+  for (i in seq_len(n)) {
+    f <- from[[i]]
+    t <- to[[i]]
+    a <- arrows[[i]]
+    pair <- sprintf(if (a == 2) "'%s' <-> '%s'" else "'%s' -> '%s'", f, t)
+
+    missing <- setdiff(unique(c(f, t)), names(node_types))
+    if (length(missing) > 0) {
+      problems <- c(problems, sprintf(
+        "%s: no node labeled %s.", pair, paste0("'", missing, "'", collapse = " or ")
+      ))
+      next
+    }
+    endpoint_problem <- NULL
+    for (lbl in unique(c(f, t))) {
+      type <- node_types[[lbl]]
+      if (identical(type, "dataset")) {
+        endpoint_problem <- sprintf(
+          "%s: '%s' is a dataset node. Use connectData() to connect a dataset to variables.", pair, lbl
+        )
+      } else if (identical(type, "constant")) {
+        if (a != 1 || identical(t, lbl)) {
+          endpoint_problem <- sprintf(
+            "%s: constant node '%s' can only be the source of a one-headed path.", pair, lbl
+          )
+        }
+      } else if (!identical(type, "variable")) {
+        endpoint_problem <- sprintf(
+          "%s: '%s' is a %s node, not a variable or constant.", pair, lbl, type
+        )
+      }
+      if (!is.null(endpoint_problem)) break
+    }
+    if (!is.null(endpoint_problem)) {
+      problems <- c(problems, endpoint_problem)
+      next
+    }
+    if (identical(f, t) && a == 1) {
+      problems <- c(problems, sprintf(
+        "%s: a self-loop must be two-headed (numberOfArrows = 2, a variance).", pair
+      ))
+      next
+    }
+
+    # Two-headed paths are symmetric, so A <-> B and B <-> A share a key.
+    ends <- if (a == 2) sort(c(f, t)) else c(f, t)
+    key <- paste(c(ends, a), collapse = "\r")
+    if (key %in% seen_keys) {
+      problems <- c(problems, sprintf("%s: requested more than once in this call.", pair))
+      next
+    }
+    seen_keys <- c(seen_keys, key)
+
+    if (length(.findPathIndices(first_model$paths, from = f, to = t, numberOfArrows = a)) > 0) {
+      problems <- c(problems, sprintf(
+        "A path already exists between '%s' and '%s' with numberOfArrows = %d. Use changePath() to modify it or convertPath() to change its arrow count.",
+        f, t, a
+      ))
+    }
+  }
+  if (length(problems) == 1 && n == 1) {
+    stop(problems, call. = FALSE)
+  }
+  if (length(problems) > 0) {
     stop(sprintf(
-      "A path already exists between '%s' and '%s' with numberOfArrows = %d. Use changePath() to modify it or convertPath() to change its arrow count.",
-      from, to, numberOfArrows
+      "%d of %d requested paths can't be added, so none were:\n%s",
+      length(problems), n, paste0("  * ", problems, collapse = "\n")
     ), call. = FALSE)
   }
 
-  new_path <- list(from = from, to = to, numberOfArrows = as.integer(numberOfArrows))
-  if (!is.null(freeParameter) && !isFALSE(freeParameter)) new_path$freeParameter <- freeParameter
-  if (!is.null(value)) new_path$value <- value
-  if (!is.null(tags)) new_path$tags <- tags
-
-  first_model$paths[[length(first_model$paths) + 1]] <- new_path
+  for (i in seq_len(n)) {
+    new_path <- list(from = from[[i]], to = to[[i]], numberOfArrows = arrows[[i]])
+    if (!is.null(fp) && !isFALSE(fp[[i]])) new_path$freeParameter <- fp[[i]]
+    if (!is.null(vals) && !is.na(vals[[i]])) new_path$value <- vals[[i]]
+    if (!is.null(tags)) new_path$tags <- tags
+    first_model$paths[[length(first_model$paths) + 1]] <- new_path
+  }
   graphModel@schema$models[[1]] <- first_model
   invisible(graphModel)
 }
