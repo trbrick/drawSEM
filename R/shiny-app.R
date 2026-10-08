@@ -175,6 +175,15 @@ NULL
   tools::file_path_sans_ext(basename(fileName))
 }
 
+# TRUE when a node other than a dataset node already uses `label` in the
+# schema's first model (where .attachDatasetNode() writes).
+.labelTakenByNonDataset <- function(schema, label) {
+  model_ids <- names(schema$models %||% list())
+  if (length(model_ids) == 0) return(FALSE)
+  nodes <- schema$models[[model_ids[[1]]]]$nodes %||% list()
+  any(vapply(nodes, function(n) identical(n$label, label) && !identical(n$type, "dataset"), logical(1)))
+}
+
 # Add (or refresh) the dataset node labelled `label` for data `df` in the
 # schema's first model, recording where the data lives:
 #   "embedded": copied into the model (datasetSource type embedded);
@@ -634,6 +643,12 @@ NULL
     label <- trimws(input$csv_dataset_name %||% "")
     if (nchar(label) == 0) {
       shiny::showNotification("Enter a dataset label first.", type = "warning", duration = 4)
+      return()
+    }
+    # Node labels are unique; only an existing dataset node may be refreshed.
+    if (.labelTakenByNonDataset(currentModel()@schema, label)) {
+      shiny::showNotification(sprintf("A node named '%s' already exists. Choose another dataset label.", label),
+                              type = "warning", duration = 4)
       return()
     }
     embed <- isTRUE(input$data_embed)

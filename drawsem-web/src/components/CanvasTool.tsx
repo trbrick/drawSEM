@@ -11,7 +11,7 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
@@ -758,6 +758,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [datasetErrors, setDatasetErrors] = useState<Map<string, string>>(new Map())
   const csvFileInputRef = useRef<HTMLInputElement | null>(null)
   const [csvCollapsed, setCsvCollapsed] = useState<boolean>(false)
+  // The inspector's node-label field while it holds text that isn't the node's label
+  const [labelDraft, setLabelDraft] = useState<{ nodeId: string; value: string } | null>(null)
   const datasetNode = React.useMemo(() => {
     // Prefer the most recently-added dataset node that has attached metadata
     try {
@@ -905,6 +907,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (selectedType !== 'node' || !selectedId) return null
     return nodes.find((n) => n.id === selectedId) || null
   }, [selectedType, selectedId, nodes])
+
+  // Why the inspector's label draft wasn't applied, if it wasn't
+  const labelDraftError = selectedNode && labelDraft?.nodeId === selectedNode.id && labelDraft.value !== selectedNode.label
+    ? nodeLabelError(nodes, selectedNode.id, labelDraft.value)
+    : null
 
   const selectedPath = React.useMemo(() => {
     if (selectedType !== 'path' || !selectedId) return null
@@ -1398,7 +1405,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               if (i % 2 === 0) candidateX += 40 * (i % 4 === 0 ? 1 : -1)
             }
 
-            const newNode: Node = { ...makeNode({ label: baseName, type: 'dataset', x, y }), dataset: meta }
+            const newNode: Node = { ...makeNode({ label: uniqueNodeLabel(cur, 'name', baseName), type: 'dataset', x, y }), dataset: meta }
             return [...cur, newNode]
           })
         } catch (err) {
@@ -1578,7 +1585,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const p = clientToSvg(e)
     if ((mode === 'add-variable' || mode === 'add-constant') && !isLayoutOnly) {
       const type: NodeType = mode === 'add-variable' ? 'variable' : 'constant'
-      const n = makeNode({ label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type, x: p.x, y: p.y })
+      const n = makeNode({ label: uniqueNodeLabel(nodes, type === 'constant' ? 'constant' : 'variable'), type, x: p.x, y: p.y })
       setNodes((s) => [...s, n])
       selectElement(n.id, 'node')
 
@@ -1604,7 +1611,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (pathSource) return
     if (isLayoutOnly) return
     const p = clientToSvg(e)
-    const n = makeNode({ label: `V${nodes.length + 1}`, type: 'variable', x: p.x, y: p.y })
+    const n = makeNode({ label: uniqueNodeLabel(nodes, 'variable'), type: 'variable', x: p.x, y: p.y })
     setNodes((s) => [...s, n])
     selectElement(n.id, 'node')
     // Add a free error variance self-loop automatically
@@ -1639,8 +1646,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
-      // Keep label as simple columnName for matching, use displayName for UI
-      const newNode = makeNode({ label: columnName, displayName, type: 'variable', x: dropX, y: dropY })
+      // Label it after the column (suffixed if a node already has that name; the
+      // data path's label still names the column), use displayName for UI
+      const label = uniqueNodeLabel(nodes, 'name', columnName)
+      const newNode = makeNode({ label, displayName: label === columnName ? displayName : convertToUnicode(label), type: 'variable', x: dropX, y: dropY })
       setNodes((ns) => [...ns, newNode])
 
       // Create data path from dataset to new variable with column name as label
@@ -2231,6 +2240,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const convertedValue = convertToUnicode(value)
     // Only an actual change is written (opening and closing the editor is not an edit).
     if (kind === 'node') {
+      const current = nodes.find((n) => n.id === id)
+      const labelError = current && current.label !== convertedValue ? nodeLabelError(nodes, id, convertedValue) : null
+      if (labelError) {
+        showPathError(labelError)
+        setEditing(null)
+        return
+      }
       setNodes((ns) => ns.map((n) => (n.id === id && n.label !== convertedValue ? { ...n, label: convertedValue } : n)))
     } else {
       setPaths((ps) =>
@@ -2875,17 +2891,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   {isLayoutOnly ? (
                     <span className="ml-2">{selectedNode.label}</span>
                   ) : (
+                  <>
                   <input
                     type="text"
-                    value={selectedNode.label}
+                    value={labelDraft?.nodeId === selectedNode.id ? labelDraft.value : selectedNode.label}
                     onChange={(e) => {
+                      // Edits apply as typed while the label stays valid; an empty or
+                      // duplicate label is held as a draft and never reaches the model.
                       const converted = convertToUnicode(e.target.value)
-                      setNodes((ns) =>
-                        ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
-                      )
+                      setLabelDraft({ nodeId: selectedNode.id, value: converted })
+                      if (!nodeLabelError(nodes, selectedNode.id, converted)) {
+                        setNodes((ns) =>
+                          ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
+                        )
+                      }
                     }}
-                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                    onBlur={() => setLabelDraft(null)}
+                    className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-48 ${labelDraftError ? 'border-red-500' : ''}`}
                   />
+                  {labelDraftError && <div className="mt-1 text-red-600">{labelDraftError} The label was not changed.</div>}
+                  </>
                   )}
                 </div>
                 <div><span className="font-medium">Position:</span> {selectedNode.x === undefined || selectedNode.y === undefined ? 'unplaced' : `(${selectedNode.x.toFixed(1)}, ${selectedNode.y.toFixed(1)})`}</div>

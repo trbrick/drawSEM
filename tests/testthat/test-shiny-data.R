@@ -26,6 +26,14 @@ test_that(".attachDatasetNode adds new dataset nodes without a position (the edi
   for (n in s$models$m1$nodes) expect_null(n$visual)
 })
 
+test_that("a dataset label may refresh a dataset node but not take another node's label", {
+  s <- .attachDatasetNode(schemaWith(list(list(label = "x", type = "variable"))), "d", data.frame(x = 1))
+  expect_true(.labelTakenByNonDataset(s, "x"))
+  expect_false(.labelTakenByNonDataset(s, "d"))
+  expect_false(.labelTakenByNonDataset(s, "new"))
+  expect_false(.labelTakenByNonDataset(list(schemaVersion = 0), "x"))
+})
+
 test_that("the dataset label defaults to the file name without its extension", {
   expect_equal(.datasetLabelFromFile("mydata.csv"), "mydata")
   expect_equal(.datasetLabelFromFile("/a/b/Survey 2024.CSV"), "Survey 2024")
