@@ -639,3 +639,35 @@ describe('SVG Renderer', () => {
     updateTestMetadata()
   })
 })
+
+describe('image export ignores the saved view', () => {
+  it('visualization viewport / activeLayer / offLayerVisibility do not change the image (whole model is shown)', async () => {
+    const { exportModelToSVG } = await import('../../src/main-widget')
+    const base: GraphSchema = {
+      schemaVersion: 0,
+      models: {
+        m: {
+          nodes: [
+            { label: 'F', type: 'variable', visual: { x: 0, y: 0 } },
+            { label: 'X1', type: 'variable', visual: { x: -300, y: 200 } },
+            { label: 'X2', type: 'variable', visual: { x: 300, y: 200 } },
+          ],
+          paths: [
+            { from: 'F', to: 'X1', numberOfArrows: 1 },
+            { from: 'F', to: 'X2', numberOfArrows: 1 },
+          ],
+        },
+      },
+    }
+    const withView: GraphSchema = JSON.parse(JSON.stringify(base))
+    withView.models.m.visualization = {
+      viewport: { x: -10, y: -10, width: 20, height: 20 },
+      activeLayer: 'data',
+      offLayerVisibility: 'invisible',
+    }
+    expect(modelToSVG(withView)).toBe(modelToSVG(base))
+    expect(exportModelToSVG(withView, 'm')).toBe(exportModelToSVG(base, 'm'))
+    const vb = /viewBox="([^"]+)"/.exec(modelToSVG(withView))![1].split(' ').map(Number)
+    expect(vb[2]).toBeGreaterThan(600) // spans the whole model, not the 20-unit viewport
+  })
+})

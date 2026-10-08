@@ -1,4 +1,4 @@
-import type { GraphSchema, Model } from '../core/types'
+import type { GraphSchema, Model, ModelVisualization } from '../core/types'
 import { DANGLING_ENDPOINT_PREFIX, mergeOwned } from './helpers'
 import type { Node, Path } from './helpers'
 
@@ -10,11 +10,19 @@ export interface RuntimeModel {
   paths: Path[]
   // optimization.parameterTypes exactly as in the input (absent stays absent)
   parameterTypes?: Record<string, any>
+  // The editor-owned view keys of `visualization` (viewport, activeLayer,
+  // offLayerVisibility) exactly as loaded (absent stays absent). Not updated by
+  // zoom / pan / layer changes: the live view is merged in only at explicit
+  // serialization points (see withVisualization).
+  visualization?: RuntimeVisualization
   // Input keys the editor does not own (see OWNED_MODEL_KEYS: meta, extensions,
   // provenance, visualization, optimization minus parameterTypes, ...).
   // Opaque: never read or edited by UI code.
   passthrough?: Record<string, any>
 }
+
+/** The `visualization` keys the editor owns: the saved view. */
+export type RuntimeVisualization = Pick<ModelVisualization, 'viewport' | 'activeLayer' | 'offLayerVisibility'>
 
 export interface RuntimeToSchemaOptions {
   forAutoLayout?: boolean
@@ -91,7 +99,14 @@ export function modelToSchemaModel(model: RuntimeModel, options: RuntimeToSchema
   return mergeOwned(
     model.passthrough,
     { label: model.label, nodes, paths },
-    { optimization: { parameterTypes: model.parameterTypes } }
+    {
+      optimization: { parameterTypes: model.parameterTypes },
+      visualization: {
+        viewport: model.visualization?.viewport,
+        activeLayer: model.visualization?.activeLayer,
+        offLayerVisibility: model.visualization?.offLayerVisibility,
+      },
+    }
   ) as Model
 }
 
@@ -115,4 +130,13 @@ export function modelsToSchema(models: RuntimeModel[], docPassthrough: Record<st
     schemaVersion: docPassthrough.schemaVersion ?? 0,
     models: Object.fromEntries(models.map((m) => [m.id, modelToSchemaModel(m)])),
   } as GraphSchema
+}
+
+/**
+ * `models` with the view of model `modelId` replaced by `view` (the editor's
+ * live viewport and layer state), for the serialization points that store the
+ * view: standalone Save and the addin's Done. Other models are unchanged.
+ */
+export function withVisualization(models: RuntimeModel[], modelId: string | null, view: RuntimeVisualization): RuntimeModel[] {
+  return models.map((m) => (m.id === modelId ? { ...m, visualization: { ...m.visualization, ...view } } : m))
 }

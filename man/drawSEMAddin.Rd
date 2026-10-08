@@ -19,13 +19,15 @@ there is none. The editor is \strong{layout-only}: you can move nodes and run
 Auto Layout, but not change the model's structure. When you click \strong{Done},
 the new node positions are written into your script as a
 \code{drawSEM::setLocation()} call on the line after the cursor, assigned back to
-the model. Nothing is inserted if no node moved or the dialog was closed
-without Done. To open a specific model without placing the cursor, use
-\code{\link[=drawSEMEdit]{drawSEMEdit()}}.
+the model; if you changed the view (zoom, pan, layers), a
+\code{drawSEM::setVisualization()} call stores it too, so the model opens that
+way next time. Nothing is inserted if neither changed or the dialog was
+closed without Done. To open a specific model without placing the cursor,
+use \code{\link[=drawSEMEdit]{drawSEMEdit()}}.
 }
 \details{
-\code{setLocation()} on an \code{MxModel} updates only its stored layout, so a fitted
-model \strong{keeps its fit}. A model with no stored positions is auto-laid out
+\code{setLocation()} and \code{setVisualization()} on an \code{MxModel} update only its
+stored layout, so a fitted model \strong{keeps its fit}. A model with no stored positions is auto-laid out
 when the editor opens; clicking Done then writes that layout, even if you
 moved nothing.
 

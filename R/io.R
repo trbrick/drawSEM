@@ -1184,7 +1184,12 @@ setMethod(
       paths = paths,
       optimization = optimization
     )
-    
+    # The saved view (and other rendering hints) has no OpenMx counterpart:
+    # recover it from the hint, like node positions.
+    if (!is.null(hints) && !is.null(hints@model$visualization)) {
+      schema$models[[model_name]]$visualization <- hints@model$visualization
+    }
+
     # Issue warnings about unsupported features
     warnings_list <- c()
     
@@ -1215,11 +1220,13 @@ setMethod(
     
     gm@dataConnections <- data_connections
 
-    # A fitted MxModel is kept as the cached fit, so as.MxModel() on the
-    # unchanged result gives it back, output (and anything the schema does
-    # not carry) included.
+    # A fitted MxModel is recorded as a fit (fit record with its estimates,
+    # SEs and OpenMx summary) and kept as the cached fit, so the GraphModel
+    # shows as fitted and as.MxModel() on the unchanged result gives the
+    # fitted model back, output (and anything the schema does not carry)
+    # included.
     if (length(x@output) > 0) {
-      gm <- .cacheFit(gm, x, names(gm@schema$models)[1])
+      gm <- .recordFit(gm, x, names(gm@schema$models)[1])
     }
 
     gm
