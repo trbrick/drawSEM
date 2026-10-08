@@ -20,6 +20,7 @@ import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
+import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor } from '../utils/viewport'
 
 type NodeType = Node['type']
 
@@ -752,6 +753,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   } | null>(null)
   const editingInputRef = useRef<HTMLInputElement | null>(null)
   const editingDidFocusRef = useRef(false)
+  // SVG-space anchor of the inline editor, so it can follow zoom / pan
+  const editingSvgPosRef = useRef<{ x: number; y: number } | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [importErrors, setImportErrors] = useState<string[] | null>(null)
@@ -1447,6 +1450,200 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
     return { x: cursor.x, y: cursor.y }
   }
+
+  // ---- Zoom / pan (view state only) ----
+  // Zoom and pan only change viewBoxAttr: never the schema, never the host.
+  // Same code in every context; the one difference is that the embedded widget
+  // (viewMode 'widget') leaves the plain wheel to the document so the page
+  // still scrolls over a diagram. Plain left-drag on the background is left
+  // unused on purpose (reserved for marquee selection).
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const pointerOverRootRef = useRef(false)
+  const pointerOverCanvasRef = useRef(false)
+  const spaceHeldRef = useRef(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
+  const panCleanupRef = useRef<(() => void) | null>(null)
+
+  /** Zoom by `factor` (>1 zooms out) about a client point. */
+  function zoomAtClient(clientX: number, clientY: number, factor: number) {
+    const svg = svgRef.current
+    if (!svg) return
+    const rect = svg.getBoundingClientRect()
+    setViewBoxAttr((prev) => {
+      const vb = parseViewBox(prev)
+      if (!vb) return prev
+      const center = clientToViewBox(vb, rect, clientX, clientY)
+        ?? { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 }
+      return formatViewBox(zoomViewBox(vb, factor, center))
+    })
+  }
+
+  // "Show All": the same fit (and layer-dependent options) as model load and auto-layout.
+  function showAll() {
+    fitViewToNodes(nodes, paths)
+  }
+  const showAllRef = useRef(showAll)
+  showAllRef.current = showAll
+
+  // Wheel (zoom with Ctrl/Cmd or pinch; pan otherwise, except in the widget)
+  // and Safari pinch gestures. Native non-passive listeners on the canvas only,
+  // since React's onWheel cannot preventDefault.
+  React.useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    function onWheel(e: WheelEvent) {
+      const rect = svg!.getBoundingClientRect()
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd+wheel, and trackpad pinch in Chromium/Firefox
+        e.preventDefault()
+        zoomAtClient(e.clientX, e.clientY, wheelZoomFactor(wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)))
+        return
+      }
+      if (viewMode === 'widget') return // let the document scroll
+      e.preventDefault()
+      let dx = wheelDeltaPx(e.deltaX, e.deltaMode, rect.width)
+      let dy = wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)
+      if (e.shiftKey && dx === 0) { dx = dy; dy = 0 } // Shift+wheel scrolls sideways
+      setViewBoxAttr((prev) => {
+        const vb = parseViewBox(prev)
+        const s = vb && viewScale(vb, rect)
+        return vb && s ? formatViewBox(panViewBox(vb, -dx, -dy, s)) : prev
+      })
+    }
+    // Safari reports pinch as gesture events (scale is cumulative per gesture)
+    let lastScale = 1
+    function onGestureStart(e: Event) {
+      e.preventDefault()
+      lastScale = (e as any).scale || 1
+    }
+    function onGestureChange(e: Event) {
+      e.preventDefault()
+      const ge = e as any
+      const scale = ge.scale || 1
+      zoomAtClient(ge.clientX, ge.clientY, lastScale / scale)
+      lastScale = scale
+    }
+    function onEnter() { pointerOverCanvasRef.current = true }
+    function onLeave() { pointerOverCanvasRef.current = false }
+    const nonPassive = { passive: false } as AddEventListenerOptions
+    svg.addEventListener('wheel', onWheel, nonPassive)
+    svg.addEventListener('gesturestart', onGestureStart, nonPassive)
+    svg.addEventListener('gesturechange', onGestureChange, nonPassive)
+    svg.addEventListener('mouseenter', onEnter)
+    svg.addEventListener('mouseleave', onLeave)
+    return () => {
+      svg.removeEventListener('wheel', onWheel)
+      svg.removeEventListener('gesturestart', onGestureStart)
+      svg.removeEventListener('gesturechange', onGestureChange)
+      svg.removeEventListener('mouseenter', onEnter)
+      svg.removeEventListener('mouseleave', onLeave)
+    }
+  }, [viewMode])
+
+  // Keys: Space (held, pointer over this canvas) arms drag-to-pan; Shift+1 is
+  // Show All. Scoped to this editor instance: the pointer must be over it, or
+  // focus inside it. Ignored while typing.
+  React.useEffect(() => {
+    function isTyping(t: EventTarget | null) {
+      const el = t as HTMLElement | null
+      if (!el || !el.tagName) return false
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
+    }
+    function isThisInstance() {
+      const root = rootRef.current
+      return pointerOverRootRef.current || (!!root && root.contains(document.activeElement))
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
+      if (e.code === 'Space') {
+        if (!pointerOverCanvasRef.current) return
+        e.preventDefault() // no page scroll / button press while panning
+        if (!spaceHeldRef.current) { spaceHeldRef.current = true; setSpaceHeld(true) }
+        return
+      }
+      if (e.code === 'Digit1' && e.shiftKey && isThisInstance()) {
+        e.preventDefault()
+        showAllRef.current()
+      }
+    }
+    function release() {
+      if (spaceHeldRef.current) { spaceHeldRef.current = false; setSpaceHeld(false) }
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === 'Space') release()
+    }
+    function onEnter() { pointerOverRootRef.current = true }
+    function onLeave() { pointerOverRootRef.current = false }
+    const root = rootRef.current
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', release)
+    root?.addEventListener('mouseenter', onEnter)
+    root?.addEventListener('mouseleave', onLeave)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', release)
+      root?.removeEventListener('mouseenter', onEnter)
+      root?.removeEventListener('mouseleave', onLeave)
+      panCleanupRef.current?.()
+    }
+  }, [])
+
+  // Drag-to-pan: middle button, or left button while Space is held. Runs in the
+  // capture phase so node / path handlers never see the press.
+  function onCanvasPanMouseDown(e: React.MouseEvent) {
+    if (!(e.button === 1 || (e.button === 0 && spaceHeldRef.current))) return
+    const svg = svgRef.current
+    const vb = parseViewBox(viewBoxAttr)
+    if (!svg || !vb) return
+    const s = viewScale(vb, svg.getBoundingClientRect())
+    if (!s) return
+    e.preventDefault() // also stops middle-click autoscroll
+    e.stopPropagation()
+    const startX = e.clientX
+    const startY = e.clientY
+    const button = e.button
+    setIsPanning(true)
+    function onMove(ev: MouseEvent) {
+      setViewBoxAttr(formatViewBox(panViewBox(vb!, ev.clientX - startX, ev.clientY - startY, s!)))
+    }
+    function end() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      panCleanupRef.current = null
+      setIsPanning(false)
+    }
+    function onUp(ev: MouseEvent) {
+      if (ev.button !== button) return
+      end()
+      if (button === 0) {
+        // the click that follows must not deselect or place a node
+        suppressClickRef.current = true
+        setTimeout(() => { suppressClickRef.current = false }, 0)
+      }
+    }
+    panCleanupRef.current?.()
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    panCleanupRef.current = end
+  }
+
+  // Keep screen-positioned overlays in step with the view: move the inline
+  // label editor to its anchor, and re-render once so the element popup's
+  // corner is computed against the committed viewBox.
+  const [, setViewEpoch] = useState(0)
+  React.useLayoutEffect(() => {
+    if (editing && editingSvgPosRef.current) {
+      const pos = svgToContainerPos(editingSvgPosRef.current)
+      if (pos && (pos.left !== editing.left || pos.top !== editing.top)) {
+        setEditing((cur) => (cur ? { ...cur, left: pos.left, top: pos.top } : cur))
+      }
+    }
+    if (selectedId) setViewEpoch((n) => n + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewBoxAttr])
 
   function onMouseMove(e: React.MouseEvent) {
     const svg = svgRef.current
@@ -2221,16 +2418,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     if (isLayoutOnly) return
+    const pos = svgToContainerPos(svgPos)
+    if (!pos) return
+    editingSvgPosRef.current = svgPos
+    setEditing({ id, kind, value, left: pos.left, top: pos.top })
+  }
+
+  // SVG coordinates -> position relative to the canvas (for screen overlays)
+  function svgToContainerPos(svgPos: { x: number; y: number }): { left: number; top: number } | null {
     const svg = svgRef.current
-    if (!svg) return
+    const ctm = svg?.getScreenCTM?.()
+    if (!svg || !ctm) return null
     const pt = svg.createSVGPoint()
     pt.x = svgPos.x
     pt.y = svgPos.y
-    const screen = pt.matrixTransform(svg.getScreenCTM()!)
+    const screen = pt.matrixTransform(ctm)
     const rect = svg.getBoundingClientRect()
-    const left = screen.x - rect.left
-    const top = screen.y - rect.top
-    setEditing({ id, kind, value, left, top })
+    return { left: screen.x - rect.left, top: screen.y - rect.top }
   }
 
   function saveEditing() {
@@ -2268,7 +2472,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   return (
     <>
-    <div className="flex flex-col h-full canvas-container">
+    <div ref={rootRef} className="flex flex-col h-full canvas-container">
       {/* Top toolbar with icon buttons */}
       {viewMode !== 'widget' && (
       <header className="border-b bg-white">
@@ -2368,6 +2572,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               disabled={isLayingOut}
             >
               {isLayingOut ? '…' : '⟳'} Auto-layout
+            </button>
+            <button
+              title="Zoom to show the whole model (Shift+1)"
+              className="py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100"
+              onClick={showAll}
+            >
+              ⤢ Show All
             </button>
             <div className="border-l mx-2"></div>
             {viewMode !== 'shiny' && (
@@ -3220,6 +3431,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               className="w-full h-full bg-white border rounded"
               viewBox={viewBoxAttr}
               preserveAspectRatio="xMidYMid meet"
+              style={isPanning ? { cursor: 'grabbing' } : spaceHeld ? { cursor: 'grab' } : undefined}
+              onMouseDownCapture={onCanvasPanMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
