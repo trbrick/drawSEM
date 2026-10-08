@@ -4,7 +4,7 @@
  * Handles bidirectional communication between R (Shiny, Quarto, RMarkdown) and the visual tool widget
  */
 
-import { GraphSchema, GraphAdapter, ExportOptions, isGraphSchema } from '../../core/types'
+import { GraphSchema, GraphAdapter, ExportOptions, ModelUpdateKind, isGraphSchema } from '../../core/types'
 
 /**
  * Error class for widget adapter errors
@@ -39,6 +39,7 @@ interface DrawSEMConfig {
   initialModel?: GraphSchema
   messageTimeout?: number  // milliseconds, default 30000
   editMode?: 'full' | 'layout'  // 'layout' = only visual changes allowed (set by R semWidget(editMode=))
+  editHistory?: string  // serialized undo history from GraphModel@metadata$editHistory (see utils/editHistory.ts)
 }
 
 declare global {
@@ -345,8 +346,8 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
       shiny.setInputValue('svg_export_data', svgString)
     },
 
-    done(): void {
-      shiny.setInputValue('done_request', { timestamp: Date.now() }, { priority: 'event' })
+    done(extras?: Record<string, unknown>): void {
+      shiny.setInputValue('done_request', { ...(extras ?? {}), timestamp: Date.now() }, { priority: 'event' })
     },
 
     /**
@@ -360,9 +361,9 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
 
     /**
      * Register callback for model updates from R
-     * R can push a new model via window.Shiny.setInputValue('update_model', {...})
+     * R pushes `update_model` messages `{ schema, kind? }` (see ModelUpdateKind)
      */
-    onModelReceived(callback: (schema: GraphSchema) => void): void {
+    onModelReceived(callback: (schema: GraphSchema, update?: { kind?: ModelUpdateKind }) => void): void {
       shiny.addCustomMessageHandler('update_model', async (data: any) => {
         try {
           const schema = data.schema
@@ -373,7 +374,9 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
               { received: data }
             )
           }
-          callback(schema)
+          const kind: unknown = data.kind
+          if (kind === 'load' || kind === 'data' || kind === 'fit') callback(schema, { kind })
+          else callback(schema)
         } catch (error) {
           console.error('Error handling model update from R:', error)
           shiny.setInputValue('graph_tool_error', {

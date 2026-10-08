@@ -21,6 +21,7 @@ import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
+import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
 import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
 import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor } from '../utils/viewport'
 
@@ -105,9 +106,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
   // Undo/redo history of the document (models + current model). Snapshots are
   // restored through the plain state setters, so the existing onModelChange
-  // sync sees an undo like any other edit; history itself is never sent or saved.
+  // sync sees an undo like any other edit. State R owns (fit results, its
+  // dataset summaries) is carried forward from the current document, never
+  // reverted. History is never saved; in the R contexts it goes to R only on
+  // Done (GraphModel@metadata$editHistory) and comes back on reopening.
   const history = useDocumentHistory({ models, currentModelId }, (snapshot) => {
-    loadModels(snapshot.models)
+    loadModels((current) => carryForwardHostState(snapshot.models, current))
     setCurrentModelId(snapshot.currentModelId)
   })
   // Document-level keys the editor does not own (schemaVersion, meta), captured
@@ -452,6 +456,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           loadModels(modelsOut)
           history.reset()
+          // An undo history R kept from an earlier session on this model
+          // (only for the model R handed over, never for a fetched example).
+          if (!initialSchema && g === window.drawSEMConfig?.initialModel && window.drawSEMConfig?.editHistory) {
+            const restored = restoreEditHistory(
+              window.drawSEMConfig.editHistory,
+              { models: modelsOut, currentModelId: modelsOut[0]?.id ?? null },
+              { layoutOnly: isLayoutOnly }
+            )
+            if (restored) history.loadStacks(restored.past, restored.future)
+          }
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -474,7 +488,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     
     // Register callback to handle model updates from R
-    adapterOptional.onModelReceived((schema: GraphSchema) => {
+    // `update.kind` (from R): 'load' replaces the document and its history;
+    // 'data' (Load Data) is an undo step like an edit; 'fit' keeps the history
+    // without being a step itself.
+    adapterOptional.onModelReceived((schema: GraphSchema, update) => {
+      const kind = update?.kind ?? 'load'
       try {
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
           const modelsOut = convertDocToRuntime(schema as any)
@@ -499,11 +517,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })
           }
 
+          if (kind === 'data') history.markChange()
           loadModels(modelsOut)
-          history.reset()
+          if (kind === 'load') history.reset()
           setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
-            setCurrentModelId(modelsOut[0].id)
+            setCurrentModelId((prev) =>
+              kind !== 'load' && prev !== null && modelsOut.some((m) => m.id === prev) ? prev : modelsOut[0].id)
             fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
           }
         }
@@ -527,13 +547,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // model, since this callback outlives renders (no current-model closure).
   React.useEffect(() => {
     adapterOptional?.onDatasetSummaries?.((summaries) => {
-      setModels((ms) => ms.map((m) => ({
+      // Derived display data from R, not an undo step
+      history.silently(() => setModels((ms) => ms.map((m) => ({
         ...m,
         nodes: m.nodes.map((n) => {
           const s = n.type === 'dataset' ? summaries[n.label] : undefined
           return s ? { ...n, dataset: { fileName: s.fileName, headers: s.headers, columns: s.columns } } : n
         }),
-      })))
+      }))))
     })
   }, [adapterOptional])
 
@@ -1039,6 +1060,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return fieldKey(active, `${selectedType}:${selectedId}`)
     }
     return undefined
+  }
+
+  // The undo history for R to keep with the returned model (Done only; never
+  // part of the schema or of the per-edit sync).
+  function editHistoryForDone(): { editHistory: string } | undefined {
+    try {
+      const editHistory = serializeEditHistory(history.stacks(), { models, currentModelId })
+      return editHistory ? { editHistory } : undefined
+    } catch (e) {
+      console.warn('[drawSEM] Could not serialize the edit history:', e)
+      return undefined
+    }
   }
 
   function undoRedo(direction: 'undo' | 'redo') {
@@ -2908,7 +2941,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             <button
               title="Close editor and return model to R"
               className="py-1 px-3 rounded text-sm bg-green-600 text-white hover:bg-green-700"
-              onClick={() => adapter.done?.()}
+              onClick={() => adapter.done?.(editHistoryForDone())}
             >
               Done
             </button>

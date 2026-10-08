@@ -78,12 +78,17 @@ NULL
 # "none" if nothing was inserted).
 .runEdit <- function(ctx, src, varName, launch, insert) {
   before <- .addinOrigins[[.addinOriginOf(src)]](src)
+  # The editor opens with the model's undo history, if any (see .addinHistory).
+  opened <- before
+  opened@metadata$editHistory <- .addinPickHistory(before@metadata$editHistory,
+                                                   .addinHistory[[varName]])
 
   handled <- FALSE
   tier <- "none"
   finish <- function(after) {
     if (handled) return(invisible(tier))
     handled <<- TRUE
+    if (methods::is(after, "GraphModel")) .addinRememberHistory(varName, after@metadata$editHistory)
     tier <<- .finishEdit(ctx, before, after, varName, insert)
     invisible(tier)
   }
@@ -91,9 +96,40 @@ NULL
   # depend on code after the gadget returning (see .drawSEM_server). If the
   # gadget instead returns normally without having called it (cancel, or a
   # launcher that does not support onDone), finish it here.
-  result <- launch(before, onDone = finish)
+  result <- launch(opened, onDone = finish)
   if (!handled) finish(result)
   invisible(tier)
+}
+
+# Undo history across addin sessions. The addin writes the edit into the script
+# as setLocation() code rather than returning the GraphModel, so the history the
+# editor sends on Done (@metadata$editHistory) would be lost with it. It is kept
+# here for the session, by variable name, and offered again the next time the
+# addin opens that variable. The editor itself checks that a history fits the
+# model it opens (and drops it if its steps would change the structure).
+.addinHistory <- new.env(parent = emptyenv())
+
+.addinRememberHistory <- function(varName, editHistory) {
+  if (is.character(editHistory) && length(editHistory) == 1L && nzchar(editHistory)) {
+    assign(varName, editHistory, envir = .addinHistory)
+  } else if (exists(varName, envir = .addinHistory, inherits = FALSE)) {
+    rm(list = varName, envir = .addinHistory)
+  }
+  invisible()
+}
+
+# Of two candidate histories (the model's own, the one remembered for its
+# name), the more recently saved; either may be NULL.
+.addinPickHistory <- function(a, b) {
+  savedAt <- function(h) {
+    if (!is.character(h) || length(h) != 1L || !nzchar(h)) return(NA_character_)
+    m <- regmatches(h, regexpr('"savedAt":"[^"]*"', h))
+    if (length(m) == 0) "" else m
+  }
+  ta <- savedAt(a); tb <- savedAt(b)
+  if (is.na(ta)) return(if (is.na(tb)) NULL else b)
+  if (is.na(tb)) return(a)
+  if (tb > ta) b else a
 }
 
 # Generate and insert the code for a finished edit; returns the tier.

@@ -193,9 +193,10 @@ export interface GraphAdapter {
   /**
    * Optional: Register callback for model updates from parent (Shiny)
    * Adapter calls this callback when R pushes a new model to JS
-   * @param callback function to call when model is received
+   * @param callback function to call when model is received; `update.kind`
+   *   says what R did (see ModelUpdateKind)
    */
-  onModelReceived?(callback: (schema: GraphSchema) => void): void
+  onModelReceived?(callback: (schema: GraphSchema, update?: { kind?: ModelUpdateKind }) => void): void
 
   /**
    * Optional: Request that the host environment (Shiny) open a data-loading UI.
@@ -258,10 +259,22 @@ export interface GraphAdapter {
 
   /**
    * Optional: Signal the host environment to close the gadget and return the model.
-   * Shiny-only; absent in standalone mode.
+   * `extras` are added to the message (e.g. `editHistory`, the serialized undo
+   * history R keeps in GraphModel@metadata). Shiny-only; absent in standalone mode.
    */
-  done?(): void
+  done?(extras?: Record<string, unknown>): void
 }
+
+/**
+ * What a model pushed from R (`update_model`) is:
+ * - 'load': a different document (opening or loading a model); replaces the
+ *   document and starts a new undo history. Also assumed when R sends no kind.
+ * - 'data': R attached data (Load Data); an update of the current document,
+ *   recorded as an undo step like an edit.
+ * - 'fit': R fitted the model; an update (fit results, estimates) that keeps
+ *   the undo history and is not itself an undo step.
+ */
+export type ModelUpdateKind = 'load' | 'data' | 'fit'
 
 /**
  * Export options shared by all backends
