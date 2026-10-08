@@ -108,9 +108,11 @@ renderGraphModel <- function(expr, env = parent.frame(), quoted = FALSE) {
 #' @param forceLayout Logical. If `TRUE`, re-compute layout even if positions
 #'   exist. Overrides `layout` parameter. Default: `FALSE`
 #' @param showDataPaths Logical. If `TRUE`, show dataset nodes in the graph.
-#'   Default: `FALSE`
+#'   Default: `FALSE`. This is a display filter and wins over a stored layer
+#'   (see **Stored view** below).
 #' @param showConstantPaths Logical. If `TRUE`, show paths connecting to
-#'   constant nodes (means). Default: `TRUE`
+#'   constant nodes (means). Default: `TRUE`. A display filter, independent of
+#'   the stored layer.
 #' @param pathLabelFormat Character. Controls path parameter display:
 #'   - `"neither"` (default): No labels
 #'   - `"labels"`: Show parameter labels only
@@ -152,6 +154,23 @@ renderGraphModel <- function(expr, env = parent.frame(), quoted = FALSE) {
 #' Node positions are stored directly in each node's `visual` property
 #' (as `node.visual.x` and `node.visual.y`). This provides a single point
 #' of access for schema round-tripping and export.
+#'
+#' **Stored view:**
+#'
+#' A view saved in the model (`visualization$viewport`, `$activeLayer`,
+#' `$offLayerVisibility`; see [setVisualization()]) is applied when the
+#' diagram opens; without a stored viewport the diagram fits the model.
+#' `showDataPaths`/`showConstantPaths` first decide which elements are in the
+#' diagram; the stored layer then decides emphasis among them, adjusted only
+#' where it would contradict `showDataPaths`: with `showDataPaths = FALSE` a
+#' stored `"data"` layer is shown as `"sem"` (its datasets were removed); with
+#' `showDataPaths = TRUE` a stored (or default) `"sem"` layer is shown as
+#' `"all"` so the requested datasets are visible. The model itself is not
+#' changed.
+#'
+#' In the embedded widget, the mouse wheel and trackpad scrolling scroll the
+#' page; zoom with Ctrl+scroll (Cmd+scroll on macOS) or a pinch, and pan by
+#' dragging with the right or middle mouse button (or Space+drag).
 #'
 #' **Two-Phase Workflow:**
 #'
@@ -291,6 +310,17 @@ plotGraphModel <- function(
     }
   }
   
+  # The stored view (visualization viewport / activeLayer / offLayerVisibility)
+  # is passed through and applied by the widget. showDataPaths decides whether
+  # dataset nodes are in the diagram at all; the stored layer only decides
+  # emphasis within it, so it is adjusted (in this display copy only) where it
+  # would contradict showDataPaths -- see .displayActiveLayer().
+  display_vis <- display_schema$models[[1]]$visualization
+  display_layer <- .displayActiveLayer(display_vis$activeLayer, showDataPaths)
+  if (!identical(display_layer, display_vis$activeLayer)) {
+    display_schema$models[[1]]$visualization$activeLayer <- display_layer
+  }
+
   if (!showConstantPaths) {
     # Filter out paths connecting to constant nodes
     constant_labels <- getConstantNodeLabels(display_schema$models[[1]]$nodes)
@@ -460,6 +490,22 @@ plotGraphModel <- function(
     w
   } else {
     invisible(w)
+  }
+}
+
+# The editor layer plotGraphModel() shows, given the model's stored
+# visualization$activeLayer (NULL when none) and showDataPaths:
+#  - showDataPaths = FALSE: dataset nodes are removed, so the Data layer has
+#    nothing of its own left; a stored "data" is shown as "sem". "sem"/"all"
+#    (identical without datasets) are kept.
+#  - showDataPaths = TRUE: the datasets were asked for, so they must be
+#    visible; the SEM layer (stored, or the editor default when none is
+#    stored) would hide them, so "all" is used. A stored "data" or "all" is kept.
+.displayActiveLayer <- function(stored, showDataPaths) {
+  if (isTRUE(showDataPaths)) {
+    if (is.null(stored) || identical(stored, "sem")) "all" else stored
+  } else {
+    if (identical(stored, "data")) "sem" else stored
   }
 }
 
@@ -633,6 +679,157 @@ setLocation <- function(graphModel, nodeId, x, y) {
   graphModel@schema$graph$positions <- positions_df
 
   invisible(graphModel)
+}
+
+#' Set the saved editor view of a GraphModel
+#'
+#' @description
+#' Sets (or clears) the view hints stored in the model's `visualization`:
+#' the visible region (`viewport`) and the layer state (`activeLayer`,
+#' `offLayerVisibility`). [plotGraphModel()], [drawSEM()] and the RStudio addin
+#' open the model with this view; when no viewport is stored they fit the whole
+#' model. Image export ([exportImage()]) ignores the view and always shows the
+#' whole model.
+#'
+#' The view is not part of the statistical model. The editor writes it only at
+#' explicit saves: the web editor's Save (JSON file) and the RStudio addin's
+#' Done, which inserts a `setVisualization()` call when the view was changed.
+#'
+#' Single-model only: operates on the schema's first model, like
+#' [setLocation()].
+#'
+#' @param graphModel A `GraphModel` (or an `MxModel`, see below).
+#' @param viewport The visible region in model (node position) coordinates:
+#'   a numeric vector `c(x, y, width, height)` (optionally named), with
+#'   `width` and `height` > 0. If the display area has a different aspect
+#'   ratio, the region is centered and fully shown, never cropped.
+#' @param activeLayer The editor layer in focus: `"sem"` (variables,
+#'   constants and SEM paths), `"data"` (datasets, data paths and the manifest
+#'   variables they feed) or `"all"`.
+#' @param offLayerVisibility How elements outside `activeLayer` are drawn:
+#'   `"invisible"` (hidden) or `"transparent"` (faded).
+#'
+#' @details
+#' For each of `viewport`, `activeLayer` and `offLayerVisibility`, `NA` (the
+#' default) leaves the stored value unchanged and `FALSE` removes it. Other
+#' `visualization` entries are left alone.
+#'
+#' **MxModel input:** as with [setLocation()], the view is written to the
+#' model's `drawSemHints` (`@options$drawSemHints`) and nothing else changes,
+#' so a fitted `MxModel` keeps its fit; `as.GraphModel()` recovers it.
+#'
+#' @return The modified model (invisibly).
+#'
+#' @examples
+#' gm <- GraphModel() |>
+#'   addVariable("F") |>
+#'   addVariable("x1") |>
+#'   addPath("F", "x1")
+#' gm <- setVisualization(gm, viewport = c(x = -200, y = -100, width = 400, height = 300),
+#'                        activeLayer = "all", offLayerVisibility = "transparent")
+#' gm@schema$models[[1]]$visualization
+#'
+#' # clear the viewport (fit the whole model on open), keep the layers
+#' gm <- setVisualization(gm, viewport = FALSE)
+#'
+#' @seealso [setLocation()] for node positions.
+#' @export
+setVisualization <- function(graphModel, viewport = NA, activeLayer = NA,
+                             offLayerVisibility = NA) {
+  if (is(graphModel, "MxModel")) {
+    gm <- setVisualization(as.GraphModel(graphModel), viewport = viewport,
+                           activeLayer = activeLayer,
+                           offLayerVisibility = offLayerVisibility)
+    graphModel@options$drawSemHints <-
+      buildDrawSemHints(gm@schema, names(gm@schema$models)[[1]])
+    return(invisible(graphModel))
+  }
+  if (!is(graphModel, "GraphModel")) {
+    stop("graphModel must be a GraphModel or MxModel object", call. = FALSE)
+  }
+  if (length(graphModel@schema$models) == 0) {
+    stop("graphModel has no models", call. = FALSE)
+  }
+
+  vis <- graphModel@schema$models[[1]]$visualization %||% list()
+  vis <- .setVisualizationKey(vis, "viewport", viewport, .asViewport)
+  vis <- .setVisualizationKey(vis, "activeLayer", activeLayer,
+                              function(v) .asEnum(v, "activeLayer", c("all", "sem", "data")))
+  vis <- .setVisualizationKey(vis, "offLayerVisibility", offLayerVisibility,
+                              function(v) .asEnum(v, "offLayerVisibility", c("transparent", "invisible")))
+  graphModel@schema$models[[1]]$visualization <- if (length(vis) > 0) vis else NULL
+  invisible(graphModel)
+}
+
+# NA: unchanged; FALSE: remove; otherwise `convert(value)`.
+.setVisualizationKey <- function(vis, key, value, convert) {
+  if (length(value) == 1 && is.logical(value)) {
+    if (is.na(value)) return(vis)
+    if (isFALSE(value)) {
+      vis[[key]] <- NULL
+      return(vis)
+    }
+  }
+  vis[[key]] <- convert(value)
+  vis
+}
+
+.asEnum <- function(value, name, allowed) {
+  if (!is.character(value) || length(value) != 1 || !(value %in% allowed)) {
+    stop(name, " must be one of ", paste0('"', allowed, '"', collapse = ", "),
+         ", NA (unchanged) or FALSE (remove)", call. = FALSE)
+  }
+  value
+}
+
+# A viewport as the schema stores it: list(x, y, width, height). Accepts a
+# numeric vector c(x, y, width, height) (optionally named) or such a list.
+.asViewport <- function(value) {
+  keys <- c("x", "y", "width", "height")
+  bad <- function() {
+    stop("viewport must be c(x, y, width, height) with finite numbers and width, height > 0, ",
+         "NA (unchanged) or FALSE (remove)", call. = FALSE)
+  }
+  if (is.list(value)) {
+    if (!setequal(names(value) %||% character(0), keys) ||
+        !all(vapply(value, function(v) is.numeric(v) && length(v) == 1, logical(1)))) bad()
+    value <- unlist(value)[keys]
+  }
+  if (!is.numeric(value) || length(value) != 4 || any(!is.finite(value))) bad()
+  if (!is.null(names(value))) {
+    if (!setequal(names(value), keys)) bad()
+    value <- value[keys]
+  }
+  if (value[[3]] <= 0 || value[[4]] <= 0) bad()
+  stats::setNames(as.list(as.numeric(value)), keys)
+}
+
+# Apply the view the editor sends with Done (input$done_request$visualization:
+# model id -> list(viewport, activeLayer, offLayerVisibility)) to `gm`. Only
+# the addin (layout-only editing) sends it; anything malformed is dropped.
+.applyDoneVisualization <- function(gm, visualization) {
+  if (is.null(gm) || !is.list(visualization) || length(visualization) == 0) return(gm)
+  for (id in intersect(names(visualization), names(gm@schema$models))) {
+    v <- visualization[[id]]
+    if (!is.list(v)) next
+    vis <- gm@schema$models[[id]]$visualization %||% list()
+    ok <- tryCatch({
+      if (!is.null(v$viewport)) vis$viewport <- .asViewport(v$viewport)
+      if (!is.null(v$activeLayer)) {
+        vis$activeLayer <- .asEnum(v$activeLayer, "activeLayer", c("all", "sem", "data"))
+      }
+      if (!is.null(v$offLayerVisibility)) {
+        vis$offLayerVisibility <- .asEnum(v$offLayerVisibility, "offLayerVisibility",
+                                          c("transparent", "invisible"))
+      }
+      TRUE
+    }, error = function(e) {
+      message("drawSEM: ignoring the editor view sent with Done: ", conditionMessage(e))
+      FALSE
+    })
+    if (ok && length(vis) > 0) gm@schema$models[[id]]$visualization <- vis
+  }
+  gm
 }
 
 #' Set or Clear Manifest/Latent Status of a Variable Node

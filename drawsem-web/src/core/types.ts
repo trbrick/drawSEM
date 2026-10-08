@@ -24,7 +24,35 @@ export interface Model {
   nodes: Node[]
   paths: Path[]
   optimization?: ModelOptimization
+  visualization?: ModelVisualization
   extensions?: ModelExtensions
+}
+
+/** Editor layer in focus (schema `visualization.activeLayer`). */
+export type ActiveLayer = 'all' | 'sem' | 'data'
+
+/** How off-layer elements are drawn (schema `visualization.offLayerVisibility`). */
+export type OffLayerVisibility = 'transparent' | 'invisible'
+
+/** Visible canvas region in model coordinates (schema `visualization.viewport`). */
+export interface Viewport {
+  x: number
+  y: number
+  width: number   // > 0
+  height: number  // > 0
+}
+
+/**
+ * Model-level rendering hints (schema `models[k].visualization`). The editor
+ * owns `viewport`, `activeLayer` and `offLayerVisibility` (the saved view);
+ * `anchor` and `displayContext` pass through untouched.
+ */
+export interface ModelVisualization {
+  anchor?: { x?: number; y?: number } | null
+  displayContext?: { marginLeft?: number; marginTop?: number; modelWidthFactor?: number }
+  viewport?: Viewport
+  activeLayer?: ActiveLayer
+  offLayerVisibility?: OffLayerVisibility
 }
 
 /**
@@ -259,10 +287,16 @@ export interface GraphAdapter {
 
   /**
    * Optional: Signal the host environment to close the gadget and return the model.
-   * `extras` are added to the message (e.g. `editHistory`, the serialized undo
-   * history R keeps in GraphModel@metadata). Shiny-only; absent in standalone mode.
+   * `extras` are added to the message: `editHistory` (the serialized undo
+   * history R keeps in GraphModel@metadata) and, from the RStudio addin only
+   * (layout-only editing) when the user changed the view, `visualization`
+   * (model id -> saved view) so the host can persist it. Shiny-only; absent in
+   * standalone mode.
    */
-  done?(extras?: Record<string, unknown>): void
+  done?(extras?: {
+    editHistory?: string
+    visualization?: Record<string, Pick<ModelVisualization, 'viewport' | 'activeLayer' | 'offLayerVisibility'>>
+  }): void
 }
 
 /**

@@ -41,10 +41,12 @@ user specification)
 exist. Overrides \code{layout} parameter. Default: \code{FALSE}}
 
 \item{showDataPaths}{Logical. If \code{TRUE}, show dataset nodes in the graph.
-Default: \code{FALSE}}
+Default: \code{FALSE}. This is a display filter and wins over a stored layer
+(see \strong{Stored view} below).}
 
 \item{showConstantPaths}{Logical. If \code{TRUE}, show paths connecting to
-constant nodes (means). Default: \code{TRUE}}
+constant nodes (means). Default: \code{TRUE}. A display filter, independent of
+the stored layer.}
 
 \item{pathLabelFormat}{Character. Controls path parameter display:
 \itemize{
@@ -103,6 +105,23 @@ or will error if nodes have no positions
 Node positions are stored directly in each node's \code{visual} property
 (as \code{node.visual.x} and \code{node.visual.y}). This provides a single point
 of access for schema round-tripping and export.
+
+\strong{Stored view:}
+
+A view saved in the model (\code{visualization$viewport}, \verb{$activeLayer},
+\verb{$offLayerVisibility}; see \code{\link[=setVisualization]{setVisualization()}}) is applied when the
+diagram opens; without a stored viewport the diagram fits the model.
+\code{showDataPaths}/\code{showConstantPaths} first decide which elements are in the
+diagram; the stored layer then decides emphasis among them, adjusted only
+where it would contradict \code{showDataPaths}: with \code{showDataPaths = FALSE} a
+stored \code{"data"} layer is shown as \code{"sem"} (its datasets were removed); with
+\code{showDataPaths = TRUE} a stored (or default) \code{"sem"} layer is shown as
+\code{"all"} so the requested datasets are visible. The model itself is not
+changed.
+
+In the embedded widget, the mouse wheel and trackpad scrolling scroll the
+page; zoom with Ctrl+scroll (Cmd+scroll on macOS) or a pinch, and pan by
+dragging with the right or middle mouse button (or Space+drag).
 
 \strong{Two-Phase Workflow:}
 

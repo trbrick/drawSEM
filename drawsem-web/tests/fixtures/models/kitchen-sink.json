@@ -49,7 +49,10 @@
       },
       "visualization": {
         "anchor": { "x": 10, "y": 20 },
-        "displayContext": { "marginLeft": 50, "marginTop": 40, "modelWidthFactor": 0.5 }
+        "displayContext": { "marginLeft": 50, "marginTop": 40, "modelWidthFactor": 0.5 },
+        "viewport": { "x": -320.5, "y": -150, "width": 900, "height": 640.25 },
+        "activeLayer": "all",
+        "offLayerVisibility": "transparent"
       },
       "nodes": [
         {

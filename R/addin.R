@@ -217,13 +217,15 @@ NULL
 #' Auto Layout, but not change the model's structure. When you click **Done**,
 #' the new node positions are written into your script as a
 #' `drawSEM::setLocation()` call on the line after the cursor, assigned back to
-#' the model. Nothing is inserted if no node moved or the dialog was closed
-#' without Done. To open a specific model without placing the cursor, use
-#' [drawSEMEdit()].
+#' the model; if you changed the view (zoom, pan, layers), a
+#' `drawSEM::setVisualization()` call stores it too, so the model opens that
+#' way next time. Nothing is inserted if neither changed or the dialog was
+#' closed without Done. To open a specific model without placing the cursor,
+#' use [drawSEMEdit()].
 #'
 #' @details
-#' `setLocation()` on an `MxModel` updates only its stored layout, so a fitted
-#' model **keeps its fit**. A model with no stored positions is auto-laid out
+#' `setLocation()` and `setVisualization()` on an `MxModel` update only its
+#' stored layout, so a fitted model **keeps its fit**. A model with no stored positions is auto-laid out
 #' when the editor opens; clicking Done then writes that layout, even if you
 #' moved nothing.
 #'
@@ -247,10 +249,10 @@ drawSEMAddin <- function() {
 #' a script.
 #'
 #' Opens the layout-only editor on `model`. On **Done**, the new node positions
-#' are inserted into the active source editor on the line after the cursor, as
-#' a `setLocation()` call that updates the variable you passed (see
-#' [drawSEMAddin()]). Nothing is inserted if no node moved or the dialog was
-#' closed without Done.
+#' (and the view, if you changed it) are inserted into the active source editor
+#' on the line after the cursor, as `setLocation()` / `setVisualization()`
+#' calls that update the variable you passed (see [drawSEMAddin()]). Nothing is
+#' inserted if neither changed or the dialog was closed without Done.
 #'
 #' @param model A `GraphModel` or `MxModel`, passed as a variable name (the
 #'   generated code assigns back to that name).

@@ -305,8 +305,30 @@
           },
           "visualization": {
             "type": "object",
-            "description": "Model-level visualization configuration: rendering hints for interactive and static layouts. Properties are optional; defaults apply when omitted. Different rendering contexts (RStudio, web, PDF) may interpret these hints differently.",
+            "description": "Model-level visualization configuration: rendering hints for interactive and static layouts, including the last saved editor view (viewport and layer state). Properties are optional; defaults apply when omitted. Different rendering contexts (RStudio, web, PDF) may interpret these hints differently. The view hints (viewport, activeLayer, offLayerVisibility) are applied when an interactive canvas opens the model; static image export ignores them and always shows the whole model.",
             "properties": {
+              "viewport": {
+                "type": "object",
+                "description": "The visible region of the interactive canvas, in model (node visual) coordinates: the canvas viewBox when the view was saved. Applied when the editor or an embedded diagram opens the model; when absent, the view fits the model. If the region's aspect ratio differs from the display area, it is centered and fully shown (letterboxed), never cropped. Written by the editor only at explicit saves (standalone Save, RStudio addin Done), not on every edit.",
+                "required": ["x", "y", "width", "height"],
+                "properties": {
+                  "x": { "type": "number", "description": "Left edge of the visible region in model coordinates" },
+                  "y": { "type": "number", "description": "Top edge of the visible region in model coordinates" },
+                  "width": { "type": "number", "exclusiveMinimum": 0, "description": "Width of the visible region in model units" },
+                  "height": { "type": "number", "exclusiveMinimum": 0, "description": "Height of the visible region in model units" }
+                },
+                "additionalProperties": false
+              },
+              "activeLayer": {
+                "type": "string",
+                "enum": ["all", "sem", "data"],
+                "description": "Editor layer in focus: 'sem' = variables, constants and SEM paths (dataset nodes and data paths are off-layer); 'data' = datasets, data paths and the manifest variables they feed; 'all' = every element. Off-layer elements are drawn according to offLayerVisibility. When absent the editor uses 'sem'."
+              },
+              "offLayerVisibility": {
+                "type": "string",
+                "enum": ["transparent", "invisible"],
+                "description": "How elements outside activeLayer are drawn: 'transparent' = faded (translucent), 'invisible' = hidden. When absent the editor uses 'invisible'."
+              },
               "anchor": {
                 "type": ["object", "null"],
                 "description": "Display offset to apply to all node positions before rendering. When null, automatically computed from node bounds and margins. When specified as {x, y}, adds this offset to all canonical node coordinates for display only (canonical coordinates in nodes[].visual remain unchanged). Used to center or position the model in different contexts (interactive canvas, PDF page, etc.)",

@@ -4,8 +4,8 @@ import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
-import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
-import type { RuntimeModel } from '../utils/runtimeToSchema'
+import { modelToSchema, modelsToSchema, withVisualization } from '../utils/runtimeToSchema'
+import type { RuntimeModel, RuntimeVisualization } from '../utils/runtimeToSchema'
 import { layoutModel, layoutIncomingModel } from '../utils/layoutModel'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
 import type { CableTrunk } from '../utils/dataCables'
@@ -17,13 +17,14 @@ import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
 import { GraphSchema } from '../core/types'
+import type { ActiveLayer, OffLayerVisibility } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
 import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
 import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
-import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor } from '../utils/viewport'
+import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
 
 type NodeType = Node['type']
 
@@ -54,8 +55,6 @@ const DISPLAY_Z_INDEX = {
   background: 1,
 }
 
-type OffLayerVisibility = 'transparent' | 'invisible'
-
 interface CanvasToolProps {
   initialSchema?: GraphSchema
   onModelChange?: (schema: GraphSchema) => void
@@ -68,6 +67,15 @@ interface CanvasToolProps {
   editMode?: 'full' | 'layout'
 }
 
+
+// Embedded widget scroll hint: shown, then faded out (about 1.5 s in all).
+const SCROLL_HINT_SHOW_MS = 1200
+const SCROLL_HINT_FADE_MS = 300
+/** "Ctrl + scroll to zoom", with ⌘ on macOS / iOS. */
+function scrollHintText(): string {
+  const platform = typeof navigator !== 'undefined' ? ((navigator as any).userAgentData?.platform || navigator.platform || navigator.userAgent || '') : ''
+  return /mac|iphone|ipad/i.test(platform) ? '⌘ + scroll to zoom' : 'Ctrl + scroll to zoom'
+}
 
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
@@ -191,13 +199,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // the view centres on the SEM structure instead of zooming out for a dataset
   // placed off to the side. Pass excludeDataset to override. Excluded datasets
   // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
-  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
+  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }): string {
     // the current layer (via the ref: model loads call this from a callback created at startup)
     const excludeDataset = options?.excludeDataset ?? (activeLayerRef.current !== 'data')
     const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
     if (fitted.length === 0) {
-      setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
-      return
+      const empty = `${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`
+      setViewBoxAttr(empty)
+      return empty
     }
     const isLatentForFit = (n: Node): boolean => {
       if (n.type !== 'variable') return false
@@ -231,14 +240,58 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const vbH = Math.max(rawH, MIN_VB_SIZE)
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
-    setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
+    const attr = `${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`
+    setViewBoxAttr(attr)
+    return attr
   }
 
-  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
+  const [activeLayer, setActiveLayer] = useState<ActiveLayer>('sem')
   // For long-lived callbacks (model loads) that would otherwise see a stale layer
   const activeLayerRef = useRef(activeLayer)
   activeLayerRef.current = activeLayer
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
+  const offLayerVisibilityRef = useRef(offLayerVisibility)
+  offLayerVisibilityRef.current = offLayerVisibility
+
+  // ---- Saved view (schema models[k].visualization) ----
+  // The view (viewport = the canvas viewBox, activeLayer, offLayerVisibility)
+  // is not model state: changing it is no undo step and is never synced per
+  // edit. On load the model's stored view is applied (else the view fits the
+  // model); the live view is written back only at explicit serialization
+  // points (standalone Save, addin Done) via currentVisualization().
+  // The view applied at the last load, to tell whether the user changed it.
+  const loadedViewRef = useRef<RuntimeVisualization | null>(null)
+  function showLoadedView(model: RuntimeModel) {
+    const vis = model.visualization
+    const layer = vis?.activeLayer
+    if (layer === 'all' || layer === 'sem' || layer === 'data') {
+      activeLayerRef.current = layer // so a fit below uses the stored layer
+      setActiveLayer(layer)
+    }
+    const olv = vis?.offLayerVisibility
+    if (olv === 'transparent' || olv === 'invisible') setOffLayerVisibility(olv)
+    const vb = viewBoxFromViewport(vis?.viewport)
+    const attr = vb ? formatViewBox(vb) : fitViewToNodes(model.nodes, model.paths)
+    loadedViewRef.current = {
+      viewport: roundViewBox(parseViewBox(attr)!),
+      activeLayer: activeLayerRef.current,
+      offLayerVisibility: olv === 'transparent' || olv === 'invisible' ? olv : offLayerVisibilityRef.current,
+    }
+    if (vb) setViewBoxAttr(attr)
+  }
+  /** The live view, as stored in `visualization`. */
+  function currentVisualization(): RuntimeVisualization {
+    const vb = parseViewBox(viewBoxAttr)
+    return {
+      ...(vb ? { viewport: roundViewBox(vb) } : {}),
+      activeLayer,
+      offLayerVisibility,
+    }
+  }
+  /** Whether the live view differs from the one applied at load. */
+  function viewChangedSinceLoad(view: RuntimeVisualization): boolean {
+    return JSON.stringify(view) !== JSON.stringify(loadedViewRef.current)
+  }
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
   // layer so it is visible (the default SEM layer hides dataset nodes), and
@@ -469,7 +522,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+            showLoadedView(modelsOut[0])
           }
         }
       } catch (e) {
@@ -524,7 +577,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           if (modelsOut.length > 0) {
             setCurrentModelId((prev) =>
               kind !== 'load' && prev !== null && modelsOut.some((m) => m.id === prev) ? prev : modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+            // A new document shows its saved view; attached data refits so the
+            // new dataset is in view; a fit leaves the view where it is.
+            if (kind === 'load') showLoadedView(modelsOut[0])
+            else if (kind === 'data') fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
           }
         }
       } catch (e) {
@@ -1220,8 +1276,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   async function handleSaveClick() {
     try {
-      const schema = buildCurrentSchema()
-      if (!schema) return
+      // A saved file keeps the view: the live viewport and layers go into the
+      // current model's visualization (only here and at the addin's Done).
+      if (models.length === 0) return
+      const schema = modelsToSchema(withVisualization(models, currentModelId, currentVisualization()), docPassthrough)
       await adapter.save(schema)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -1306,6 +1364,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
+  // Done. Only the RStudio addin (layout-only editing) persists the view back
+  // to R, and only when the user changed it; drawSEM() never does.
+  // Done sends the undo history, and from the addin (layout-only) a changed view
+  function handleDone() {
+    const view = currentVisualization()
+    const withView = isLayoutOnly && currentModelId && viewChangedSinceLoad(view)
+      ? { visualization: { [currentModelId]: view } }
+      : {}
+    const extras = { ...(editHistoryForDone() ?? {}), ...withView }
+    if (Object.keys(extras).length > 0) adapter.done?.(extras)
+    else adapter.done?.()
+  }
+
   function handleSaveToEnv() {
     const varname = saveToRVarname.trim()
     if (!varname) return
@@ -1353,7 +1424,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
-          fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+          showLoadedView(modelsOut[0])
         }
         deselectAll()
         setPathSource(null)
@@ -1601,11 +1672,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   // ---- Zoom / pan (view state only) ----
-  // Zoom and pan only change viewBoxAttr: never the schema, never the host.
-  // Same code in every context; the one difference is that the embedded widget
-  // (viewMode 'widget') leaves the plain wheel to the document so the page
-  // still scrolls over a diagram. Plain left-drag on the background is left
-  // unused on purpose (reserved for marquee selection).
+  // Zoom and pan only change viewBoxAttr: no undo step, no per-edit sync (the
+  // view reaches the schema only at Save / addin Done, see showLoadedView).
+  // Same controls in every context:
+  //   mouse wheel -> zoom about the cursor; trackpad two-finger scroll -> pan
+  //   (told apart by isTrackpadWheel, best effort); pinch (ctrlKey wheel, or
+  //   Safari gesture events) and Ctrl/Cmd+wheel -> zoom; right-drag on the
+  //   background, middle-drag and Space+left-drag -> pan (right-drag from a
+  //   node draws a path instead).
+  // The one difference: the embedded widget (viewMode 'widget') leaves plain
+  // wheel / two-finger scroll to the document so the page still scrolls over a
+  // diagram, and briefly shows a "Ctrl + scroll to zoom" hint instead.
+  // Plain left-drag on the background is left unused on purpose (reserved for
+  // marquee selection).
   const pointerOverRootRef = useRef(false)
   const pointerOverCanvasRef = useRef(false)
   const spaceHeldRef = useRef(false)
@@ -1634,22 +1713,47 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const showAllRef = useRef(showAll)
   showAllRef.current = showAll
 
-  // Wheel (zoom with Ctrl/Cmd or pinch; pan otherwise, except in the widget)
-  // and Safari pinch gestures. Native non-passive listeners on the canvas only,
-  // since React's onWheel cannot preventDefault.
+  // Embedded widget: brief "Ctrl + scroll to zoom" hint when the page is
+  // scrolled over the diagram (shown, then fading, then removed).
+  const [scrollHint, setScrollHint] = useState<'hidden' | 'shown' | 'fading'>('hidden')
+  const scrollHintTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  function flashScrollHint() {
+    scrollHintTimersRef.current.forEach(clearTimeout)
+    setScrollHint('shown')
+    scrollHintTimersRef.current = [
+      setTimeout(() => setScrollHint('fading'), SCROLL_HINT_SHOW_MS),
+      setTimeout(() => setScrollHint('hidden'), SCROLL_HINT_SHOW_MS + SCROLL_HINT_FADE_MS),
+    ]
+  }
+  const flashScrollHintRef = useRef(flashScrollHint)
+  flashScrollHintRef.current = flashScrollHint
+  React.useEffect(() => () => scrollHintTimersRef.current.forEach(clearTimeout), [])
+
+  // Wheel and Safari pinch gestures. Native non-passive listeners on the
+  // canvas only, since React's onWheel cannot preventDefault.
   React.useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
     function onWheel(e: WheelEvent) {
       const rect = svg!.getBoundingClientRect()
       if (e.ctrlKey || e.metaKey) {
-        // Ctrl/Cmd+wheel, and trackpad pinch in Chromium/Firefox
+        // Ctrl/Cmd+wheel, and trackpad pinch in Chromium/Firefox: zoom everywhere
         e.preventDefault()
         zoomAtClient(e.clientX, e.clientY, wheelZoomFactor(wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)))
         return
       }
-      if (viewMode === 'widget') return // let the document scroll
+      if (viewMode === 'widget') {
+        // let the document scroll; say how to zoom instead
+        flashScrollHintRef.current()
+        return
+      }
       e.preventDefault()
+      if (!e.shiftKey && !isTrackpadWheel(e as WheelEvent & { wheelDeltaX?: number; wheelDeltaY?: number })) {
+        // mouse wheel: zoom about the cursor
+        zoomAtClient(e.clientX, e.clientY, wheelZoomFactor(wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)))
+        return
+      }
+      // trackpad two-finger scroll (or Shift+wheel): pan
       let dx = wheelDeltaPx(e.deltaX, e.deltaMode, rect.width)
       let dy = wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)
       if (e.shiftKey && dx === 0) { dx = dy; dy = 0 } // Shift+wheel scrolls sideways
@@ -1743,6 +1847,18 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // capture phase so node / path handlers never see the press.
   function onCanvasPanMouseDown(e: React.MouseEvent) {
     if (!(e.button === 1 || (e.button === 0 && spaceHeldRef.current))) return
+    startPan(e)
+  }
+
+  // Right-drag on the background pans. Bubble phase: a right press on a node
+  // stops propagation there (it draws a path), so only background presses
+  // (and paths, which have no right-button action) reach this.
+  function onCanvasMouseDown(e: React.MouseEvent) {
+    if (e.button !== 2) return
+    startPan(e)
+  }
+
+  function startPan(e: React.MouseEvent) {
     const svg = svgRef.current
     const vb = parseViewBox(viewBoxAttr)
     if (!svg || !vb) return
@@ -1770,6 +1886,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         // the click that follows must not deselect or place a node
         suppressClickRef.current = true
         setTimeout(() => { suppressClickRef.current = false }, 0)
+      }
+      if (button === 2) {
+        // released off the canvas (where onContextMenu does not reach): no page menu
+        const block = (ce: Event) => ce.preventDefault()
+        window.addEventListener('contextmenu', block, true)
+        setTimeout(() => window.removeEventListener('contextmenu', block, true), 0)
       }
     }
     panCleanupRef.current?.()
@@ -2941,7 +3063,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             <button
               title="Close editor and return model to R"
               className="py-1 px-3 rounded text-sm bg-green-600 text-white hover:bg-green-700"
-              onClick={() => adapter.done?.(editHistoryForDone())}
+              onClick={handleDone}
             >
               Done
             </button>
@@ -3598,6 +3720,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               preserveAspectRatio="xMidYMid meet"
               style={isPanning ? { cursor: 'grabbing' } : spaceHeld ? { cursor: 'grab' } : undefined}
               onMouseDownCapture={onCanvasPanMouseDown}
+              onMouseDown={onCanvasMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
@@ -4037,6 +4160,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               border: '1px solid #cbd5e1'
             }}
           />
+        )}
+        {scrollHint !== 'hidden' && (
+          <div
+            data-testid="scroll-zoom-hint"
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center"
+            style={{
+              pointerEvents: 'none',
+              zIndex: 45,
+              opacity: scrollHint === 'shown' ? 1 : 0,
+              transition: `opacity ${SCROLL_HINT_FADE_MS}ms ease-out`,
+            }}
+          >
+            <div style={{ background: 'rgba(15, 23, 42, 0.75)', color: '#fff', padding: '8px 14px', borderRadius: 6, fontSize: 14, fontFamily: 'system-ui, sans-serif' }}>
+              {scrollHintText()}
+            </div>
+          </div>
         )}
       </div>
 

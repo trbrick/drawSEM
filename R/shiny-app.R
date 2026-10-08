@@ -996,6 +996,12 @@ NULL
     # The editor's undo history, kept with the model so reopening it in the
     # editor restores it (never written to the schema; see .withEditHistory()).
     if (!is.null(gm)) gm@metadata$editHistory <- .editHistoryFrom(input$done_request)
+    # Saved view (visualization viewport / layers): only the addin (layout-only
+    # editing) persists it, and the widget sends it only when it changed.
+    # drawSEM() never writes the view back to R.
+    if (identical(editMode, "layout")) {
+      gm <- .applyDoneVisualization(gm, input$done_request$visualization)
+    }
     # Run caller work (e.g. the addin's insert into the editor) HERE, before
     # stopApp(): with dialogViewer() in RStudio, code after runGadget() may
     # never run (rstudio/rstudio#11714).

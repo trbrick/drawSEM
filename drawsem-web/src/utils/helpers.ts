@@ -160,7 +160,11 @@ export const OWNED_PATH_KEYS: OwnedKeySpec = {
 /** Model keys written from runtime state. */
 export const OWNED_MODEL_KEYS: OwnedKeySpec = {
   keys: ['label', 'nodes', 'paths'],
-  nested: { optimization: ['parameterTypes'] },
+  nested: {
+    optimization: ['parameterTypes'],
+    // the saved editor view; visualization.anchor / displayContext pass through
+    visualization: ['viewport', 'activeLayer', 'offLayerVisibility'],
+  },
 }
 
 /** Document keys written from runtime state. */
