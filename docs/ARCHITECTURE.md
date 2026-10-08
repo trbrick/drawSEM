@@ -176,6 +176,12 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   Cmd/Ctrl+Shift+Z, Ctrl+Y) and keyboard shortcuts scoped to the editor
   instance in use (`src/hooks/useEditorKeyboard.ts`): Escape, V/C/P/T tools,
   arrow-key nudge, Delete/Backspace, Cmd/Ctrl+L
+- Undo history across R round trips (`src/utils/editHistory.ts`): R's
+  `update_model` messages carry `kind` (`load` starts a new history, `data` is
+  an undo step, `fit` keeps the history); undo/redo carry fit results
+  (`provenance`) forward. In `drawSEM()` and the addin the history goes to R on
+  Done and is kept in `GraphModel@metadata$editHistory` (never in the schema),
+  and comes back when the model is reopened
 - Web frontend: zoom/pan (`src/utils/viewport.ts`; Cmd/Ctrl+wheel or pinch to
   zoom, wheel/Space-drag/middle-drag to pan; view state only, never saved) and
   a "Show All" toolbar button (Shift+1) that fits the view to the model

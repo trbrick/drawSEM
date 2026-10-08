@@ -31,7 +31,10 @@ opens a full browser tab. Alternatives: \code{shiny::dialogViewer()} or
 }
 \value{
 A \code{\link{GraphModel}} representing the final model state, or
-\code{NULL} if the editor was closed without clicking Done.
+\code{NULL} if the editor was closed without clicking Done. The editor's
+undo history is kept in its \code{@metadata$editHistory} (not in the
+schema, so never in exported files), and reopening the returned model with
+\code{drawSEM()} restores it.
 }
 \description{
 Opens the drawSEM visual editor in a browser (or RStudio pane) via a Shiny

@@ -5,9 +5,10 @@ import { useLayoutEffect, useRef } from 'react'
  *
  * Snapshot-based: the editor's state updates are immutable, so a snapshot is
  * just a reference to the previous state object and costs nothing to keep.
- * History lives only in memory; it is never serialized, persisted or sent
- * anywhere. Restoring a snapshot goes through the editor's normal state, so
- * whatever already syncs that state (e.g. to R) sees an undo like any edit.
+ * History lives in memory. The only way it leaves the editor is on Done in the
+ * R contexts (see utils/editHistory.ts), via `stacks()` / `loadStacks()`.
+ * Restoring a snapshot goes through the editor's normal state, so whatever
+ * already syncs that state (e.g. to R) sees an undo like any edit.
  */
 
 /** Coalescing key. Compared with ===; `undefined` never coalesces. */
@@ -74,6 +75,18 @@ export class UndoStack<T> {
     this.future = []
     this.lastKey = undefined
   }
+
+  /** Copies of the stacks: `past` oldest first, `future` with the next redo last. */
+  toArrays(): { past: T[]; future: T[] } {
+    return { past: [...this.past], future: [...this.future] }
+  }
+
+  /** Replace the stacks (same order as `toArrays`); the oldest steps beyond the limit are dropped. */
+  load(past: T[], future: T[]): void {
+    this.past = past.slice(Math.max(0, past.length - this.limit))
+    this.future = future.slice(Math.max(0, future.length - this.limit))
+    this.lastKey = undefined
+  }
 }
 
 const fieldIds = new WeakMap<Element, number>()
@@ -115,6 +128,10 @@ export interface DocumentHistory<T> {
   silently(fn: () => void): void
   /** Forget all history (a new document was loaded). */
   reset(): void
+  /** The undo (`past`, oldest first) and redo (`future`, next redo last) snapshots. */
+  stacks(): { past: T[]; future: T[] }
+  /** Replace the undo/redo snapshots, e.g. with a history restored from R. */
+  loadStacks(past: T[], future: T[]): void
   breakCoalescing(): void
   /** Restore the previous step. Returns the restored state, or undefined. */
   undo(): T | undefined
@@ -196,6 +213,13 @@ export function useDocumentHistory<T extends Record<string, unknown>>(
       reset() {
         pendingRef.current = null
         stack().clear()
+      },
+      stacks() {
+        return stack().toArrays()
+      },
+      loadStacks(past, future) {
+        pendingRef.current = null
+        stack().load(past, future)
       },
       breakCoalescing() {
         stack().breakCoalescing()
