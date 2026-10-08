@@ -172,6 +172,13 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   Shiny messaging (model load/save, fit requests, save-to-env, fit-status updates)
 - Web frontend: auto-layout algorithm (RAMPath) with a toolbar button, SVG
   renderer, SVG/PNG export buttons
+- Web frontend: in-memory undo/redo (`src/hooks/useHistory.ts`; Cmd/Ctrl+Z,
+  Cmd/Ctrl+Shift+Z, Ctrl+Y) and keyboard shortcuts scoped to the editor
+  instance in use (`src/hooks/useEditorKeyboard.ts`): Escape, V/C/P/T tools,
+  arrow-key nudge, Delete/Backspace, Cmd/Ctrl+L
+- Web frontend: zoom/pan (`src/utils/viewport.ts`; Cmd/Ctrl+wheel or pinch to
+  zoom, wheel/Space-drag/middle-drag to pan; view state only, never saved) and
+  a "Show All" toolbar button (Shift+1) that fits the view to the model
 - Headless image export: `exportImage()` (R) via `window.drawSEMExportSVG` (widget)
 
 ### Specced, not yet implemented

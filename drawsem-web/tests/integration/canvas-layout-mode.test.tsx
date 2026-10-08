@@ -29,11 +29,11 @@ function renderCanvas(editMode: 'full' | 'layout') {
 }
 
 const STRUCTURAL_TITLES = [
-  'Add Variable (square or circle)',
-  'Add Constant (triangle)',
+  'Add Variable: square or circle (V)',
+  'Add Constant: triangle (C)',
   'Add Dataset (cylinder)',
-  'Add One-headed Path',
-  'Add Two-headed Path',
+  'Add One-headed Path (P)',
+  'Add Two-headed Path (T)',
   'Load a model from a JSON file',
   'Clear the canvas',
 ]
