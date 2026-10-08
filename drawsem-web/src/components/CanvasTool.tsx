@@ -20,6 +20,8 @@ import { GraphSchema } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
+import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
+import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
 import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor } from '../utils/viewport'
 
 type NodeType = Node['type']
@@ -84,6 +86,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // fields can change, however the change was triggered.
   const [models, loadModels] = useState<RuntimeModel[]>([])
   const setModels = (updater: React.SetStateAction<RuntimeModel[]>) => {
+    // Every user edit passes here: announce it to the undo history.
+    history.markChange(historyKeyForEdit())
     if (!isLayoutOnly) {
       loadModels(updater)
       return
@@ -99,6 +103,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+  // Undo/redo history of the document (models + current model). Snapshots are
+  // restored through the plain state setters, so the existing onModelChange
+  // sync sees an undo like any other edit; history itself is never sent or saved.
+  const history = useDocumentHistory({ models, currentModelId }, (snapshot) => {
+    loadModels(snapshot.models)
+    setCurrentModelId(snapshot.currentModelId)
+  })
   // Document-level keys the editor does not own (schemaVersion, meta), captured
   // at load and re-emitted verbatim with every serialization of `models`.
   const [docPassthrough, setDocPassthrough] = useState<Record<string, any>>({})
@@ -440,6 +451,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           loadModels(modelsOut)
+          history.reset()
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -488,6 +500,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           loadModels(modelsOut)
+          history.reset()
           setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
@@ -626,14 +639,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               // Compute per-column statistics (Welford)
               const columns = computeColumnStats(results.data, headers)
 
-              // Update the dataset node with loaded metadata
-              setNodes((ns) =>
+              // Update the dataset node with loaded metadata (derived, not an undo step)
+              history.silently(() => setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
                     ? { ...n, dataset: { fileName, headers, columns } }
                     : n
                 )
-              )
+              ))
               // Clear any previous errors for this node
               setDatasetErrors((prev) => {
                 const updated = new Map(prev)
@@ -681,11 +694,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         ? Object.keys(n.datasetSource.columnTypes)
         : (rows.length > 0 ? Object.keys(rows[0]) : [])
       const columns = computeColumnStats(rows, headers)
-      setNodes((ns) =>
+      // Derived metadata, not an undo step
+      history.silently(() => setNodes((ns) =>
         ns.map((node) =>
           node.id === n.id ? { ...node, dataset: { fileName: node.label, headers, columns } } : node
         )
-      )
+      ))
     })
   }, [nodes.filter((n) => n.type === 'dataset' && n.datasetSource?.type === 'embedded' && !n.dataset).map((n) => n.id).join(',')])
 
@@ -1009,35 +1023,136 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return
   }, [selectedId, selectedType])
 
-  // Handle Delete / Backspace key to remove selected node or path
-  // 'Delete' = forward-delete; 'Backspace' = the physical delete key on macOS
-  React.useEffect(() => {
-    if (isLayoutOnly) return
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Don't fire while the user is typing in an input/textarea
-        const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
-        e.preventDefault()
-        deleteSelected()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, selectedType, isLayoutOnly])
+  // ---- Undo/redo and keyboard shortcuts ----
 
-  // Handle Ctrl+L / Cmd+L keyboard shortcut for auto-layout
-  React.useEffect(() => {
-    if (viewMode === 'widget') return
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'l' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault()
-        handleAutoLayout()
-      }
+  // Root element of this editor instance. Keyboard shortcuts apply only to the
+  // instance the user is interacting with (see useEditorKeyboard).
+  const editorRootRef = useRef<HTMLDivElement | null>(null)
+
+  // Which undo step an edit belongs to. A node drag is one step (keyed by the
+  // drag); typing into one inspector field is one step (keyed by the field and
+  // the selected element). Otherwise undefined: one step per event handler.
+  function historyKeyForEdit(): unknown {
+    if (dragRef.current) return dragRef.current
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (active && active.tagName !== 'SELECT' && isTextEntryTarget(active) && editorRootRef.current?.contains(active)) {
+      return fieldKey(active, `${selectedType}:${selectedId}`)
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentModel, isLayingOut, viewMode])
+    return undefined
+  }
+
+  function undoRedo(direction: 'undo' | 'redo') {
+    const restored = direction === 'undo' ? history.undo() : history.redo()
+    if (!restored) return
+    // An in-progress path creation refers to the replaced state: drop it. Clear
+    // the selection if the selected element no longer exists.
+    rightClickDragRef.current = false
+    setPathSource(null)
+    setTempLine(null)
+    const model = restored.models.find((m) => m.id === restored.currentModelId)
+    const stillExists = selectedType === 'node'
+      ? model?.nodes.some((n) => n.id === selectedId)
+      : model?.paths.some((p) => p.id === selectedId)
+    if (selectedId && !stillExists) deselectAll()
+  }
+
+  // Arrow-key nudge of the selected node. A run of nudges (e.g. key repeat)
+  // coalesces into one undo step.
+  const NUDGE_WINDOW_MS = 1000
+  function nudgeSelectedNode(dx: number, dy: number): boolean {
+    if (selectedType !== 'node' || !selectedId) return false
+    const id = selectedId
+    if (!nodes.some((n) => n.id === id)) return false
+    history.withKey(`nudge:${id}`, NUDGE_WINDOW_MS, () => {
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
+    })
+    return true
+  }
+
+  // Escape: close an open toolbar menu, else cancel an in-progress path, else
+  // leave an add mode, else deselect (which also closes the element popup).
+  function handleEscapeKey() {
+    if (showExportMenu || showSaveMenu) {
+      setShowExportMenu(false)
+      setShowSaveMenu(false)
+      return
+    }
+    if (pathSource || tempLine) {
+      rightClickDragRef.current = false
+      setPathSource(null)
+      setTempLine(null)
+      setMode('select')
+      return
+    }
+    if (mode !== 'select') {
+      setMode('select')
+      return
+    }
+    deselectAll()
+  }
+
+  const TOOL_KEYS: Record<string, Mode> = { v: 'add-variable', c: 'add-constant', p: 'add-one-path', t: 'add-two-path' }
+  const ARROW_KEYS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+
+  useEditorKeyboard(editorRootRef, (e) => {
+    // Modal dialogs own the keyboard while open.
+    if (showSaveToRDialog || showCodeExportDialog) return
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+
+    // Undo: Cmd/Ctrl+Z. Redo: Cmd/Ctrl+Shift+Z or Ctrl+Y.
+    if (hasPrimaryModifier(e) && !e.altKey && key === 'z') {
+      e.preventDefault()
+      undoRedo(e.shiftKey ? 'redo' : 'undo')
+      return
+    }
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === 'y') {
+      e.preventDefault()
+      undoRedo('redo')
+      return
+    }
+
+    // Auto-layout: Cmd/Ctrl+L (not in the plain widget preview)
+    if (hasPrimaryModifier(e) && !e.shiftKey && key === 'l') {
+      if (viewMode === 'widget') return
+      e.preventDefault()
+      handleAutoLayout()
+      return
+    }
+
+    // Delete the selection. 'Backspace' is the physical delete key on macOS.
+    if (key === 'Delete' || key === 'Backspace') {
+      if (isLayoutOnly) return
+      e.preventDefault()
+      deleteSelected()
+      return
+    }
+
+    if (key === 'Escape') {
+      handleEscapeKey()
+      return
+    }
+
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+
+    // Arrows nudge the selected node (Shift: 10 units). A visual change, so
+    // also allowed in layout-only mode.
+    const arrow = ARROW_KEYS[key]
+    if (arrow) {
+      const step = e.shiftKey ? 10 : 1
+      if (nudgeSelectedNode(arrow[0] * step, arrow[1] * step)) e.preventDefault()
+      return
+    }
+
+    // Tool keys, only where the add tools exist (not layout-only, not the widget preview)
+    const tool = TOOL_KEYS[key]
+    if (tool && !e.shiftKey && !isLayoutOnly && viewMode !== 'widget') {
+      e.preventDefault()
+      rightClickDragRef.current = false
+      setMode(tool)
+      setPathSource(null)
+      setTempLine(null)
+    }
+  }, { acceptUnfocused: viewMode !== 'widget' })
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
@@ -1201,6 +1316,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         
         // apply into runtime state
         setModels(modelsOut)
+        history.reset()
         setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
@@ -1457,7 +1573,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // (viewMode 'widget') leaves the plain wheel to the document so the page
   // still scrolls over a diagram. Plain left-drag on the background is left
   // unused on purpose (reserved for marquee selection).
-  const rootRef = useRef<HTMLDivElement | null>(null)
   const pointerOverRootRef = useRef(false)
   const pointerOverCanvasRef = useRef(false)
   const spaceHeldRef = useRef(false)
@@ -1551,7 +1666,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
     }
     function isThisInstance() {
-      const root = rootRef.current
+      const root = editorRootRef.current
       return pointerOverRootRef.current || (!!root && root.contains(document.activeElement))
     }
     function onKeyDown(e: KeyboardEvent) {
@@ -1575,7 +1690,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     function onEnter() { pointerOverRootRef.current = true }
     function onLeave() { pointerOverRootRef.current = false }
-    const root = rootRef.current
+    const root = editorRootRef.current
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', release)
@@ -2472,7 +2587,24 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   return (
     <>
-    <div ref={rootRef} className="flex flex-col h-full canvas-container">
+    <div
+      ref={editorRootRef}
+      className="flex flex-col h-full canvas-container outline-none"
+      // Focusable so a click anywhere in the editor makes it the instance that
+      // receives keyboard shortcuts (several widgets can share one page).
+      tabIndex={-1}
+      // Moving focus (e.g. into another inspector field) ends a coalesced
+      // typing step in the undo history.
+      onFocus={() => history.breakCoalescing()}
+      onMouseDown={(e) => {
+        // A handler that prevented the default (right-click path drag) also
+        // stopped the browser from focusing the editor: do it here.
+        const root = editorRootRef.current
+        if (e.defaultPrevented && root && !isTextEntryTarget(e.target) && document.activeElement !== root) {
+          root.focus({ preventScroll: true })
+        }
+      }}
+    >
       {/* Top toolbar with icon buttons */}
       {viewMode !== 'widget' && (
       <header className="border-b bg-white">
@@ -2512,14 +2644,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             {!isLayoutOnly && (
             <>
             <button
-              title="Add Variable (square or circle)"
+              title="Add Variable: square or circle (V)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-variable' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-variable')}
             >
               ▢○
             </button>
             <button
-              title="Add Constant (triangle)"
+              title="Add Constant: triangle (C)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-constant')}
             >
@@ -2544,7 +2676,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             )}
             <div className="border-l mx-2"></div>
             <button
-              title="Add One-headed Path"
+              title="Add One-headed Path (P)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-one-path')
@@ -2554,7 +2686,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               →
             </button>
             <button
-              title="Add Two-headed Path"
+              title="Add Two-headed Path (T)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-two-path')
