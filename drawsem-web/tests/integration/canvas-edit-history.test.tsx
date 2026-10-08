@@ -144,7 +144,7 @@ describe('history on Done and reopening', () => {
   it('Done sends no history when there is nothing to undo, and the serialized history after an edit', async () => {
     const { container, root, done } = await renderShiny({ initialSchema: fixture() })
     fireEvent.click(screen.getByText('Done'))
-    expect(done).toHaveBeenLastCalledWith(undefined)
+    expect(done).toHaveBeenLastCalledWith()
 
     await nudgeF(container, root)
     fireEvent.click(screen.getByText('Done'))

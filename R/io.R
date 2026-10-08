@@ -1184,7 +1184,12 @@ setMethod(
       paths = paths,
       optimization = optimization
     )
-    
+    # The saved view (and other rendering hints) has no OpenMx counterpart:
+    # recover it from the hint, like node positions.
+    if (!is.null(hints) && !is.null(hints@model$visualization)) {
+      schema$models[[model_name]]$visualization <- hints@model$visualization
+    }
+
     # Issue warnings about unsupported features
     warnings_list <- c()
     

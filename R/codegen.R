@@ -1,8 +1,9 @@
 # Edit-code generation for the drawSEM addin: given the GraphModel a user
 # started with and the one they ended with, produce R code that reproduces the
 # edit. The addin is layout-only (the editor runs with editMode = "layout"), so
-# the code is visual-setter calls -- today one setLocation() -- read off the
-# edited model by projection (.visualEditCode()), never a structural diff.
+# the code is visual-setter calls -- setLocation() for node positions and
+# setVisualization() for the saved view -- read off the edited model by
+# projection (.visualEditCode()), never a structural diff.
 # The structural verb diff (with JSON fallback) is parked, unexported, in
 # codegen-parked.R for a future structural addin.
 #
@@ -24,7 +25,8 @@
   if (is.logical(v) && length(v) == 1) return(if (is.na(v)) "NA" else as.character(v))
   if (is.numeric(v)) {
     s <- format(as.numeric(v), digits = 15, trim = TRUE)
-    return(if (length(s) == 1) s else paste0("c(", paste(s, collapse = ", "), ")"))
+    if (!is.null(names(v))) s <- paste0(names(v), " = ", s)  # c(x = 1, y = 2)
+    return(if (length(s) == 1 && is.null(names(v))) s else paste0("c(", paste(s, collapse = ", "), ")"))
   }
   paste(deparse(v, width.cutoff = 500L), collapse = "")
 }
@@ -137,12 +139,38 @@
   list(nodes = sort(nodes), paths = sort(paths))
 }
 
+# The setVisualization() call that turns `before`'s saved view (viewport,
+# activeLayer, offLayerVisibility) into `after`'s, or NULL when they match.
+# Only the keys that differ are set; a key `after` lacks is cleared (FALSE).
+.visualizationCall <- function(bm, am) {
+  bv <- bm$visualization %||% list()
+  av <- am$visualization %||% list()
+  args <- list()
+  for (k in c("viewport", "activeLayer", "offLayerVisibility")) {
+    if (identical(.canonValue(bv[[k]]), .canonValue(av[[k]]))) next
+    args[[k]] <- if (is.null(av[[k]])) {
+      FALSE
+    } else if (k == "viewport") {
+      v <- av[[k]]
+      vapply(c(x = "x", y = "y", width = "width", height = "height"),
+             function(nm) as.numeric(v[[nm]]), numeric(1))
+    } else {
+      as.character(av[[k]])
+    }
+  }
+  if (length(args) == 0) return(NULL)
+  do.call(.mkCall, c(list("setVisualization"), args))
+}
+
 # Code for a layout-only edit. `before` is authoritative for everything; only
-# node positions are read from `after`, rounded to whole canvas units and
-# matched by node label. A node whose position is new or changed is set; that
-# includes every node of a model that had no positions and was auto-laid out
-# on load (Done pins the layout the user saw). Any structural difference --
-# which the layout-only editor should make impossible -- is reported in
+# node positions and the saved view are read from `after`. Positions are
+# rounded to whole canvas units and matched by node label. A node whose
+# position is new or changed is set; that includes every node of a model that
+# had no positions and was auto-laid out on load (Done pins the layout the
+# user saw). The view (visualization viewport / activeLayer /
+# offLayerVisibility) is set when it differs (the editor sends it with Done
+# only when the user changed it). Any structural difference -- which the
+# layout-only editor should make impossible -- is reported in
 # `structureChanged` and otherwise ignored.
 # Returns list(tier = "patch" | "none", code, calls, structureChanged).
 .visualEditCode <- function(before, after, varName = "model") {
@@ -163,10 +191,13 @@
   }
 
   structureChanged <- !identical(.structureKey(bm), .structureKey(am))
-  if (length(moved) == 0) {
+  calls <- list()
+  if (length(moved) > 0) calls <- c(calls, list(.mkCall("setLocation", nodeId = moved, x = xs, y = ys)))
+  view <- .visualizationCall(bm, am)
+  if (!is.null(view)) calls <- c(calls, list(view))
+  if (length(calls) == 0) {
     return(list(tier = "none", code = NULL, calls = list(), structureChanged = structureChanged))
   }
-  calls <- list(.mkCall("setLocation", nodeId = moved, x = xs, y = ys))
   list(tier = "patch", code = .fmtChain(calls, varName, varName), calls = calls,
        structureChanged = structureChanged)
 }

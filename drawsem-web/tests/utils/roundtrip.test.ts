@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { convertDocToRuntime, docPassthroughOf } from '../../src/utils/runtimeConverter'
-import { modelsToSchema } from '../../src/utils/runtimeToSchema'
+import { modelsToSchema, withVisualization } from '../../src/utils/runtimeToSchema'
 import { autoLayout } from '../../src/utils/autoLayout'
 import { layoutIncomingModel, layoutModel } from '../../src/utils/layoutModel'
 import { validateGraph } from '../../src/validateGraph'
@@ -273,7 +273,7 @@ describe('round trip: owned keys', () => {
   // the OWNED_* lists, or its edits would be lost.
   const PASSTHROUGH = {
     doc: ['schemaVersion', 'meta'],
-    model: ['meta', 'extensions', 'provenance', 'visualization', 'optimization.fitFunction', 'optimization.missingness'],
+    model: ['meta', 'extensions', 'provenance', 'visualization.anchor', 'visualization.displayContext', 'optimization.fitFunction', 'optimization.missingness'],
     node: ['visual.angle'],
     path: ['description', 'tags'],
   }
@@ -305,6 +305,7 @@ describe('round trip: owned keys', () => {
     for (const m of k.models) {
       for (const key of OWNED_MODEL_KEYS.keys) expect(m.passthrough ?? {}).not.toHaveProperty(key)
       expect(m.passthrough?.optimization ?? {}).not.toHaveProperty('parameterTypes')
+      for (const key of OWNED_MODEL_KEYS.nested.visualization) expect(m.passthrough?.visualization ?? {}).not.toHaveProperty(key)
       for (const n of m.nodes) {
         for (const key of OWNED_NODE_KEYS.keys) expect(n.passthrough ?? {}).not.toHaveProperty(key)
         for (const key of OWNED_NODE_KEYS.nested.visual) expect(n.passthrough?.visual ?? {}).not.toHaveProperty(key)
@@ -388,6 +389,39 @@ describe('round trip: owned keys', () => {
     ])
     expect(out.models.fitted.optimization.fitFunction).toBe('ML')
     expect(out.models.fitted.provenance).toEqual(k.before.models.fitted.provenance)
+  })
+
+  it('the saved view (visualization viewport / activeLayer / offLayerVisibility) is owned and kept exactly', () => {
+    const k = loadKitchenSink()
+    expect(k.fitted.visualization).toEqual({
+      viewport: { x: -320.5, y: -150, width: 900, height: 640.25 },
+      activeLayer: 'all',
+      offLayerVisibility: 'transparent',
+    })
+    const out = k.serialize()
+    expect(out.models.fitted.visualization).toEqual(k.before.models.fitted.visualization)
+  })
+
+  it('withVisualization writes the view of one model only; anchor / displayContext untouched', () => {
+    const k = loadKitchenSink()
+    const view = { viewport: { x: 1, y: 2, width: 3, height: 4 }, activeLayer: 'data' as const, offLayerVisibility: 'invisible' as const }
+    const models = withVisualization(k.models, 'fitted', view)
+    expect(k.fitted.visualization?.activeLayer).toBe('all') // input not mutated
+    const out = modelsToSchema(models, docPassthroughOf(k.before))
+    expect(deepDiff(out, k.before).sort()).toEqual([
+      'models.fitted.visualization.activeLayer',
+      'models.fitted.visualization.offLayerVisibility',
+      'models.fitted.visualization.viewport.height',
+      'models.fitted.visualization.viewport.width',
+      'models.fitted.visualization.viewport.x',
+      'models.fitted.visualization.viewport.y',
+    ])
+    expect(out.models.fitted.visualization).toEqual({ ...k.before.models.fitted.visualization, ...view })
+    expect(validateGraph(out).ok).toBe(true)
+    // a model without visualization gains one only when it is the one written
+    expect(out.models.second).not.toHaveProperty('visualization')
+    const out2 = modelsToSchema(withVisualization(k.models, 'second', view), docPassthroughOf(k.before))
+    expect(out2.models.second.visualization).toEqual(view)
   })
 
   it('a model without label or optimization does not gain them', () => {

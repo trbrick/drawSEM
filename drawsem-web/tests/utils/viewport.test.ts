@@ -10,6 +10,9 @@ import {
   wheelZoomFactor,
   ZOOM_MIN_EXTENT,
   ZOOM_MAX_EXTENT,
+  isTrackpadWheel,
+  roundViewBox,
+  viewBoxFromViewport,
 } from '../../src/utils/viewport'
 import type { ViewBox } from '../../src/utils/viewport'
 
@@ -127,5 +130,51 @@ describe('wheel helpers', () => {
     expect(wheelZoomFactor(0)).toBe(1)
     expect(wheelZoomFactor(100)).toBe(wheelZoomFactor(1000))
     expect(wheelZoomFactor(100) * wheelZoomFactor(-100)).toBeCloseTo(1, 12)
+  })
+})
+
+describe('isTrackpadWheel', () => {
+  const w = (deltaX: number, deltaY: number, extra: { deltaMode?: number; wheelDeltaX?: number; wheelDeltaY?: number } = {}) => ({
+    deltaX,
+    deltaY,
+    deltaMode: extra.deltaMode ?? 0,
+    ...extra,
+  })
+
+  it.each([
+    ['Chromium/Safari mouse notch (deltaY 100, wheelDeltaY -120)', w(0, 100, { wheelDeltaY: -120 }), false],
+    ['Chromium mouse notch up', w(0, -100, { wheelDeltaY: 120 }), false],
+    ['Chromium/Windows mouse notch (deltaY 125, wheelDeltaY -150)', w(0, 125, { wheelDeltaY: -150 }), false],
+    ['Firefox mouse in line mode', w(0, 3, { deltaMode: 1 }), false],
+    ['page mode', w(0, 1, { deltaMode: 2 }), false],
+    ['Firefox mouse in pixel mode, whole numbers', w(0, 48), false],
+    ['macOS trackpad (wheelDeltaY = -3 * deltaY)', w(0, 2, { wheelDeltaY: -6 }), true],
+    ['macOS trackpad, up', w(0, -7, { wheelDeltaY: 21 }), true],
+    ['two-axis movement', w(1.5, 3, { wheelDeltaY: -120 }), true],
+    ['two-axis, whole numbers, Firefox', w(2, 5), true],
+    ['Firefox trackpad, fractional', w(0, 1.75), true],
+    ['horizontal-only trackpad (wheelDeltaX = -3 * deltaX)', w(4, 0, { wheelDeltaX: -12, wheelDeltaY: 0 }), true],
+    ['horizontal-only tilt wheel', w(100, 0, { wheelDeltaX: -120, wheelDeltaY: 0 }), false],
+  ])('%s', (_name, e, expected) => {
+    expect(isTrackpadWheel(e)).toBe(expected)
+  })
+
+  it('documented misfire: a small whole-pixel macOS mouse delta reads as a trackpad', () => {
+    expect(isTrackpadWheel(w(0, 4, { wheelDeltaY: -12 }))).toBe(true)
+  })
+})
+
+describe('stored viewport helpers', () => {
+  it('roundViewBox rounds to 2 decimals', () => {
+    expect(roundViewBox({ x: 1.23456, y: -0.004, width: 100.999, height: 50 })).toEqual({ x: 1.23, y: 0, width: 101, height: 50 })
+  })
+
+  it('viewBoxFromViewport accepts a well-formed viewport only', () => {
+    expect(viewBoxFromViewport({ x: -1, y: 2, width: 3, height: 4 })).toEqual({ x: -1, y: 2, width: 3, height: 4 })
+    expect(viewBoxFromViewport(undefined)).toBeNull()
+    expect(viewBoxFromViewport({ x: 0, y: 0, width: 0, height: 4 })).toBeNull()
+    expect(viewBoxFromViewport({ x: 0, y: 0, width: 3, height: -1 })).toBeNull()
+    expect(viewBoxFromViewport({ x: 'a', y: 0, width: 3, height: 4 })).toBeNull()
+    expect(viewBoxFromViewport({ x: 0, y: 0, width: Infinity, height: 4 })).toBeNull()
   })
 })

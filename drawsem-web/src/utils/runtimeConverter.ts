@@ -129,6 +129,13 @@ export function convertDocToRuntime(doc: any): RuntimeModel[] {
     const out: RuntimeModel = { id: modelId, label: model.label, nodes, paths }
     // parameterTypes: owned, kept exactly (absent stays absent)
     if (model.optimization?.parameterTypes !== undefined) out.parameterTypes = model.optimization.parameterTypes
+    // the saved view (visualization.viewport / activeLayer / offLayerVisibility): owned, kept exactly
+    const vis = model.visualization
+    if (vis && typeof vis === 'object') {
+      const view: Record<string, any> = {}
+      for (const k of OWNED_MODEL_KEYS.nested.visualization) if (vis[k] !== undefined) view[k] = JSON.parse(JSON.stringify(vis[k]))
+      if (Object.keys(view).length > 0) out.visualization = view
+    }
     const passthrough = passthroughOf(model, OWNED_MODEL_KEYS)
     if (Object.keys(passthrough).length > 0) out.passthrough = passthrough
     return out
