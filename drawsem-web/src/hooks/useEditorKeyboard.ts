@@ -29,8 +29,10 @@ export function hasPrimaryModifier(e: KeyboardEvent): boolean {
 
 export function ownsKeyEvent(e: KeyboardEvent, container: HTMLElement | null, acceptUnfocused: boolean): boolean {
   if (!container) return false
+  // The target may be the window itself, which is not a DOM node
   const target = e.target as Node | null
-  if (target && container.contains(target)) return true
+  const isNode = !!target && typeof (target as Node).nodeType === 'number'
+  if (isNode && container.contains(target)) return true
   if (!acceptUnfocused) return false
   const doc = container.ownerDocument
   return target === doc.body || target === doc.documentElement || (target as unknown) === doc
