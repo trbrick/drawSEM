@@ -2,19 +2,21 @@
 % Please edit documentation in R/verbs.R
 \name{convertPath}
 \alias{convertPath}
-\title{Convert a Path Between Directed and Covariance Form}
+\title{Convert Paths Between Directed and Covariance Form}
 \usage{
 convertPath(graphModel, from, to, numberOfArrows)
 }
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
 
-\item{from}{Character. Label of the source node -- the source of the
-resulting directed path, when converting to \code{numberOfArrows = 1}.}
+\item{from}{Character vector. Label(s) of the source node(s) -- the
+source of each resulting directed path, when converting to
+\code{numberOfArrows = 1}.}
 
-\item{to}{Character. Label of the target node.}
+\item{to}{Character vector. Label(s) of the target node(s).}
 
-\item{numberOfArrows}{Integer, \code{1} or \code{2}. The new arrow count.}
+\item{numberOfArrows}{Integer, \code{1} or \code{2}: the new arrow count, applied
+to every path, or a vector with one element per path.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
@@ -33,4 +35,30 @@ distinct \verb{(from, to)} identities, not one ambiguous pair. A covariance
 path is inherently unique between two given nodes, so nothing further is
 needed to disambiguate that direction either. Does not apply to
 \code{type: "data"} paths, which have no arrows to convert.
+}
+\details{
+\code{from} and \code{to} are vectorized with the same shapes as \code{\link[=addPath]{addPath()}}:
+fan-out (\code{length(from) == 1}), fan-in (\code{length(to) == 1}), or pairwise
+(equal lengths, \code{from[i]} to \code{to[i]}). Any other combination of lengths
+is an error; there is no recycling and no all-pairs form.
+
+The call is atomic: every requested path is looked up before any is
+converted, and if any of them can't be converted, none are, and the error
+names every offending pair. A path can't be converted if there is no
+path with the other arrow count between its endpoints; if the same path
+is requested twice in one call; if two conversions in the call would
+produce the same path (e.g. \code{A -> B} and \code{B -> A} both converted to one
+\verb{A <-> B}); or if it is a data connection.
+}
+\examples{
+gm <- GraphModel() |>
+  addVariable("x") |>
+  addVariable("y1") |>
+  addVariable("y2") |>
+  addPath("x", c("y1", "y2"), 2)
+
+# fan-out: turn both covariances into regressions on x
+gm <- convertPath(gm, "x", c("y1", "y2"), 1)
+paths(gm)
+
 }
