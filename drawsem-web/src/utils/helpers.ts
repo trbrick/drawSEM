@@ -370,3 +370,20 @@ export function withManifestLatent(n: Node, value: 'manifest' | 'latent' | undef
   if (Object.keys(vc).length === 0) delete out.variableCharacteristics
   return out
 }
+
+/**
+ * Set a path's free/fixed state. `undefined` (fixed) removes `freeParameter`;
+ * `true` or `''` makes it free and anonymous; a non-empty string makes it free
+ * and named (paths sharing a name are constrained equal). `false` and `''` are
+ * never written.
+ */
+export function withFreeParameter(p: Path, value: true | string | undefined): Path {
+  const { freeParameter: _old, ...rest } = p
+  if (value === undefined) return rest
+  return { ...rest, freeParameter: value === '' ? true : value }
+}
+
+/** A path value as shown in the inspector's Value field ('' when absent). */
+export function formatPathValue(value: number | null | undefined): string {
+  return value !== null && value !== undefined ? value.toFixed(6).replace(/\.?0+$/, '') : ''
+}

@@ -181,11 +181,28 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   layer), Cmd/Ctrl+L
 - Web frontend: multi-selection (`src/utils/selection.ts`; nodes and paths
   together), the same in every context: Shift/Cmd/Ctrl-click toggles an
-  element; a left-drag on the background draws a selection rectangle (nodes
-  entirely inside it, plus paths with both endpoints selected; active layer
-  only; Shift/Cmd/Ctrl adds). Dragging, nudging and deleting act on the whole
-  selection, one undo step each; the element popup shows a summary for more
-  than one element
+  element (on macOS only Shift/Cmd; there Ctrl+click acts as a right click,
+  `src/utils/platform.ts`); a left-drag on the background draws a selection
+  rectangle (nodes entirely inside it, plus paths with both endpoints
+  selected; active layer only; the toggle modifiers add). Dragging, nudging
+  and deleting act on the whole selection, one undo step each
+- Web frontend: drag-to-many paths (`src/utils/groupEdits.ts`). A path drag
+  (right-drag from a node, or the P/T path tools) that starts on a node of a
+  multi-selection draws from every selected node; released on a selected node
+  it targets every selected node; from one selected node to another it adds
+  just that path (one-headed) or a covariance between every pair of selected
+  nodes (two-headed). Holding Shift during the drag makes it two-headed (the
+  release decides; the T tool is always two-headed). Invalid and duplicate
+  pairs are skipped; everything is added as one undo step and summarized in a
+  transient notice. The preview shows a line from every source, or the paths
+  a release on the hovered node would add
+- Web frontend: the popup for a multi-selection shows a summary and, outside
+  layout-only mode, group actions (one undo step each): Add means (free
+  `mean` paths from the selected constant, else "1", else a new constant below
+  the selection), Correlate all (free `covariance` paths between selected
+  variables), free/fixed, parameter name and value for all selected structural
+  paths, and the manifest/latent lock for all selected variables ("mixed" when
+  they differ)
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results
@@ -196,8 +213,9 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   context: mouse wheel zooms about the cursor; trackpad two-finger scroll pans
   (mouse vs trackpad is a best-effort guess, `isTrackpadWheel()`); pinch and
   Cmd/Ctrl+wheel zoom; right-drag on the background, middle-drag and
-  Space+drag pan (right-drag from a node still draws a path; left-drag on the
-  background draws a selection rectangle). The one exception: the
+  Space+drag pan (Ctrl+drag on macOS counts as a right-drag; right-drag from
+  a node still draws a path; left-drag on the background draws a selection
+  rectangle). The one exception: the
   embedded widget (`plotGraphModel()`, Quarto/RMarkdown) leaves the plain wheel
   and two-finger scroll to the page and briefly shows a "Ctrl + scroll to zoom"
   (⌘ on macOS) hint. A "Show All" toolbar button (Shift+1) fits the view to
