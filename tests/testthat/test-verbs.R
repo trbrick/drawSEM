@@ -891,6 +891,41 @@ test_that("convertPath() matches 2-arrow paths either way round, and catches dup
   expect_length(paths(gm3, numberOfArrows = 1), 2)
 })
 
+test_that("convertPath() refuses to create a path that already exists", {
+  gm <- GraphModel() |>
+    addVariable("A") |>
+    addVariable("B") |>
+    addVariable("C") |>
+    addPath("A", "B", 1) |>
+    addPath("A", "B", 2) |>
+    addPath("B", "A", 1)
+
+  expect_error(
+    convertPath(gm, "A", "B", 2),
+    "^A path already exists between 'A' and 'B' with numberOfArrows = 2\\. Converting would duplicate it"
+  )
+  expect_error(
+    convertPath(gm, "B", "A", 1),
+    "^A path already exists between 'B' and 'A' with numberOfArrows = 1\\."
+  )
+  # in a vectorized call, the whole call is refused
+  gm2 <- addPath(gm, "A", "C", 1)
+  expect_error(
+    convertPath(gm2, "A", c("C", "B"), 2),
+    "'A' <-> 'B': that path already exists.", fixed = TRUE
+  )
+  expect_length(paths(gm2, numberOfArrows = 2), 1)
+
+  # a path this same call converts away doesn't block: swap A <-> B and B -> A
+  gm3 <- GraphModel() |>
+    addVariable("A") |>
+    addVariable("B") |>
+    addPath("A", "B", 2) |>
+    addPath("A", "B", 1)
+  swapped <- convertPath(gm3, c("A", "A"), c("B", "B"), c(1, 2))
+  expect_length(paths(swapped), 2)
+})
+
 test_that("convertPath() single-path errors are unchanged", {
   gm <- pathVecFixture()
   expect_error(convertPath(gm, "F", "y", 2), "^No numberOfArrows = 1 path found between 'F' and 'y' to convert\\.$")

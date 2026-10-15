@@ -48,7 +48,9 @@ names every offending pair. A path can't be converted if there is no
 path with the other arrow count between its endpoints; if the same path
 is requested twice in one call; if two conversions in the call would
 produce the same path (e.g. \code{A -> B} and \code{B -> A} both converted to one
-\verb{A <-> B}); or if it is a data connection.
+\verb{A <-> B}); if the converted path already exists in the model (e.g.
+converting \code{A -> B} to two-headed when \verb{A <-> B} is already there); or if
+it is a data connection.
 }
 \examples{
 gm <- GraphModel() |>

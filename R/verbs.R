@@ -969,7 +969,9 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
 #' path with the other arrow count between its endpoints; if the same path
 #' is requested twice in one call; if two conversions in the call would
 #' produce the same path (e.g. `A -> B` and `B -> A` both converted to one
-#' `A <-> B`); or if it is a data connection.
+#' `A <-> B`); if the converted path already exists in the model (e.g.
+#' converting `A -> B` to two-headed when `A <-> B` is already there); or if
+#' it is a data connection.
 #'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param from Character vector. Label(s) of the source node(s) -- the
@@ -1010,13 +1012,28 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
 
   source_arrows <- lapply(arrows, function(a) if (a == 1) 2L else 1L)
   found <- .resolvePaths(first_model$paths, from, to, source_arrows, convert = TRUE)
+  single <- found$single
   lines <- found$lines
   # Two distinct source paths can become the same path (A -> B and B -> A
-  # both converted to A <-> B), so check the results against each other too.
+  # both converted to A <-> B), so check the results against each other too,
+  # and against paths already in the model. An existing path that this same
+  # call converts away doesn't count -- it won't be there afterwards.
   seen_keys <- character(0)
   for (i in seq_len(n)) {
     if (is.na(found$idx[[i]])) next
     a <- arrows[[i]]
+    existing <- .findPathIndices(first_model$paths, from = from[[i]], to = to[[i]], numberOfArrows = a)
+    existing <- setdiff(existing, found$idx)
+    if (length(existing) > 0) {
+      single <- c(single, sprintf(
+        "A path already exists between '%s' and '%s' with numberOfArrows = %d. Converting would duplicate it; use removePath() first if you want to replace it.",
+        from[[i]], to[[i]], a
+      ))
+      lines <- c(lines, sprintf(
+        "%s: that path already exists.", .pathPairLabel(from[[i]], to[[i]], a)
+      ))
+      next
+    }
     ends <- if (a == 2) sort(c(from[[i]], to[[i]])) else c(from[[i]], to[[i]])
     key <- paste(c(ends, a), collapse = "\r")
     if (key %in% seen_keys) {
@@ -1027,7 +1044,7 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
     }
     seen_keys <- c(seen_keys, key)
   }
-  .stopPathProblems(found$single, lines, n, "converted")
+  .stopPathProblems(single, lines, n, "converted")
 
   # The existing path's own from/to may be stored in either order if it was
   # a covariance (symmetric, no inherent direction) -- always assign the
