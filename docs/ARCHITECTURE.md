@@ -202,7 +202,24 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   the selection), Correlate all (free `covariance` paths between selected
   variables), free/fixed, parameter name and value for all selected structural
   paths, and the manifest/latent lock for all selected variables ("mixed" when
-  they differ)
+  they differ), and Duplicate
+- Web frontend: copy, cut, paste and duplicate of the selection
+  (`src/utils/clipboard.ts`), the same in every context: Cmd/Ctrl+C,
+  Cmd/Ctrl+X, Cmd/Ctrl+V, Cmd/Ctrl+D (duplicate in place, without the
+  clipboard) and the multi-selection popup's Duplicate. The clipboard holds a
+  JSON fragment in schema shapes (`{"drawSEMClipboard": 1, nodes, paths}`;
+  labels and `from`/`to`, no runtime ids; other text is ignored), written with
+  `navigator.clipboard` and read from the paste event (else `readText`), so
+  a copy in one window pastes in another; an in-memory copy is the fallback
+  when the system clipboard is unavailable. Copied: the selected variables and
+  constants (never datasets), every non-data path between them, and mean paths
+  from an uncopied constant (re-attached to the target's constant of that
+  label). Copies get no data connections and no `manifestLatent` lock. Pasted
+  labels are made unique like new nodes (`V<n>`, `1b`, else `name_2`); named
+  free parameters are renamed the same way (paths sharing a name keep sharing
+  the new one). Pastes are offset by 30 units (repeated pastes step further),
+  become the selection, and are one undo step each, as is a cut (copy + group
+  delete). Layout-only mode: copy only
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results

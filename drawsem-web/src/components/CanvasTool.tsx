@@ -23,7 +23,9 @@ import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
 import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
-import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { useEditorKeyboard, useEditorPaste, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { copySelection, serializeFragment, parseFragment, planPaste, planDuplicate, pasteOffset, writeClipboardText, readClipboardText, clipboardTextFrom, eventClipboardText } from '../utils/clipboard'
+import type { PastePlan } from '../utils/clipboard'
 import { EMPTY_SELECTION, selectionOf, selectionSize, toggleInSelection, pruneSelection, sameSelection, boundsFromPoints, unionBounds, marqueeSelection } from '../utils/selection'
 import type { Selection, SelectionKind, Bounds } from '../utils/selection'
 import { isMacPlatform, isSecondaryPress, isToggleModifier } from '../utils/platform'
@@ -1090,6 +1092,55 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     showInfo(correlateAllMessage(plan))
   }
 
+  // ---- Copy, cut, paste, duplicate (rules in utils/clipboard.ts) ----
+  // Repeated pastes of the same clipboard content step further from the copy.
+  const pasteCountRef = useRef<{ text: string; count: number } | null>(null)
+  // A Cmd/Ctrl+V still waiting for its paste event (see the keyboard handler)
+  const pendingPasteRef = useRef<object | null>(null)
+
+  /** Copy the selection to the clipboard. False when nothing in it is copyable. */
+  function copySelected(): boolean {
+    const fragment = copySelection(nodes, paths, selection.nodeIds)
+    if (!fragment) return false
+    const text = serializeFragment(fragment)
+    pasteCountRef.current = { text, count: 0 }
+    void writeClipboardText(text)
+    return true
+  }
+
+  /** Copy, then delete the whole selection (one undo step). */
+  function cutSelected(): boolean {
+    if (isLayoutOnly || !copySelected()) return false
+    deleteSelected()
+    return true
+  }
+
+  /** Add pasted / duplicated elements as one undo step and select them. */
+  function insertPastePlan(plan: PastePlan | null) {
+    if (isLayoutOnly || !plan || !currentModelId) return
+    const modelId = currentModelId
+    setModels((ms) => ms.map((m) => (m.id === modelId ? { ...m, nodes: [...m.nodes, ...plan.nodes], paths: [...m.paths, ...plan.paths] } : m)))
+    setSelection({ nodeIds: plan.nodes.map((n) => n.id), pathIds: plan.paths.map((p) => p.id) })
+  }
+
+  function pasteText(text: string | null) {
+    if (isLayoutOnly || !text) return
+    const fragment = parseFragment(text)
+    if (!fragment) return
+    const last = pasteCountRef.current
+    const count = last && last.text === text ? last.count + 1 : 1
+    pasteCountRef.current = { text, count }
+    insertPastePlan(planPaste(nodes, paths, fragment, pasteOffset(count)))
+  }
+  // Pastes that complete asynchronously use the latest render's state
+  const pasteTextRef = useRef(pasteText)
+  pasteTextRef.current = pasteText
+
+  function duplicateSelected() {
+    if (isLayoutOnly) return
+    insertPastePlan(planDuplicate(nodes, paths, selection.nodeIds))
+  }
+
   /** Apply `f` to every selected structural (non-data) path. */
   function updateSelectedStructuralPaths(f: (p: Path) => Path) {
     if (isLayoutOnly) return
@@ -1261,6 +1312,34 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     deselectAll()
   }
 
+  // Text selected on the page (e.g. in the popup) is copied by the browser as usual
+  function pageHasTextSelection(): boolean {
+    const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null
+    return !!sel && !sel.isCollapsed && sel.toString() !== ''
+  }
+
+  function handleClipboardKey(key: string, e: KeyboardEvent) {
+    if (key === 'c') {
+      if (!pageHasTextSelection() && copySelected()) e.preventDefault()
+    } else if (key === 'x') {
+      if (!pageHasTextSelection() && cutSelected()) e.preventDefault()
+    } else if (key === 'd') {
+      e.preventDefault() // the browser's bookmark shortcut
+      duplicateSelected()
+    } else if (key === 'v' && !isLayoutOnly) {
+      // Not prevented: the browser then sends a paste event with the clipboard
+      // text (useEditorPaste below). Where it does not (some browsers send none
+      // outside text fields), read the clipboard once this event is done.
+      const token = {}
+      pendingPasteRef.current = token
+      setTimeout(() => {
+        if (pendingPasteRef.current !== token) return
+        pendingPasteRef.current = null
+        void readClipboardText().then((text) => pasteTextRef.current(text))
+      }, 0)
+    }
+  }
+
   const TOOL_KEYS: Record<string, Mode> = { v: 'add-variable', c: 'add-constant', p: 'add-one-path', t: 'add-two-path' }
   const ARROW_KEYS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
 
@@ -1297,6 +1376,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
+    // Copy, cut, paste, duplicate: Cmd/Ctrl + C, X, V, D. Paste, cut and
+    // duplicate are structural edits, so not in layout-only mode.
+    if (hasPrimaryModifier(e) && !e.altKey && !e.shiftKey && (key === 'c' || key === 'x' || key === 'v' || key === 'd')) {
+      handleClipboardKey(key, e)
+      return
+    }
+
     // Delete the selection. 'Backspace' is the physical delete key on macOS.
     if (key === 'Delete' || key === 'Backspace') {
       if (isLayoutOnly) return
@@ -1328,6 +1414,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setMode(tool)
       endPathDrag()
     }
+  }, { acceptUnfocused: viewMode !== 'widget' })
+
+  // Paste events (Cmd/Ctrl+V, or a browser/host Paste menu): the system
+  // clipboard's text, else the in-memory copy (see utils/clipboard.ts).
+  useEditorPaste(editorRootRef, (e) => {
+    pendingPasteRef.current = null
+    if (showSaveToRDialog || showCodeExportDialog || isLayoutOnly) return
+    const text = clipboardTextFrom(eventClipboardText(e))
+    if (!text || !parseFragment(text)) return
+    e.preventDefault()
+    pasteTextRef.current(text)
   }, { acceptUnfocused: viewMode !== 'widget' })
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
@@ -3454,6 +3551,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       title="Add a free covariance (two-headed path) between every pair of selected variables that has none yet"
                     >
                       ↔ Correlate all
+                    </button>
+                    <button
+                      type="button"
+                      className={btn}
+                      disabled={!selectedNodesList.some((n) => n.type !== 'dataset')}
+                      onClick={duplicateSelected}
+                      title="Duplicate the selected variables and constants with the paths between them (datasets and data connections are not duplicated). Cmd/Ctrl+D"
+                    >
+                      ⧉ Duplicate
                     </button>
                   </div>
                   {pathCount > 0 && (

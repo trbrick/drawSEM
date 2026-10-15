@@ -27,7 +27,7 @@ export function hasPrimaryModifier(e: KeyboardEvent): boolean {
   return e.metaKey || e.ctrlKey
 }
 
-export function ownsKeyEvent(e: KeyboardEvent, container: HTMLElement | null, acceptUnfocused: boolean): boolean {
+export function ownsKeyEvent(e: Event, container: HTMLElement | null, acceptUnfocused: boolean): boolean {
   if (!container) return false
   // The target may be the window itself, which is not a DOM node
   const target = e.target as Node | null
@@ -57,5 +57,32 @@ export function useEditorKeyboard(
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
+  }, [containerRef])
+}
+
+/**
+ * `paste` events for one editor instance, scoped like the keyboard shortcuts:
+ * only when the event belongs to this instance (or, with `acceptUnfocused`, to
+ * an unfocused page), and never for a paste into a text field.
+ */
+export function useEditorPaste(
+  containerRef: React.RefObject<HTMLElement>,
+  handler: (e: ClipboardEvent) => void,
+  options: { acceptUnfocused: boolean }
+): void {
+  const handlerRef = useRef(handler)
+  handlerRef.current = handler
+  const acceptRef = useRef(options.acceptUnfocused)
+  acceptRef.current = options.acceptUnfocused
+
+  useEffect(() => {
+    function onPaste(e: Event) {
+      if (e.defaultPrevented) return
+      if (!ownsKeyEvent(e, containerRef.current, acceptRef.current)) return
+      if (isTextEntryTarget(e.target)) return
+      handlerRef.current(e as ClipboardEvent)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
   }, [containerRef])
 }
