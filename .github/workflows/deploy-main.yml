@@ -11,6 +11,10 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: pages-main
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -32,11 +36,17 @@ jobs:
         run: npx vite build --base /drawSEM/
 
       - name: Copy example files
-        run: cp -r drawsem-web/examples drawsem-web/dist/standalone/examples
+        run: |
+          cp -r drawsem-web/examples drawsem-web/dist/standalone/examples
+          touch drawsem-web/dist/standalone/.nojekyll
 
+      # clean removes stale build files at the root; the other deploy areas are excluded.
       - name: Deploy to GitHub Pages (root)
-        uses: peaceiris/actions-gh-pages@v4
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: drawsem-web/dist/standalone
-          keep_files: true
+          branch: gh-pages
+          folder: drawsem-web/dist/standalone
+          clean: true
+          clean-exclude: |
+            experimental/
+            pr-preview/
