@@ -89,7 +89,7 @@ The central R object. Slots:
 | `schema` | `list` | The graph schema (nodes, paths, optimization). Node positions live here at `models[[k]]$nodes[[i]]$visual$x/y`. |
 | `data` | `list` | Named list of data.frames or file paths, keyed by dataset node label. |
 | `metadata` | `list` | UI state and non-schema information (e.g., unsupported features stored for round-tripping). Node positions are NOT here. |
-| `lastBuiltModel` | `ANY` | Cached mxModel from the most recent `as.MxModel()` or `mxRun()` call. `NULL` if not yet built. |
+| `lastBuiltModel` | `ANY` | Cached fitted mxModel from the most recent `runModel()` call (or the source model when created by `as.GraphModel(mxModel)`). `NULL` if not yet built. |
 | `dataConnections` | `list` | Per-dataset connection state: `status` ("eager"/"lazy"/"unconnected"), `filepath`, `columns`. |
 
 The schema deliberately excludes editor-only runtime ids. The web frontend may
@@ -102,9 +102,9 @@ JSON so serialized models stay portable and backend-agnostic.
 |----------|---------|
 | `as.GraphModel(x, data=)` | Create a GraphModel from a schema list, JSON string, file path, or an existing `MxModel` |
 | `as.MxModel(graphModel)` | Convert GraphModel → mxModel (builds on demand) |
-| `mxRun(graphModel)` | Build and run; returns GraphModel with cached result in `lastBuiltModel` |
+| `runModel(graphModel)` | Build and fit (OpenMx backend); returns a new GraphModel with fit results in the schema and the fitted model cached in `lastBuiltModel` |
 | `exportSchema(graphModel, path)` | Save schema to JSON file |
-| `loadGraphModel(schemaFile, dataPath=)` | Load schema + data from disk |
+| `loadGraphModel(filepath, data=, datapath=)` | Load schema + data from disk |
 | `validateSchema(schema)` | Validate schema structure and business logic |
 | `plotGraphModel(graphModel, ...)` | Render interactive graph widget (auto-detects editability) |
 | `plot(graphModel)` / `plot(mxModel)` | S3 plot dispatch; delegates to `plotGraphModel()` |
@@ -166,10 +166,10 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
 
 ### Complete
 - R package: `GraphModel` S4 class, schema validation, schema → OpenMx
-  conversion, `mxRun()`, `exportSchema()`, `loadGraphModel()`, `plotGraphModel()`,
+  conversion, `runModel()`, `exportSchema()`, `loadGraphModel()`, `plotGraphModel()`,
   `plot.GraphModel()`, `plot.MxModel()`, `setLocation()`, `setVisualization()`,
   `exportImage()`,
-  460+ testthat tests
+  430+ testthat test cases
 - Web frontend: adapter pattern, dual-build, htmlwidgets binding, bidirectional
   Shiny messaging (model load/save, fit requests, save-to-env, fit-status updates)
 - Web frontend: auto-layout algorithm (RAMPath) with a toolbar button, SVG
@@ -313,7 +313,7 @@ npm install              # First-time setup
 npm run dev              # Dev server at localhost:5173 (standalone mode)
 npm run build            # Build both standalone + widget
 npm run build:widget     # Build widget only (updates inst/htmlwidgets/lib/app/)
-npm test                 # Run vitest suite
+npm test -- --run        # Run vitest suite (non-interactive)
 ```
 
 ### Git hooks — set up once after cloning
@@ -321,8 +321,12 @@ npm test                 # Run vitest suite
 git config core.hooksPath .githooks
 chmod +x .githooks/*
 ```
-The pre-commit hook automatically runs `npm run build:widget` before every
-commit so the committed widget assets stay in sync with the source.
+The pre-commit hook fails if the staged `inst/extdata/graph.schema.json`
+differs from `drawsem-web/schema/graph.schema.json` (run `make` to sync it),
+and, when web-tool sources are staged, runs `npm run build:widget` and stages
+the rebuilt widget assets so they stay in sync with the source.
+`tests/testthat/test-schema-sync.R` also checks the schema copy, for clones
+without hooks enabled.
 
 ---
 
