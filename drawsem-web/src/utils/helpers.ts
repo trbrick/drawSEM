@@ -61,6 +61,10 @@ export interface Path {
   // from/to, so the next step returns to two-headed. Never serialized. (The
   // direction itself always lives in from/to; there is no render-only flag.)
   reversedByCycle?: boolean
+  // UI-only, data paths: the column mapping (`label`) is kept the same as the
+  // variable's label ("Same as variable name"; see utils/dataMapping.ts).
+  // Absent = not linked. Never serialized.
+  mappingLinked?: boolean
   type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept
   parameterType?: string
   optimization?: {

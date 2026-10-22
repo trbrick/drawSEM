@@ -227,6 +227,32 @@ describe('click selection', () => {
     expect(selectedPathNames(ctx.container)).toEqual(['l1'])
   })
 
+  it("a press inside a variable's drawn area selects the variable, never a path drawn beneath it", async () => {
+    const ctx = await setup()
+    fireEvent.click(screen.getByText('Complete Graph'))
+    await nextTask()
+    // Hit order: every node (shape and label) is drawn after, so over, every
+    // path, loop grab area, cable branch and path label.
+    const svg = ctx.svg
+    const under = Array.from(svg.querySelectorAll('path[data-path-id], path[stroke="transparent"], [data-path-label]'))
+    expect(under.length).toBeGreaterThan(4)
+    for (const label of ['F', 'X1', 'X2']) {
+      const g = nodeGroup(ctx.container, label)
+      for (const el of under) expect(el.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    // a press on a node's label text (inside its shape) selects the node
+    fireEvent.mouseDown(nodeGroup(ctx.container, 'X2').querySelector(':scope > text')!, { button: 0 })
+    fireEvent.mouseUp(ctx.svg, { button: 0 })
+    await nextTask()
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X2'])
+    expect(selectedPathNames(ctx.container)).toEqual([])
+    fireEvent.mouseDown(nodeGroup(ctx.container, 'X1').querySelector(':scope > text')!, { button: 0, shiftKey: true })
+    fireEvent.mouseUp(ctx.svg, { button: 0, shiftKey: true })
+    await nextTask()
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X1', 'X2'])
+    expect(selectedPathNames(ctx.container)).toEqual([])
+  })
+
   it('a plain click on the background clears the selection', async () => {
     const ctx = await setup()
     await clickNode(ctx, 'F')
@@ -239,20 +265,79 @@ describe('click selection', () => {
 })
 
 describe('selection rectangle', () => {
-  it('selects the nodes entirely inside it and the paths between them', async () => {
+  it('selects the nodes inside it and the paths attached to them that it covers enough of', async () => {
     const ctx = await setup()
     await marquee(ctx, ...AROUND_F_X1)
     expect(selectedNodeLabels(ctx.container)).toEqual(['F', 'X1'])
-    expect(selectedPathNames(ctx.container)).toEqual(['l1'])
-    expect(summary()).toBe('2 nodes, 1 path selected')
+    // l2 (F -> X2) is mostly inside, though X2 is not
+    expect(selectedPathNames(ctx.container)).toEqual(['l1', 'l2'])
+    expect(summary()).toBe('2 nodes, 2 paths selected')
     expect(ctx.onModelChange.mock.calls.length).toBeGreaterThan(0)
   })
 
-  it('leaves out a node only partly inside', async () => {
+  it('leaves out a node only partly inside, and paths attached to no selected node', async () => {
     const ctx = await setup()
     await marquee(ctx, { x: -150, y: -50 }, { x: 20, y: 200 }) // F reaches x = 36
     expect(selectedNodeLabels(ctx.container)).toEqual(['X1'])
-    expect(screen.getByText('Node: X1')).toBeTruthy()
+    // l1 runs from F's edge to X1: all of it is inside, and X1 is selected
+    expect(selectedPathNames(ctx.container)).toEqual(['l1'])
+    // a box over l1 and l2 alone, with no node inside, selects nothing
+    await marquee(ctx, { x: -60, y: 40 }, { x: 60, y: 100 })
+    expect(selectedNodeLabels(ctx.container)).toEqual([])
+    expect(selectedPathNames(ctx.container)).toEqual([])
+  })
+
+  it('a box close around a node leaves out its paths; a broad one takes them all', async () => {
+    const ctx = await setup()
+    // X2's box is [64, 136] x [114, 186]; its loop is drawn outside it
+    await marquee(ctx, { x: 60, y: 110 }, { x: 140, y: 190 })
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X2'])
+    expect(selectedPathNames(ctx.container)).toEqual([])
+    await marquee(ctx, { x: 50, y: 100 }, { x: 150, y: 200 })
+    expect(selectedPathNames(ctx.container)).toEqual([])
+    // broad: the loop, and enough of l2 (from F, outside the box)
+    await marquee(ctx, { x: 0, y: 60 }, { x: 260, y: 300 })
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X2'])
+    expect(selectedPathNames(ctx.container)).toEqual(['l2', 'loop'])
+  })
+
+  it('in the Complete Graph a tight box around a manifest variable leaves out its data cable', async () => {
+    const ctx = await setup()
+    fireEvent.click(screen.getByText('Complete Graph'))
+    await nextTask()
+    // X1 is [-130, -70] x [120, 180]; its cable branch from D ends on its edge
+    await marquee(ctx, { x: -135, y: 115 }, { x: -65, y: 185 })
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X1'])
+    expect(selectedPathNames(ctx.container)).toEqual([])
+    // the branch (not D's shared trunk) inside the box selects the data path
+    await marquee(ctx, { x: -135, y: 115 }, { x: 40, y: 340 })
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X1'])
+    expect(selectedPathNames(ctx.container)).toEqual(['data'])
+  })
+
+  it('draws what it would select while dragging, before the release changes the selection', async () => {
+    const ctx = await setup()
+    await clickNode(ctx, 'X2')
+    const a = ctx.at(AROUND_F_X1[0].x, AROUND_F_X1[0].y)
+    fireEvent.mouseDown(ctx.svg, { button: 0, ...a })
+    // part way: a box around X1 only
+    const mid = ctx.at(-60, 200)
+    fireEvent.mouseMove(ctx.svg, { clientX: mid.clientX, clientY: mid.clientY })
+    await nextTask()
+    expect(selectedNodeLabels(ctx.container)).toEqual(['X1'])
+    // the whole box: F and X1 light up, with their paths; X2 (not additive) does not
+    const b = ctx.at(AROUND_F_X1[1].x, AROUND_F_X1[1].y)
+    fireEvent.mouseMove(ctx.svg, { clientX: b.clientX, clientY: b.clientY })
+    await nextTask()
+    expect(selectedNodeLabels(ctx.container)).toEqual(['F', 'X1'])
+    expect(selectedPathNames(ctx.container)).toEqual(['l1', 'l2'])
+    // the selection itself is still X2 until the release
+    expect(screen.getByText('Node: X2')).toBeTruthy()
+    fireEvent.mouseUp(ctx.svg, { button: 0, ...b })
+    fireEvent.click(ctx.svg, { button: 0, ...b })
+    await nextTask()
+    expect(selectedNodeLabels(ctx.container)).toEqual(['F', 'X1'])
+    expect(summary()).toBe('2 nodes, 2 paths selected')
   })
 
   it('works in either drag direction', async () => {
@@ -266,8 +351,8 @@ describe('selection rectangle', () => {
     await clickNode(ctx, 'X2')
     await marquee(ctx, ...AROUND_F_X1, { [mod]: true })
     expect(selectedNodeLabels(ctx.container)).toEqual(['F', 'X1', 'X2'])
-    // paths whose endpoints are both selected, counting X2 selected before
-    expect(selectedPathNames(ctx.container)).toEqual(['l1', 'l2', 'loop'])
+    // the paths the box covers: l1 and l2, not X2's loop (outside it), though X2 is selected
+    expect(selectedPathNames(ctx.container)).toEqual(['l1', 'l2'])
   })
 
   it('replaces the selection without a modifier', async () => {
@@ -319,7 +404,7 @@ describe('selection rectangle', () => {
     expect(ctx.vb().width).toBeLessThan(before.width)
     await marquee(ctx, { x: 50, y: 100 }, { x: 150, y: 200 })
     expect(selectedNodeLabels(ctx.container)).toEqual(['X2'])
-    expect(selectedPathNames(ctx.container)).toEqual(['loop']) // a self-loop's endpoints are both X2
+    expect(selectedPathNames(ctx.container)).toEqual([]) // X2's loop is drawn outside the box
     // the rectangle is drawn in canvas coordinates with a zoom-independent stroke
     const a = ctx.at(-150, -50)
     fireEvent.mouseDown(ctx.svg, { button: 0, ...a })
@@ -516,7 +601,7 @@ describe('contexts', () => {
     const ctx = await setup('shiny', 'layout')
     await marquee(ctx, ...AROUND_F_X1)
     await clickNode(ctx, 'X2', { shiftKey: true })
-    expect(summary()).toBe('3 nodes, 1 path selected')
+    expect(summary()).toBe('3 nodes, 2 paths selected')
     expect(screen.queryByTitle('Delete the selected elements (Backspace)')).toBeNull()
     await dragNode(ctx, 'X2', { x: 100, y: 150 }, { x: 10, y: 0 })
     await waitFor(() => expect(pos(ctx.onModelChange, 'F')).toEqual({ x: 10, y: 0 }))
@@ -528,14 +613,14 @@ describe('contexts', () => {
     await nextTask()
     expect(lastModel(ctx.onModelChange).nodes).toHaveLength(4)
     expect(lastModel(ctx.onModelChange).paths).toHaveLength(4)
-    expect(summary()).toBe('3 nodes, 1 path selected')
+    expect(summary()).toBe('3 nodes, 2 paths selected')
   })
 
   it('widget: select (no popup), move and nudge a group', async () => {
     const ctx = await setup('widget')
     await marquee(ctx, ...AROUND_F_X1)
     expect(selectedNodeLabels(ctx.container)).toEqual(['F', 'X1'])
-    expect(selectedPathNames(ctx.container)).toEqual(['l1'])
+    expect(selectedPathNames(ctx.container)).toEqual(['l1', 'l2'])
     expect(screen.queryByTitle('Close popup')).toBeNull()
     await clickNode(ctx, 'X2', { shiftKey: true })
     await dragNode(ctx, 'F', { x: 0, y: 0 }, { x: 0, y: -40 })

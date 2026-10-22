@@ -68,14 +68,16 @@ export function pathIssue(nodes: readonly Node[], paths: readonly Path[], src: s
 
 /**
  * The path a drag from src to dst creates: a data path from a dataset (the
- * target's label as the column name); a free error variance for a two-headed
+ * target's label as the column name, linked to it); a free error variance for a two-headed
  * self-path; otherwise an unlabelled path with no value (schema defaults).
  */
 export function newDraggedPath(nodes: readonly Node[], src: string, dst: string, twoSided: boolean): Path {
   const srcNode = nodes.find((n) => n.id === src)
   const dstNode = nodes.find((n) => n.id === dst)
   if (srcNode?.type === 'dataset') {
-    return makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
+    // the column is the variable's name: linked to it (see utils/dataMapping.ts)
+    const path = makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
+    return dstNode ? { ...path, mappingLinked: true } : path
   }
   return makePath({
     from: src,

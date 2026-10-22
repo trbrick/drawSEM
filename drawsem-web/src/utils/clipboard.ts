@@ -5,20 +5,32 @@
  * `from`/`to`, never runtime ids), wrapped with a marker so that any other text
  * on the clipboard is ignored:
  *
- *   {"drawSEMClipboard": 1, "nodes": [...schema nodes], "paths": [...schema paths]}
+ *   {"drawSEMClipboard": 1, "nodes": [...schema nodes], "paths": [...schema paths],
+ *    "external": [{"label", "type"}, ...]}
  *
  * Because it is plain JSON text on the system clipboard, a copy in one window
  * (e.g. the web app) can be pasted in another (e.g. the RStudio addin).
  *
  * What is copied (`copySelection`):
  *   - the selected variable and constant nodes (dataset nodes never are);
- *   - every path with both endpoints among them, except data paths;
- *   - mean paths (one-headed, from a constant) from an uncopied constant into a
- *     copied node; on paste they are re-attached to the target model's
- *     constant of the same label (dropped when there is none).
- * Copied variables get no data connections, so a copied manifest variable is
- * latent until connected. An explicit `variableCharacteristics.manifestLatent`
- * lock is not copied either (manifest/latent is inferred, see DESIGN-DECISIONS).
+ *   - the selected paths with at least one endpoint among them, data paths
+ *     included. A path is copied only when it is itself selected, also one
+ *     between two copied nodes; with `withDataPaths` (the editor's SEM layer,
+ *     where data paths cannot be selected) the data paths into the copied
+ *     variables are copied too;
+ *   - `external`: the label and type of each endpoint of a copied path that is
+ *     not copied itself (e.g. the dataset of a data path, the constant of a
+ *     mean path, a factor F of F -> x).
+ * An explicit `variableCharacteristics.manifestLatent` lock is not copied
+ * (manifest/latent is inferred, see DESIGN-DECISIONS).
+ *
+ * On paste (`planPaste`) a path endpoint outside the fragment re-attaches to
+ * the target model's node of that label and type (a variable, a constant or a
+ * dataset); the path is dropped when there is none, or when the endpoints'
+ * types do not fit the path (a data path runs from a dataset to a variable,
+ * other paths never touch a dataset, never end at a constant, and a path from
+ * a constant is one-headed). Pasted data paths map the column named like their
+ * (new) variable label, and are linked to it (see utils/dataMapping.ts).
  *
  * Planning a paste (`planPaste`) is pure apart from fresh runtime ids. The
  * clipboard I/O at the bottom (system clipboard with an in-memory fallback)
@@ -28,12 +40,19 @@ import { convertModelToRuntime } from './runtimeConverter'
 import { modelToSchemaModel } from './runtimeToSchema'
 import { DANGLING_ENDPOINT_PREFIX, defaultVarianceLabel, isDatasetPath, uid, uniqueNodeLabel, withManifestLatent } from './helpers'
 import type { Node, Path } from './helpers'
+import { MANIFEST_DEFAULT_W } from './constants'
 
 export const CLIPBOARD_MARKER = 'drawSEMClipboard'
 export const CLIPBOARD_VERSION = 1
 
-/** How far (model units, in x and y) each paste or duplicate is moved from the copied position. */
-export const PASTE_OFFSET = 30
+/** Each paste or duplicate step moves right (never down) by this many widths of the copied nodes' bounding box. */
+export const PASTE_STEP_WIDTHS = 1.5
+
+/** A node outside a fragment that its paths refer to. */
+export interface ExternalNodeRef {
+  label: string
+  type: Node['type']
+}
 
 export interface ClipboardFragment {
   drawSEMClipboard: 1
@@ -41,13 +60,27 @@ export interface ClipboardFragment {
   nodes: Record<string, any>[]
   /** Schema paths (`from`/`to` are node labels). */
   paths: Record<string, any>[]
+  /** Path endpoints that are not among `nodes` (absent when there are none). */
+  external?: ExternalNodeRef[]
+}
+
+/** What is selected: node and path runtime ids. */
+export interface CopySource {
+  nodeIds: readonly string[]
+  pathIds: readonly string[]
+}
+
+export interface CopyOptions {
+  /** Also copy the data paths into the copied variables, selected or not (the SEM layer). */
+  withDataPaths?: boolean
 }
 
 // ---------------------------------------------------------------------------
 // Copy
 // ---------------------------------------------------------------------------
 
-const isCopyableNode = (n: Node) => n.type === 'variable' || n.type === 'constant'
+/** Whether a node is copied when selected: variables and constants (also what a cut removes). */
+export const isCopyableNode = (n: Node) => n.type === 'variable' || n.type === 'constant'
 
 /** Without the manifestLatent lock and any dataset-only fields. */
 function copyableNode(n: Node): Node {
@@ -56,39 +89,41 @@ function copyableNode(n: Node): Node {
 }
 
 /**
- * The fragment for copying the nodes `nodeIds` (selected paths play no part:
- * see the module comment), or null when nothing is copyable (no selected
- * variable or constant).
+ * The fragment for copying `selection` (see the module comment), or null when
+ * nothing is copyable (no selected variable or constant).
  */
-export function copySelection(nodes: readonly Node[], paths: readonly Path[], nodeIds: readonly string[]): ClipboardFragment | null {
-  const ids = new Set(nodeIds)
+export function copySelection(nodes: readonly Node[], paths: readonly Path[], selection: CopySource, options: CopyOptions = {}): ClipboardFragment | null {
+  const ids = new Set(selection.nodeIds)
   const copied = nodes.filter((n) => ids.has(n.id) && isCopyableNode(n))
   if (copied.length === 0) return null
   const copiedIds = new Set(copied.map((n) => n.id))
-  const constants = new Map(nodes.filter((n) => n.type === 'constant').map((n) => [n.id, n]))
+  const selectedPaths = new Set(selection.pathIds)
   const ns = nodes as Node[]
 
-  const external = new Map<string, Node>() // uncopied constants that copied mean paths start from
   const copiedPaths = paths.filter((p) => {
-    if (isDatasetPath(p, ns)) return false
-    if (!copiedIds.has(p.to)) return false
-    if (copiedIds.has(p.from)) return true
-    const c = constants.get(p.from)
-    if (c && !p.twoSided) {
-      external.set(c.id, c)
-      return true
-    }
-    return false
+    if (!copiedIds.has(p.from) && !copiedIds.has(p.to)) return false
+    if (selectedPaths.has(p.id)) return true
+    return !!options.withDataPaths && copiedIds.has(p.to) && isDatasetPath(p, ns)
   })
 
-  // Serialize with the external constants present, so their ids become labels
+  // Serialize with the external endpoints present, so their ids become labels
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const external = new Map<string, Node>()
+  for (const p of copiedPaths) {
+    for (const end of [p.from, p.to]) {
+      const n = copiedIds.has(end) ? undefined : byId.get(end)
+      if (n) external.set(n.id, n)
+    }
+  }
   const model = modelToSchemaModel({ id: 'clipboard', nodes: [...copied.map(copyableNode), ...external.values()], paths: copiedPaths })
-  const externalLabels = new Set([...external.values()].map((c) => c.label))
-  return {
+  const externalLabels = new Set([...external.values()].map((n) => n.label))
+  const fragment: ClipboardFragment = {
     drawSEMClipboard: CLIPBOARD_VERSION,
     nodes: (model.nodes as any[]).filter((n) => !externalLabels.has(n.label)),
     paths: model.paths as any[],
   }
+  if (external.size > 0) fragment.external = [...external.values()].map((n) => ({ label: n.label, type: n.type }))
+  return fragment
 }
 
 export function serializeFragment(fragment: ClipboardFragment): string {
@@ -96,11 +131,13 @@ export function serializeFragment(fragment: ClipboardFragment): string {
 }
 
 const isObject = (v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const NODE_TYPES: readonly string[] = ['variable', 'constant', 'dataset']
 
 /**
  * The fragment in `text`, or null when it is not a drawSEM fragment (any other
  * text, malformed JSON, a wrong marker). Unusable entries are dropped: nodes
- * without a label, dataset nodes, data paths, paths without endpoints.
+ * without a label, dataset nodes, paths without endpoints, malformed
+ * `external` entries.
  */
 export function parseFragment(text: string | null | undefined): ClipboardFragment | null {
   if (typeof text !== 'string' || !text.includes(CLIPBOARD_MARKER)) return null
@@ -121,8 +158,16 @@ export function parseFragment(text: string | null | undefined): ClipboardFragmen
   })
   if (nodes.length === 0) return null
   const paths = raw.paths.filter((p: unknown): p is Record<string, any> =>
-    isObject(p) && typeof p.from === 'string' && typeof p.to === 'string' && p.type !== 'data')
-  return { drawSEMClipboard: CLIPBOARD_VERSION, nodes, paths }
+    isObject(p) && typeof p.from === 'string' && typeof p.to === 'string')
+  const fragment: ClipboardFragment = { drawSEMClipboard: CLIPBOARD_VERSION, nodes, paths }
+  if (Array.isArray(raw.external)) {
+    const external = raw.external
+      .filter((e: unknown): e is ExternalNodeRef =>
+        isObject(e) && typeof e.label === 'string' && !seen.has(e.label) && NODE_TYPES.includes(e.type))
+      .map((e: ExternalNodeRef) => ({ label: e.label, type: e.type }))
+    if (external.length > 0) fragment.external = external
+  }
+  return fragment
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +222,19 @@ function assignUnique(items: readonly string[], existing: ReadonlySet<string>, c
   return out
 }
 
+/**
+ * Whether a path fits endpoints of these node types: a data path (typed
+ * `data`, or from a dataset) runs from a dataset to a variable; any other path
+ * touches no dataset, does not end at a constant, and is one-headed when it
+ * starts at a constant.
+ */
+export function pathFitsEndpoints(p: Record<string, any>, fromType: Node['type'], toType: Node['type']): boolean {
+  if (p.type === 'data' || fromType === 'dataset') return fromType === 'dataset' && toType === 'variable'
+  if (toType === 'dataset' || toType === 'constant') return false
+  if (fromType === 'constant') return p.numberOfArrows !== 2
+  return true
+}
+
 export interface PastePlan {
   nodes: Node[]
   paths: Path[]
@@ -187,25 +245,38 @@ export interface PastePlan {
  * `nodes` / `paths` adds, moved by `offset`. Labels are made unique (see
  * `pasteLabel`), paths follow their nodes' new labels, named free parameters
  * are renamed (see `renameFreeParameters`), and every element gets a fresh
- * runtime id. A mean path from a constant outside the fragment attaches to the
- * target's constant of that label, and is dropped when there is none. Null
- * when the fragment has no nodes.
+ * runtime id. An endpoint outside the fragment attaches to the target's node
+ * of that label (and of the type recorded in `external`); the path is dropped
+ * when there is none or the types do not fit (see `pathFitsEndpoints`). A data
+ * path maps the column named like its variable's new label, linked to it.
+ * Null when the fragment has no nodes.
  */
 export function planPaste(nodes: readonly Node[], paths: readonly Path[], fragment: ClipboardFragment, offset: { x: number; y: number }): PastePlan | null {
   const fragNodes = fragment.nodes.filter((n) => n.type === 'variable' || n.type === 'constant')
   if (fragNodes.length === 0) return null
 
+  const fragTypes = new Map<string, Node['type']>(fragNodes.map((n) => [n.label as string, n.type]))
   const labelMap = assignUnique(
     fragNodes.map((n) => n.label as string),
     new Set(nodes.map((n) => n.label)),
-    (label, taken) => pasteLabel(label, fragNodes.find((n) => n.label === label)!.type, taken)
+    (label, taken) => pasteLabel(label, fragTypes.get(label)!, taken)
   )
-  const targetConstants = new Map(nodes.filter((n) => n.type === 'constant').map((n) => [n.label, n]))
+  const targetByLabel = new Map(nodes.map((n) => [n.label, n]))
+  const externalTypes = new Map((fragment.external ?? []).map((e) => [e.label, e.type]))
+  /** The type of the node an endpoint label resolves to, or null when it resolves to none. */
+  const endpointType = (label: string): Node['type'] | null => {
+    if (labelMap.has(label)) return fragTypes.get(label)!
+    const target = targetByLabel.get(label)
+    if (!target) return null
+    const recorded = externalTypes.get(label)
+    return recorded === undefined || recorded === target.type ? target.type : null
+  }
+  const isDataPath = (p: Record<string, any>) => p.type === 'data' || endpointType(p.from) === 'dataset'
   const fragPaths = fragment.paths.filter((p) => {
-    if (p.type === 'data' || !labelMap.has(p.to)) return false
-    if (labelMap.has(p.from)) return true
-    // a mean path from a constant outside the fragment
-    return targetConstants.has(p.from) && p.numberOfArrows !== 2
+    if (!labelMap.has(p.from) && !labelMap.has(p.to)) return false
+    const fromType = endpointType(p.from)
+    const toType = endpointType(p.to)
+    return fromType !== null && toType !== null && pathFitsEndpoints(p, fromType, toType)
   })
   const paramMap = renameFreeParameters(
     paths,
@@ -227,10 +298,17 @@ export function planPaste(nodes: readonly Node[], paths: readonly Path[], fragme
     }
     return out
   })
-  const schemaPaths = fragPaths.map((p) => {
+  const dataPathIndexes = new Set<number>()
+  const schemaPaths = fragPaths.map((p, i) => {
     const from = labelMap.get(p.from) ?? p.from
-    const to = labelMap.get(p.to)!
+    const to = labelMap.get(p.to) ?? p.to
     const out: Record<string, any> = { ...p, from, to }
+    if (isDataPath(p)) {
+      // the column named like the pasted variable (its label is the mapping)
+      dataPathIndexes.add(i)
+      out.label = to
+      return out
+    }
     const oldParam = typeof p.freeParameter === 'string' ? p.freeParameter : null
     if (oldParam && paramMap.has(oldParam)) out.freeParameter = paramMap.get(oldParam)
     // Keep the labels the editor derives from a name truthful: a variance
@@ -251,25 +329,51 @@ export function planPaste(nodes: readonly Node[], paths: readonly Path[], fragme
     return { ...n, id }
   })
   const endpoint = (id: string) =>
-    nodeIdMap.get(id) ?? (id.startsWith(DANGLING_ENDPOINT_PREFIX) ? targetConstants.get(id.slice(DANGLING_ENDPOINT_PREFIX.length))?.id : undefined)
+    nodeIdMap.get(id) ?? (id.startsWith(DANGLING_ENDPOINT_PREFIX) ? targetByLabel.get(id.slice(DANGLING_ENDPOINT_PREFIX.length))?.id : undefined)
   const newPaths: Path[] = []
-  for (const p of runtime.paths) {
+  runtime.paths.forEach((p, i) => {
     const from = endpoint(p.from)
     const to = endpoint(p.to)
-    if (from && to) newPaths.push({ ...p, id: uid('p_'), from, to })
-  }
+    if (!from || !to) return
+    const path: Path = { ...p, id: uid('p_'), from, to }
+    if (dataPathIndexes.has(i)) path.mappingLinked = true
+    newPaths.push(path)
+  })
   return { nodes: newNodes, paths: newPaths }
 }
 
-/** The offset of the `n`th paste (1, 2, ...) of the same clipboard content. */
-export function pasteOffset(n: number): { x: number; y: number } {
-  return { x: PASTE_OFFSET * n, y: PASTE_OFFSET * n }
+/**
+ * The width of the box around the fragment's nodes: each centred on its
+ * position, `visual.width` wide (the default node width when unset, as in
+ * utils/layoutModel.ts). 0 for a fragment without nodes.
+ */
+export function fragmentWidth(fragment: ClipboardFragment): number {
+  let minX = Infinity
+  let maxX = -Infinity
+  for (const n of fragment.nodes) {
+    const visual = isObject(n.visual) ? n.visual : {}
+    const x = typeof visual.x === 'number' ? visual.x : 0
+    const w = typeof visual.width === 'number' ? visual.width : MANIFEST_DEFAULT_W
+    minX = Math.min(minX, x - w / 2)
+    maxX = Math.max(maxX, x + w / 2)
+  }
+  return maxX > minX ? maxX - minX : 0
 }
 
-/** Used by duplicate: copy and paste in one go, without the clipboard. */
-export function planDuplicate(nodes: readonly Node[], paths: readonly Path[], nodeIds: readonly string[]): PastePlan | null {
-  const fragment = copySelection(nodes, paths, nodeIds)
-  return fragment ? planPaste(nodes, paths, fragment, pasteOffset(1)) : null
+/**
+ * The offset of the `n`th step of pasting `fragment`: `n` times
+ * PASTE_STEP_WIDTHS fragment widths to the right. Step 0 is in place (the
+ * first paste after a cut), 1 the first paste after a copy or a duplicate,
+ * and each repeated paste of the same content one step further.
+ */
+export function pasteOffset(fragment: ClipboardFragment, n: number): { x: number; y: number } {
+  return { x: n * PASTE_STEP_WIDTHS * fragmentWidth(fragment), y: 0 }
+}
+
+/** Used by duplicate: copy and paste in one go (one step over), without the clipboard. */
+export function planDuplicate(nodes: readonly Node[], paths: readonly Path[], selection: CopySource, options: CopyOptions = {}): PastePlan | null {
+  const fragment = copySelection(nodes, paths, selection, options)
+  return fragment ? planPaste(nodes, paths, fragment, pasteOffset(fragment, 1)) : null
 }
 
 // ---------------------------------------------------------------------------

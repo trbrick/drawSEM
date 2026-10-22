@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   copySelection, serializeFragment, parseFragment, planPaste, planDuplicate, pasteLabel, renameFreeParameters,
-  pasteOffset, chooseClipboardText, writeClipboardText, readClipboardText, clipboardTextFrom, resetMemoryClipboard,
-  CLIPBOARD_MARKER, PASTE_OFFSET,
+  pasteOffset, fragmentWidth, isCopyableNode, chooseClipboardText, writeClipboardText, readClipboardText, clipboardTextFrom,
+  resetMemoryClipboard, pathFitsEndpoints, CLIPBOARD_MARKER, PASTE_STEP_WIDTHS,
 } from '../../src/utils/clipboard'
 import type { ClipboardFragment } from '../../src/utils/clipboard'
 import type { Node, Path } from '../../src/utils/helpers'
@@ -37,6 +37,11 @@ function model() {
   return { nodes, paths }
 }
 
+/** A selection: node ids, and path ids as built by `path` ("from-to-1" / "from-to-2"). */
+const sel = (nodeIds: string[], pathIds: string[] = []) => ({ nodeIds, pathIds })
+/** The paths among F, x1, x2 plus x1's mean (the paths the old rules copied with them). */
+const FX_PATHS = ['F-x1-1', 'F-x2-1', 'x1-x1-2', '1-x1-1', 'x1-x2-2']
+
 const labelOf = (nodes: Node[], id: string) => nodes.find((n) => n.id === id)?.label ?? id
 
 /** "from->to" (or "from<->to") with labels from both the target and the plan. */
@@ -50,22 +55,48 @@ afterEach(() => {
 })
 
 describe('copySelection', () => {
-  it('copies the paths among the copied nodes plus mean paths from an uncopied constant, never data', () => {
+  it('copies (and a cut removes) variables and constants only', () => {
+    const { nodes } = model()
+    expect(nodes.filter(isCopyableNode).map((n) => n.id)).toEqual(['F', 'x1', 'x2', 'G', '1'])
+  })
+
+  it('copies only the selected paths with an endpoint among the copied nodes, data paths included', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['F', 'x1', 'x2', 'D'])!
+    const f = copySelection(nodes, paths, sel(['F', 'x1', 'x2', 'D'], ['F-x1-1', 'x1-x1-2', '1-x1-1', 'D-x1-1', 'G-F-1', '1-G-1']))!
     expect(f[CLIPBOARD_MARKER]).toBe(1)
     expect(f.nodes.map((n) => n.label)).toEqual(['F', 'x1', 'x2'])
-    expect(f.paths.map((p) => `${p.from}->${p.to}`)).toEqual(['F->x1', 'F->x2', 'x1->x1', '1->x1', 'x1->x2'])
-    expect(f.paths.some((p) => p.type === 'data')).toBe(false)
+    // not "1" -> G (no copied endpoint), not the unselected F -> x2 and x1 <-> x2
+    expect(f.paths.map((p) => `${p.from}->${p.to}`)).toEqual(['F->x1', 'x1->x1', '1->x1', 'D->x1', 'G->F'])
+    expect(f.paths.find((p) => p.from === 'D')).toMatchObject({ type: 'data', label: 'x1' })
+    // the endpoints outside the copy, with their types
+    expect(f.external).toEqual([{ label: '1', type: 'constant' }, { label: 'D', type: 'dataset' }, { label: 'G', type: 'variable' }])
+  })
+
+  it('a path between two copied nodes is copied only when it is selected; no mean paths by default', () => {
+    const { nodes, paths } = model()
+    const f = copySelection(nodes, paths, sel(['F', 'x1', 'x2']))!
+    expect(f.paths).toEqual([])
+    expect(f).not.toHaveProperty('external')
+  })
+
+  it('withDataPaths (the SEM layer) also copies the data paths into copied variables', () => {
+    const { nodes, paths } = model()
+    const f = copySelection(nodes, paths, sel(['x1', 'F']), { withDataPaths: true })!
+    expect(f.paths.map((p) => `${p.from}->${p.to}`)).toEqual(['D->x1'])
+    expect(f.external).toEqual([{ label: 'D', type: 'dataset' }])
+    // selected paths still come along as usual
+    const g = copySelection(nodes, paths, sel(['x1'], ['x1-x1-2']), { withDataPaths: true })!
+    expect(g.paths.map((p) => `${p.from}->${p.to}`)).toEqual(['x1->x1', 'D->x1'])
   })
 
   it('uses schema shapes: labels and from/to, no runtime ids', () => {
     const { nodes, paths } = model()
     nodes[0] = { ...nodes[0], id: 'n_runtime_F' }
     const ps = paths.map((p) => (p.from === 'F' ? { ...p, from: 'n_runtime_F' } : p))
-    const f = copySelection(nodes, ps, ['n_runtime_F', 'x1'])!
+    const f = copySelection(nodes, ps, sel(['n_runtime_F', 'x1'], ['F-x1-1']))!
     const text = serializeFragment(f)
     expect(text).not.toContain('n_runtime_F')
+    expect(text).not.toContain('F-x1-1')
     expect(f.nodes[0]).toMatchObject({ label: 'F', type: 'variable', visual: { x: 0, y: 0 } })
     expect(f.nodes[0]).not.toHaveProperty('id')
     expect(f.paths[0]).toMatchObject({ from: 'F', to: 'x1', numberOfArrows: 1, freeParameter: 'b1', value: 0.7 })
@@ -73,36 +104,39 @@ describe('copySelection', () => {
 
   it('drops the manifestLatent lock but keeps other variable characteristics', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['x1', 'x2'])!
+    const f = copySelection(nodes, paths, sel(['x1', 'x2']))!
     expect(f.nodes[0].variableCharacteristics).toEqual({ exogeneity: 'endogenous' })
     expect(f.nodes[1]).not.toHaveProperty('variableCharacteristics')
   })
 
-  it('does not copy a selected path whose endpoints are not both copied (except the constant case)', () => {
+  it('does not copy a selected path without a copied endpoint', () => {
     const { nodes, paths } = model()
-    // G -> F is not copied with F alone; "1" -> G is not a path into a copied node
-    const f = copySelection(nodes, paths, ['F'])!
+    // "1" -> G touches neither F nor x1
+    const f = copySelection(nodes, paths, sel(['F'], ['1-G-1', 'x1-x1-2']))!
     expect(f.paths).toEqual([])
   })
 
   it('copies a copied constant as a node, not as an external reference', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['1', 'x1'])!
+    const f = copySelection(nodes, paths, sel(['1', 'x1'], ['x1-x1-2', '1-x1-1']))!
     expect(f.nodes.map((n) => n.label)).toEqual(['x1', '1'])
     expect(f.paths.map((p) => `${p.from}->${p.to}`)).toEqual(['x1->x1', '1->x1'])
+    expect(f).not.toHaveProperty('external')
   })
 
   it('does nothing for datasets alone or paths alone', () => {
     const { nodes, paths } = model()
-    expect(copySelection(nodes, paths, ['D'])).toBeNull()
-    expect(copySelection(nodes, paths, [])).toBeNull()
+    expect(copySelection(nodes, paths, sel(['D'], ['D-x1-1']))).toBeNull()
+    expect(copySelection(nodes, paths, sel([], ['F-x1-1', 'x1-x1-2']))).toBeNull()
+    expect(copySelection(nodes, paths, sel([]), { withDataPaths: true })).toBeNull()
   })
 })
 
 describe('parseFragment', () => {
   it('round-trips a fragment', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['F', 'x1'])!
+    const f = copySelection(nodes, paths, sel(['F', 'x1'], ['F-x1-1', 'D-x1-1', 'G-F-1']))!
+    expect(f.external).toHaveLength(2)
     expect(parseFragment(serializeFragment(f))).toEqual(f)
   })
 
@@ -125,15 +159,18 @@ describe('parseFragment', () => {
     expect(parseFragment(undefined)).toBeNull()
   })
 
-  it('drops unusable entries: datasets, data paths, paths without endpoints, duplicate labels', () => {
+  it('drops unusable entries: dataset nodes, paths without endpoints, duplicate labels, bad external refs', () => {
     const text = JSON.stringify({
       drawSEMClipboard: 1,
       nodes: [{ label: 'a', type: 'variable' }, { label: 'a', type: 'variable' }, { label: 'D', type: 'dataset' }, 7],
       paths: [{ from: 'a', to: 'a', numberOfArrows: 2 }, { from: 'D', to: 'a', type: 'data' }, { from: 'a' }, null],
+      external: [{ label: 'D', type: 'dataset' }, { label: 'a', type: 'variable' }, { label: 3 }, { label: 'q', type: 'box' }, 'x'],
     })
     const f = parseFragment(text)!
     expect(f.nodes).toEqual([{ label: 'a', type: 'variable' }])
-    expect(f.paths).toEqual([{ from: 'a', to: 'a', numberOfArrows: 2 }])
+    // data paths are kept: pasting decides whether their dataset is there
+    expect(f.paths).toEqual([{ from: 'a', to: 'a', numberOfArrows: 2 }, { from: 'D', to: 'a', type: 'data' }])
+    expect(f.external).toEqual([{ label: 'D', type: 'dataset' }])
   })
 })
 
@@ -179,7 +216,7 @@ describe('renameFreeParameters', () => {
 describe('planPaste', () => {
   it('makes labels unique, rewrites paths and offsets positions', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['F', 'x1', 'x2'])!
+    const f = copySelection(nodes, paths, sel(['F', 'x1', 'x2'], FX_PATHS))!
     const plan = planPaste(nodes, paths, f, { x: 30, y: 30 })!
     expect(plan.nodes.map((n) => n.label)).toEqual(['F_2', 'x1_2', 'x2_2'])
     expect(plan.nodes.map((n) => [n.x, n.y])).toEqual([[30, 30], [-20, 130], [80, 130]])
@@ -192,7 +229,8 @@ describe('planPaste', () => {
 
   it('renames named free parameters; paths sharing one name share the new name', () => {
     const { nodes, paths } = model()
-    const plan = planPaste(nodes, paths, copySelection(nodes, paths, ['F', 'x1', 'x2'])!, pasteOffset(1))!
+    const f = copySelection(nodes, paths, sel(['F', 'x1', 'x2'], FX_PATHS))!
+    const plan = planPaste(nodes, paths, f, pasteOffset(f, 1))!
     const [b1a, b1b, variance, mean, cov] = plan.paths
     expect(b1a.freeParameter).toBe('b1_2')
     expect(b1b.freeParameter).toBe('b1_2')
@@ -209,37 +247,110 @@ describe('planPaste', () => {
 
   it('keeps parameter names that are free in the target (e.g. another window)', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['F', 'x1'])!
-    const plan = planPaste([], [], f, pasteOffset(1))!
+    const f = copySelection(nodes, paths, sel(['F', 'x1'], ['F-x1-1']))!
+    const plan = planPaste([], [], f, pasteOffset(f, 1))!
     expect(plan.nodes.map((n) => n.label)).toEqual(['F', 'x1'])
     expect(plan.paths[0].freeParameter).toBe('b1')
   })
 
-  it('re-attaches mean paths to the target constant of the same label, else drops them', () => {
+  it('re-attaches a selected mean path to the target constant of the same label, else drops it', () => {
     const { nodes, paths } = model()
-    const f = copySelection(nodes, paths, ['x1'])!
-    const plan = planPaste(nodes, paths, f, pasteOffset(1))!
+    const f = copySelection(nodes, paths, sel(['x1'], ['x1-x1-2', '1-x1-1']))!
+    const plan = planPaste(nodes, paths, f, pasteOffset(f, 1))!
     const mean = plan.paths.find((p) => p.parameterType === 'mean')!
     expect(mean.from).toBe('1') // the existing constant's runtime id
     expect(plan.nodes.map((n) => n.label)).toEqual(['x1_2'])
 
     // a target without that constant: the mean path is dropped
     const other = [node('y', 'variable')]
-    const plan2 = planPaste(other, [], f, pasteOffset(1))!
+    const plan2 = planPaste(other, [], f, pasteOffset(f, 1))!
     expect(plan2.paths.map((p) => p.parameterType ?? null)).toEqual([null]) // just the variance
     // a node labelled "1" that is not a constant does not count
-    const plan3 = planPaste([node('1', 'variable')], [], f, pasteOffset(1))!
+    const plan3 = planPaste([node('1', 'variable')], [], f, pasteOffset(f, 1))!
     expect(plan3.paths.some((p) => p.parameterType === 'mean')).toBe(false)
+  })
+
+  it('re-attaches any outside endpoint by label and type: F -> x2 pastes as F -> x2_2', () => {
+    const { nodes, paths } = model()
+    const f = copySelection(nodes, paths, sel(['x2'], ['F-x2-1', 'x1-x2-2']))!
+    const plan = planPaste(nodes, paths, f, pasteOffset(f, 1))!
+    expect(plan.nodes.map((n) => n.label)).toEqual(['x2_2'])
+    expect(describePaths([...nodes, ...plan.nodes], plan.paths)).toEqual(['F->x2_2', 'x1<->x2_2'])
+    expect(plan.paths[0].from).toBe('F') // the existing node's runtime id
+    expect(plan.paths[0].freeParameter).toBe('b1_2') // still renamed like any pasted name
+
+    // a target without F or x1: dropped; with F of another type: dropped
+    expect(planPaste([node('y')], [], f, pasteOffset(f, 1))!.paths).toEqual([])
+    const target = [node('F', 'constant'), node('x1')]
+    const plan2 = planPaste(target, [], f, pasteOffset(f, 1))!
+    expect(describePaths([...target, ...plan2.nodes], plan2.paths)).toEqual(['x1<->x2'])
+  })
+
+  it('pastes a selected data path from the target dataset of the same label, mapping the new variable name, linked', () => {
+    const { nodes, paths } = model()
+    // the source maps another column: a paste maps the pasted variable's name anyway
+    const ps = paths.map((p) => (p.from === 'D' ? { ...p, label: 'col7', displayName: 'col7', mappingLinked: undefined } : p))
+    const f = copySelection(nodes, ps, sel(['x1'], ['D-x1-1']))!
+    expect(f.paths).toEqual([{ from: 'D', to: 'x1', type: 'data', label: 'col7' }])
+    const plan = planPaste(nodes, ps, f, pasteOffset(f, 1))!
+    expect(plan.nodes.map((n) => n.label)).toEqual(['x1_2'])
+    expect(plan.paths).toHaveLength(1)
+    expect(plan.paths[0]).toMatchObject({ from: 'D', to: plan.nodes[0].id, type: 'data', label: 'x1_2', displayName: convertToUnicode('x1_2'), mappingLinked: true })
+    // the label is kept where it is free (another window)
+    const other = [node('D', 'dataset')]
+    expect(planPaste(other, [], f, pasteOffset(f, 1))!.paths[0]).toMatchObject({ label: 'x1', mappingLinked: true })
+    // no dataset D, or a D that is no dataset: the variable comes without it
+    expect(planPaste([node('y')], [], f, pasteOffset(f, 1))!.paths).toEqual([])
+    expect(planPaste([node('D', 'variable')], [], f, pasteOffset(f, 1))!.paths).toEqual([])
+  })
+
+  it('a hand-written fragment without external types still needs endpoints that fit the path', () => {
+    const f = parseFragment(JSON.stringify({
+      drawSEMClipboard: 1,
+      nodes: [{ label: 'x', type: 'variable' }],
+      paths: [
+        { from: 'D', to: 'x', type: 'data', label: 'x' },
+        { from: 'x', to: 'D', numberOfArrows: 1 }, // into a dataset
+        { from: 'c', to: 'x', numberOfArrows: 2 }, // two-headed from a constant
+        { from: 'x', to: 'c', numberOfArrows: 1 }, // into a constant
+        { from: 'F', to: 'x', numberOfArrows: 1 },
+      ],
+    }))!
+    const target = [node('D', 'dataset'), node('c', 'constant'), node('F')]
+    const plan = planPaste(target, [], f, { x: 0, y: 0 })!
+    expect(describePaths([...target, ...plan.nodes], plan.paths)).toEqual(['D->x', 'F->x'])
+  })
+
+  it('pathFitsEndpoints', () => {
+    expect(pathFitsEndpoints({ type: 'data' }, 'dataset', 'variable')).toBe(true)
+    expect(pathFitsEndpoints({ type: 'data' }, 'variable', 'variable')).toBe(false)
+    expect(pathFitsEndpoints({}, 'dataset', 'variable')).toBe(true) // from a dataset: a data path
+    expect(pathFitsEndpoints({}, 'dataset', 'constant')).toBe(false)
+    expect(pathFitsEndpoints({ numberOfArrows: 1 }, 'constant', 'variable')).toBe(true)
+    expect(pathFitsEndpoints({ numberOfArrows: 2 }, 'constant', 'variable')).toBe(false)
+    expect(pathFitsEndpoints({ numberOfArrows: 1 }, 'variable', 'constant')).toBe(false)
+    expect(pathFitsEndpoints({ numberOfArrows: 1 }, 'variable', 'dataset')).toBe(false)
+    expect(pathFitsEndpoints({ numberOfArrows: 2 }, 'variable', 'variable')).toBe(true)
   })
 
   it('a copied constant is pasted as a new constant', () => {
     const { nodes, paths } = model()
-    const plan = planDuplicate(nodes, paths, ['1', 'x1'])!
+    const plan = planDuplicate(nodes, paths, sel(['1', 'x1'], ['x1-x1-2', '1-x1-1']))!
     expect(plan.nodes.map((n) => [n.label, n.type])).toEqual([['x1_2', 'variable'], ['1b', 'constant']])
+    // a duplicate is one step right: x1 (-50) and "1" (0) span -80..30, 1.5 x 110
+    expect(plan.nodes.map((n) => [n.x, n.y])).toEqual([[115, 100], [165, 200]])
     expect(describePaths([...nodes, ...plan.nodes], plan.paths)).toEqual(['x1_2<->x1_2', '1b->x1_2'])
   })
 
-  it('never pastes datasets, data paths or the manifestLatent lock', () => {
+  it('duplicate follows the copy rules (withDataPaths too)', () => {
+    const { nodes, paths } = model()
+    expect(planDuplicate(nodes, paths, sel(['x1']))!.paths).toEqual([])
+    const plan = planDuplicate(nodes, paths, sel(['x1'], ['F-x1-1']), { withDataPaths: true })!
+    expect(describePaths([...nodes, ...plan.nodes], plan.paths)).toEqual(['F->x1_2', 'D->x1_2'])
+    expect(plan.paths[1]).toMatchObject({ label: 'x1_2', mappingLinked: true })
+  })
+
+  it('never pastes dataset nodes or the manifestLatent lock', () => {
     const { nodes, paths } = model()
     const text = JSON.stringify({
       drawSEMClipboard: 1,
@@ -249,21 +360,41 @@ describe('planPaste', () => {
       ],
       paths: [{ from: 'D', to: 'x', type: 'data', label: 'x' }, { from: 'x', to: 'x', numberOfArrows: 2 }],
     })
-    const plan = planPaste(nodes, paths, parseFragment(text)!, pasteOffset(1))!
+    const f = parseFragment(text)!
+    const plan = planPaste(nodes, paths, f, pasteOffset(f, 1))!
     expect(plan.nodes).toHaveLength(1)
     expect(plan.nodes[0]).not.toHaveProperty('variableCharacteristics')
-    expect(plan.paths).toHaveLength(1)
-    expect(plan.paths[0].type).toBeUndefined()
+    // the data path attaches to the target's dataset D (the fragment's D node is ignored)
+    expect(plan.paths.map((p) => p.type ?? null)).toEqual(['data', null])
+    expect(plan.paths[0].from).toBe('D')
+    expect(planPaste([], [], f, pasteOffset(f, 1))!.paths.map((p) => p.type ?? null)).toEqual([null])
   })
 
   it('is null for a fragment without nodes', () => {
     const f: ClipboardFragment = { drawSEMClipboard: 1, nodes: [], paths: [] }
-    expect(planPaste([], [], f, pasteOffset(1))).toBeNull()
+    expect(planPaste([], [], f, pasteOffset(f, 1))).toBeNull()
   })
 
-  it('pasteOffset steps by PASTE_OFFSET', () => {
-    expect(pasteOffset(1)).toEqual({ x: PASTE_OFFSET, y: PASTE_OFFSET })
-    expect(pasteOffset(3)).toEqual({ x: 3 * PASTE_OFFSET, y: 3 * PASTE_OFFSET })
+  it('fragmentWidth spans the nodes as drawn (default width 60 when unset)', () => {
+    const frag = (ns: Record<string, any>[]): ClipboardFragment => ({ drawSEMClipboard: 1, nodes: ns, paths: [] })
+    expect(fragmentWidth(frag([{ label: 'a', type: 'variable', visual: { x: 340, y: 250, width: 60, height: 60 } }]))).toBe(60)
+    expect(fragmentWidth(frag([{ label: 'a', type: 'variable' }]))).toBe(60) // no position or size
+    expect(fragmentWidth(frag([
+      { label: 'a', type: 'variable', visual: { x: 0, y: 0 } },
+      { label: 'b', type: 'variable', visual: { x: 200, y: 500, width: 100 } },
+    ]))).toBe(280) // -30 .. 250; y plays no part
+    expect(fragmentWidth(frag([]))).toBe(0)
+  })
+
+  it('pasteOffset steps right only, by PASTE_STEP_WIDTHS fragment widths; step 0 is in place', () => {
+    const { nodes, paths } = model()
+    const one = copySelection(nodes, paths, sel(['x1']))!
+    expect(PASTE_STEP_WIDTHS).toBe(1.5)
+    expect(pasteOffset(one, 1)).toEqual({ x: 90, y: 0 }) // one default-width node
+    expect(pasteOffset(one, 3)).toEqual({ x: 270, y: 0 })
+    expect(pasteOffset(one, 0)).toEqual({ x: 0, y: 0 })
+    const three = copySelection(nodes, paths, sel(['F', 'x1', 'x2']))!
+    expect(pasteOffset(three, 1)).toEqual({ x: 240, y: 0 }) // -80 .. 80
   })
 })
 

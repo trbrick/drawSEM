@@ -23,11 +23,11 @@ function createAdapterStub(): GraphAdapter {
   }
 }
 
-function renderCanvas() {
+function renderCanvas(onModelChange?: (s: GraphSchema) => void) {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
   return render(
     <AdapterContext.Provider value={createAdapterStub()}>
-      <CanvasTool initialSchema={loadExampleSchema()} />
+      <CanvasTool initialSchema={loadExampleSchema()} onModelChange={onModelChange} />
     </AdapterContext.Provider>
   )
 }
@@ -97,5 +97,25 @@ describe('node labels stay unique', () => {
 
     fireEvent.change(input, { target: { value: 'V3' } })
     expect(nodeLabels(container)).toEqual(['V1', 'V3'])
+  })
+})
+
+describe('node labels are stored as typed', () => {
+  it('a rename keeps x_9 in the schema and shows x₉ on the canvas', async () => {
+    const onModelChange = vi.fn()
+    const { container } = renderCanvas(onModelChange)
+    await waitFor(() => expect(canvasSvg(container).querySelector('g text')).toBeTruthy())
+    fireEvent.doubleClick(canvasSvg(container)) // V1, selected
+    fireEvent.change(screen.getByDisplayValue('V1'), { target: { value: 'x_9' } })
+    const texts = () => Array.from(canvasSvg(container).querySelectorAll('g text')).map((t) => t.textContent)
+    await waitFor(() => expect(texts()).toContain('x₉'))
+    expect(texts()).not.toContain('x_9')
+    expect(screen.getByDisplayValue('x_9')).toBeTruthy()
+    await waitFor(() => {
+      const last = onModelChange.mock.calls[onModelChange.mock.calls.length - 1][0]
+      const labels = (Object.values(last.models)[0] as any).nodes.map((n: any) => n.label)
+      expect(labels).toContain('x_9')
+      expect(labels).not.toContain('x₉')
+    })
   })
 })

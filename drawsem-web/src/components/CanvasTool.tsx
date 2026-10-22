@@ -24,10 +24,11 @@ import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
 import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
 import { useEditorKeyboard, useEditorPaste, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
-import { copySelection, serializeFragment, parseFragment, planPaste, planDuplicate, pasteOffset, writeClipboardText, readClipboardText, clipboardTextFrom, eventClipboardText } from '../utils/clipboard'
+import { copySelection, isCopyableNode, serializeFragment, parseFragment, planPaste, planDuplicate, pasteOffset, writeClipboardText, readClipboardText, clipboardTextFrom, eventClipboardText } from '../utils/clipboard'
 import type { PastePlan } from '../utils/clipboard'
-import { EMPTY_SELECTION, selectionOf, selectionSize, toggleInSelection, pruneSelection, sameSelection, boundsFromPoints, unionBounds, marqueeSelection } from '../utils/selection'
-import type { Selection, SelectionKind, Bounds } from '../utils/selection'
+import { EMPTY_SELECTION, selectionOf, selectionSize, toggleInSelection, pruneSelection, sameSelection, boundsFromPoints, unionBounds, marqueeSelection, svgPathPoints } from '../utils/selection'
+import { withMappingLinked, withMappingColumn, followLinkedMappings, incomingDataPaths, isMissingColumn, linkMappingsOnLoad } from '../utils/dataMapping'
+import type { Selection, SelectionKind, Bounds, Point } from '../utils/selection'
 import { isMacPlatform, isSecondaryPress, isToggleModifier } from '../utils/platform'
 import { pathIssue, PATH_ISSUE_MESSAGE, dragPathPairs, planDraggedPaths, draggedPathsMessage, planAddMeans, addMeansMessage, planCorrelateAll, correlateAllMessage, sharedValue, MIXED } from '../utils/groupEdits'
 import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
@@ -82,9 +83,25 @@ function scrollHintText(): string {
   return isMacPlatform() ? '⌘ + scroll to zoom' : 'Ctrl + scroll to zoom'
 }
 
+/** A Cmd/Ctrl+V keypress: when it was pressed, and whether it has pasted. */
+interface PasteKeypress {
+  at: number
+  done: boolean
+}
+// A paste event this soon after a Cmd/Ctrl+V is that keypress's own
+const PASTE_EVENT_WINDOW_MS = 1000
+
+// A data path's cable label when its column is missing from its dataset
+const WARNING_COLORS = { fill: '#fef3c7', stroke: '#d97706', text: '#b45309' }
+
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
 const EMPTY_PARAMETER_TYPES: Record<string, any> = {}
+
+// An undo step R kept is loaded like a document: its mapping links are not saved
+function linkSnapshotMappings<S extends { models: RuntimeModel[] }>(snapshot: S): S {
+  return { ...snapshot, models: linkMappingsOnLoad(snapshot.models) }
+}
 
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full', editMode = 'full' }: CanvasToolProps): JSX.Element {
   const isLayoutOnly = editMode === 'layout'
@@ -479,7 +496,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         }
 
         if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
-          const modelsOut = convertDocToRuntime(g as any)
+          // a new document: data paths named like their variable are linked
+          const modelsOut = linkMappingsOnLoad(convertDocToRuntime(g as any))
 
           // Auto-layout only when no node of the model has a position
           try {
@@ -498,7 +516,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               { models: modelsOut, currentModelId: modelsOut[0]?.id ?? null },
               { layoutOnly: isLayoutOnly }
             )
-            if (restored) history.loadStacks(restored.past, restored.future)
+            if (restored) history.loadStacks(restored.past.map(linkSnapshotMappings), restored.future.map(linkSnapshotMappings))
           }
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
@@ -552,7 +570,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           if (kind === 'data') history.markChange()
-          loadModels(modelsOut)
+          // Mapping links: a new document links data paths named like their
+          // variable; a push that keeps the history keeps the links it had.
+          if (kind === 'load') loadModels(linkMappingsOnLoad(modelsOut))
+          else loadModels((prev) => linkMappingsOnLoad(modelsOut, prev))
           if (kind === 'load') history.reset()
           setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
@@ -810,8 +831,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // `collapseTo`: a press on a node of a multi-selection keeps the group for a
   // drag; released without dragging (a plain click) it selects that node alone.
   const pendingDragRef = useRef<(NodeDrag & { startClientX: number; startClientY: number; collapseTo: string | null }) | null>(null)
-  // Selection rectangle (canvas coordinates) while a background drag is active
-  const [marquee, setMarquee] = useState<Bounds | null>(null)
+  // Selection rectangle (canvas coordinates) while a background drag is active,
+  // with what it would select if released now (drawn as selected meanwhile)
+  const [marquee, setMarquee] = useState<{ rect: Bounds; preview: Selection } | null>(null)
   const marqueeCleanupRef = useRef<(() => void) | null>(null)
   // Self-loop drag-to-pin: armed on mousedown on a self-loop, becomes active past
   // the drag threshold; while active the loop previews the nearest side and on
@@ -996,6 +1018,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   const selectedNodeIds = React.useMemo(() => new Set(selection.nodeIds), [selection])
   const selectedPathIds = React.useMemo(() => new Set(selection.pathIds), [selection])
+  // What the canvas draws as selected: during a selection-rectangle drag, what
+  // releasing it now would select (the selection itself is unchanged until then)
+  const drawnSelection = marquee?.preview ?? selection
+  const drawnNodeIds = React.useMemo(() => new Set(drawnSelection.nodeIds), [drawnSelection])
+  const drawnPathIds = React.useMemo(() => new Set(drawnSelection.pathIds), [drawnSelection])
   const selectionCount = selectionSize(selection)
 
   // The single-element views of the selection: set only when exactly one
@@ -1093,14 +1120,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   // ---- Copy, cut, paste, duplicate (rules in utils/clipboard.ts) ----
-  // Repeated pastes of the same clipboard content step further from the copy.
+  // Repeated pastes of the same clipboard content step further from the copy:
+  // `count` is the step of the last paste (0 after a copy, -1 after a cut, so
+  // that the first paste after a cut lands in place).
   const pasteCountRef = useRef<{ text: string; count: number } | null>(null)
-  // A Cmd/Ctrl+V still waiting for its paste event (see the keyboard handler)
-  const pendingPasteRef = useRef<object | null>(null)
+  // The last Cmd/Ctrl+V, until its paste event arrives (see handleClipboardKey)
+  const pasteKeyRef = useRef<PasteKeypress | null>(null)
+
+  // In the SEM layer data paths cannot be selected, so a copied manifest
+  // variable takes its data paths along; elsewhere they are copied when selected.
+  const copyOptions = { withDataPaths: activeLayer === 'sem' }
 
   /** Copy the selection to the clipboard. False when nothing in it is copyable. */
   function copySelected(): boolean {
-    const fragment = copySelection(nodes, paths, selection.nodeIds)
+    const fragment = copySelection(nodes, paths, selection, copyOptions)
     if (!fragment) return false
     const text = serializeFragment(fragment)
     pasteCountRef.current = { text, count: 0 }
@@ -1108,10 +1141,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return true
   }
 
-  /** Copy, then delete the whole selection (one undo step). */
+  /**
+   * Copy, then delete what was copied: the selected variables and constants
+   * with every path touching them (data paths included). Selected datasets are
+   * never copied, so they stay, and stay selected. One undo step.
+   */
   function cutSelected(): boolean {
     if (isLayoutOnly || !copySelected()) return false
-    deleteSelected()
+    pasteCountRef.current = { ...pasteCountRef.current!, count: -1 }
+    const cut = new Set(selectedNodesList.filter(isCopyableNode).map((n) => n.id))
+    const touchesCut = (p: Path) => cut.has(p.from) || cut.has(p.to)
+    setNodes((s) => s.filter((n) => !cut.has(n.id)))
+    setPaths((s) => s.filter((p) => !touchesCut(p)))
+    setSelection({
+      nodeIds: selection.nodeIds.filter((id) => !cut.has(id)),
+      pathIds: selectedPathsList.filter((p) => !touchesCut(p)).map((p) => p.id),
+    })
     return true
   }
 
@@ -1130,15 +1175,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const last = pasteCountRef.current
     const count = last && last.text === text ? last.count + 1 : 1
     pasteCountRef.current = { text, count }
-    insertPastePlan(planPaste(nodes, paths, fragment, pasteOffset(count)))
+    insertPastePlan(planPaste(nodes, paths, fragment, pasteOffset(fragment, count)))
   }
   // Pastes that complete asynchronously use the latest render's state
   const pasteTextRef = useRef(pasteText)
   pasteTextRef.current = pasteText
 
+  /** Paste `text` for the Cmd/Ctrl+V `press`, unless that press has pasted already. */
+  function pasteForKeypress(press: PasteKeypress, text: string | null) {
+    if (press.done || !parseFragment(text)) return
+    press.done = true
+    pasteTextRef.current(text)
+  }
+
   function duplicateSelected() {
     if (isLayoutOnly) return
-    insertPastePlan(planDuplicate(nodes, paths, selection.nodeIds))
+    insertPastePlan(planDuplicate(nodes, paths, selection, copyOptions))
   }
 
   /** Apply `f` to every selected structural (non-data) path. */
@@ -1188,6 +1240,58 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const to = nodes.find((n) => n.id === p.to)
     const name = (n: Node | undefined, id: string) => convertToUnicode(n?.label ?? id)
     return { ...p, displayName: name(from, p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(to, p.to) }
+  }
+
+  // Set a path's label exactly as typed (it is a parameter or column name, so
+  // LaTeX-style text such as x_1 is kept); only the displayName shown on the
+  // canvas is converted to Unicode.
+  function withPathLabel(p: Path, label: string): Path {
+    const next = label ? { ...p, label, displayName: convertToUnicode(label) } : withAutoDisplayName({ ...p, label: null })
+    return keepMappingLinkTruthful(next)
+  }
+
+  /**
+   * Rename a node; data paths into it whose mapping is linked to its name
+   * ("Same as variable name") map the new name. One state update, so one
+   * undo step (and one coalesced typing step in the inspector).
+   */
+  function renameNode(nodeId: string, label: string) {
+    const modelId = currentModelId
+    if (!modelId) return
+    setModels((ms) => ms.map((m) => {
+      if (m.id !== modelId) return m
+      // the label is kept as typed; only the displayed name is Unicode
+      const ns = m.nodes.map((n) => (n.id === nodeId ? { ...n, label, displayName: convertToUnicode(label) } : n))
+      // unlabeled paths at the node show its name ("F → x1"): keep that truthful
+      const name = (id: string) => convertToUnicode(ns.find((n) => n.id === id)?.label ?? id)
+      const ps = followLinkedMappings(m.paths, nodeId, label).map((p) =>
+        !p.label && (p.from === nodeId || p.to === nodeId)
+          ? { ...p, displayName: name(p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(p.to) }
+          : p
+      )
+      return { ...m, nodes: ns, paths: ps }
+    }))
+  }
+
+  /** A data path edited elsewhere keeps its mapping link only while its column is still its variable's name. */
+  function keepMappingLinkTruthful(p: Path): Path {
+    if (!p.mappingLinked) return p
+    return withMappingLinked(p, p.label === nodes.find((n) => n.id === p.to)?.label)
+  }
+
+  /** Set the column a data path maps (the inspector's mapping field). */
+  function setMappingColumn(pathId: string, column: string) {
+    setPaths((ps) => ps.map((p) => (p.id === pathId ? withMappingColumn(p, column, nodes.find((n) => n.id === p.to)?.label) : p)))
+  }
+
+  /** Tick or untick "Same as variable name": ticking maps the variable's name. */
+  function setMappingLinked(pathId: string, linked: boolean) {
+    setPaths((ps) => ps.map((p) => {
+      if (p.id !== pathId) return p
+      const variable = nodes.find((n) => n.id === p.to)
+      if (!linked || !variable) return withMappingLinked(p, false)
+      return withMappingLinked(withMappingColumn(p, variable.label, variable.label), true)
+    }))
   }
 
   // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
@@ -1318,6 +1422,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return !!sel && !sel.isCollapsed && sel.toString() !== ''
   }
 
+  // A press on the diagram (background, node or path) drops any page text
+  // selection, which would otherwise keep Cmd/Ctrl+C and X copying that text.
+  // Node and path presses prevent the default, so the browser does not.
+  function clearPageTextSelection() {
+    if (typeof window !== 'undefined' && window.getSelection) window.getSelection()?.removeAllRanges()
+  }
+
   function handleClipboardKey(key: string, e: KeyboardEvent) {
     if (key === 'c') {
       if (!pageHasTextSelection() && copySelected()) e.preventDefault()
@@ -1329,13 +1440,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     } else if (key === 'v' && !isLayoutOnly) {
       // Not prevented: the browser then sends a paste event with the clipboard
       // text (useEditorPaste below). Where it does not (some browsers send none
-      // outside text fields), read the clipboard once this event is done.
-      const token = {}
-      pendingPasteRef.current = token
+      // outside text fields), read the clipboard once this event is done. The
+      // paste event may also come later than that (e.g. Chrome on macOS routes
+      // Cmd+V through the app's Edit menu), so the event and the read race:
+      // whichever has the text first pastes, once, for this keypress.
+      const press: PasteKeypress = { at: Date.now(), done: false }
+      pasteKeyRef.current = press
       setTimeout(() => {
-        if (pendingPasteRef.current !== token) return
-        pendingPasteRef.current = null
-        void readClipboardText().then((text) => pasteTextRef.current(text))
+        if (press.done) return
+        void readClipboardText().then((text) => pasteForKeypress(press, text))
       }, 0)
     }
   }
@@ -1418,13 +1531,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Paste events (Cmd/Ctrl+V, or a browser/host Paste menu): the system
   // clipboard's text, else the in-memory copy (see utils/clipboard.ts).
+  // A paste event soon after a Cmd/Ctrl+V belongs to that keypress, and pastes
+  // only if the keypress's clipboard read has not.
   useEditorPaste(editorRootRef, (e) => {
-    pendingPasteRef.current = null
+    const press = pasteKeyRef.current
+    pasteKeyRef.current = null
     if (showSaveToRDialog || showCodeExportDialog || isLayoutOnly) return
     const text = clipboardTextFrom(eventClipboardText(e))
     if (!text || !parseFragment(text)) return
     e.preventDefault()
-    pasteTextRef.current(text)
+    if (press && Date.now() - press.at <= PASTE_EVENT_WINDOW_MS) pasteForKeypress(press, text)
+    else pasteTextRef.current(text)
   }, { acceptUnfocused: viewMode !== 'widget' })
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
@@ -1600,7 +1717,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const loadedSchema = await adapter.load(text)
         
         // convert validated document to runtime CanvasTool shape (multi-model)
-        const modelsOut = convertDocToRuntime(loadedSchema)
+        const modelsOut = linkMappingsOnLoad(convertDocToRuntime(loadedSchema))
         
         // apply into runtime state
         setModels(modelsOut)
@@ -2051,8 +2168,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // and context (an add tool acts on a click, never on a drag). It becomes a
   // rectangle once the pointer moves past the drag threshold; a press released
   // before that is an ordinary background click. On release it selects the
-  // in-layer nodes lying entirely inside it, plus the in-layer paths whose two
-  // endpoints are selected. Shift / Cmd / Ctrl (not Ctrl on macOS) adds to the selection.
+  // in-layer nodes drawn entirely inside it, and the in-layer paths attached
+  // to a selected node with enough of their line (line, loop or cable branch;
+  // see pathPoints) inside it (rules in marqueeSelection). Shift / Cmd / Ctrl
+  // (not Ctrl on macOS) adds to the selection.
   function startMarquee(e: React.MouseEvent) {
     const svg = svgRef.current
     const ctm = svg?.getScreenCTM?.()
@@ -2072,6 +2191,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const startClientX = e.clientX
     const startClientY = e.clientY
     const base = isToggleModifier(e, isMac) ? selection : null
+    // The candidates, fixed for the drag
+    const candidateNodes = nodes.filter((n) => isNodeInLayer(n)).map((n) => ({ id: n.id, bounds: nodeBounds(n) }))
+    const pathLines: { id: string; from: string; to: string; points: Point[]; ends: Bounds[] }[] = []
+    for (const p of paths) {
+      const points = isPathInLayer(p) ? pathPoints(p) : null
+      if (!points) continue
+      // the line runs on under its endpoint nodes; only what shows counts
+      const ends = [p.from, p.to].map((id) => nodes.find((n) => n.id === id)).filter((n): n is Node => !!n).map(nodeBounds)
+      pathLines.push({ id: p.id, from: p.from, to: p.to, points, ends })
+    }
     let active = false
     let rect: Bounds | null = null
     function onMove(ev: MouseEvent) {
@@ -2079,8 +2208,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       active = true
       const cur = toCanvas(ev.clientX, ev.clientY)
       if (!cur) return
-      rect = boundsFromPoints(start!, cur)
-      setMarquee(rect)
+      const r = boundsFromPoints(start!, cur)
+      rect = r
+      setMarquee({ rect: r, preview: marqueeSelection(r, candidateNodes, pathLines, base) })
     }
     function end() {
       window.removeEventListener('mousemove', onMove)
@@ -2092,12 +2222,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       if (ev.button !== 0) return
       end()
       if (!active || !rect) return
-      const next = marqueeSelection(
-        rect,
-        nodes.filter((n) => isNodeInLayer(n)).map((n) => ({ id: n.id, bounds: nodeBounds(n) })),
-        paths.filter((p) => isPathInLayer(p)),
-        base
-      )
+      const next = marqueeSelection(rect, candidateNodes, pathLines, base)
       setSelection((s) => (sameSelection(s, next) ? s : next))
       // the click that follows must not deselect or place a node
       suppressClickRef.current = true
@@ -2400,8 +2525,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       // Remove any existing database paths to this node
       setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
 
-      // Create new data path from dataset to variable with column name as label
-      const newPath = makeDataPath(selectedNode.id, targetNode.id, columnName, displayName)
+      // Create new data path from dataset to variable with column name as label;
+      // linked to the variable's name when it is the column's (the node keeps its label)
+      const newPath = withMappingLinked(makeDataPath(selectedNode.id, targetNode.id, columnName, displayName), targetNode.label === columnName)
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
@@ -2411,8 +2537,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const newNode = makeNode({ label, displayName: label === columnName ? displayName : convertToUnicode(label), type: 'variable', x: dropX, y: dropY })
       setNodes((ns) => [...ns, newNode])
 
-      // Create data path from dataset to new variable with column name as label
-      const newPath = makeDataPath(selectedNode.id, newNode.id, columnName, displayName)
+      // Create data path from dataset to new variable with column name as label,
+      // linked to the variable's name (unless the name had to be suffixed)
+      const newPath = withMappingLinked(makeDataPath(selectedNode.id, newNode.id, columnName, displayName), label === columnName)
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
@@ -2926,6 +3053,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return trunk && target ? cableBranch(trunk, centerOf(target), (t) => getBoundaryPoint(target, t)) : null
   }
 
+  /**
+   * Canvas-space polyline of a path's line as drawn (the same path data the
+   * canvas renders: line, curve, self-loop, or a data path's cable branch
+   * without the shared trunk). Null when the path is not drawn.
+   */
+  function pathPoints(p: Path): Point[] | null {
+    const d = cableGeometryFor(p, cableGroups)?.d ?? pathD(p)
+    return d ? svgPathPoints(d) : null
+  }
+
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     if (isLayoutOnly) return
@@ -2951,25 +3088,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function saveEditing() {
     if (!editing) return
     const { id, kind, value } = editing
-    // Apply converter to normalize LaTeX notation to Unicode (idempotent, so safe to apply multiple times)
-    const convertedValue = convertToUnicode(value)
     // Only an actual change is written (opening and closing the editor is not an edit).
-    if (kind === 'node') {
-      const current = nodes.find((n) => n.id === id)
-      const labelError = current && current.label !== convertedValue ? nodeLabelError(nodes, id, convertedValue) : null
-      if (labelError) {
-        showPathError(labelError)
-        setEditing(null)
-        return
-      }
-      setNodes((ns) => ns.map((n) => (n.id === id && n.label !== convertedValue ? { ...n, label: convertedValue } : n)))
-    } else {
-      setPaths((ps) =>
-        ps.map((p) =>
-          p.id === id && convertedValue !== (p.label ?? '') ? { ...p, label: convertedValue || null } : p
-        )
-      )
+    if (kind === 'path') {
+      setPaths((ps) => ps.map((p) => (p.id === id && value !== (p.label ?? '') ? withPathLabel(p, value) : p)))
+      setEditing(null)
+      return
     }
+    // Node labels, like path labels, are kept as typed (renameNode converts the displayed name)
+    const current = nodes.find((n) => n.id === id)
+    const labelError = current && current.label !== value ? nodeLabelError(nodes, id, value) : null
+    if (labelError) showPathError(labelError)
+    else if (current && current.label !== value) renameNode(id, value)
     setEditing(null)
   }
 
@@ -3450,6 +3579,50 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       </select>
                       )}
                     </div>
+                    {/* One row per data path into the variable: its dataset and the column it maps */}
+                    {incomingDataPaths(nodes, paths, selectedNode.id).map((dp) => {
+                      const ds = nodes.find((n) => n.id === dp.from)
+                      const dsName = ds?.displayName || ds?.label || dp.from
+                      const linked = !!dp.mappingLinked
+                      const missing = isMissingColumn(dp, nodes)
+                      return (
+                        <div key={dp.id} className="text-xs text-slate-600 mt-1" data-testid="data-mapping-row">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>Data:</span>
+                            <span className="font-medium">{dsName}</span>
+                            <span>column</span>
+                            {isLayoutOnly ? (
+                              <span className="font-medium">{dp.label ?? ''}</span>
+                            ) : (
+                            <>
+                            <input
+                              type="text"
+                              aria-label={`Column of ${dsName}`}
+                              value={linked ? selectedNode.label : (dp.label ?? '')}
+                              disabled={linked}
+                              title={linked ? 'Same as the variable name: untick to map another column' : 'The dataset column mapped to this variable'}
+                              onChange={(e) => setMappingColumn(dp.id, e.target.value)}
+                              className={`px-2 py-1 border rounded text-xs w-28 ${linked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'} ${missing ? 'border-amber-500' : ''}`}
+                            />
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={linked}
+                                onChange={(e) => setMappingLinked(dp.id, e.target.checked)}
+                              />
+                              Same as variable name
+                            </label>
+                            </>
+                            )}
+                          </div>
+                          {missing && (
+                            <div className="mt-1 text-amber-700" data-testid="missing-column-warning">
+                              {dsName} has no column "{dp.label ?? ''}".
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </>
                 )}
                 {selectedNode && selectedNode.type === 'constant' && (
@@ -3763,12 +3936,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     onChange={(e) => {
                       // Edits apply as typed while the label stays valid; an empty or
                       // duplicate label is held as a draft and never reaches the model.
-                      const converted = convertToUnicode(e.target.value)
-                      setLabelDraft({ nodeId: selectedNode.id, value: converted })
-                      if (!nodeLabelError(nodes, selectedNode.id, converted)) {
-                        setNodes((ns) =>
-                          ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
-                        )
+                      const typed = e.target.value
+                      setLabelDraft({ nodeId: selectedNode.id, value: typed })
+                      if (!nodeLabelError(nodes, selectedNode.id, typed) && typed !== selectedNode.label) {
+                        renameNode(selectedNode.id, typed)
                       }
                     }}
                     onBlur={() => setLabelDraft(null)}
@@ -3859,14 +4030,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       value={selectedPath.label || ''}
                       onChange={(e) => {
                         const val = e.target.value.trim()
-                        const converted = convertToUnicode(val)
-                        setPaths((ps) =>
-                          ps.map((p) =>
-                            p.id === selectedPath.id
-                              ? { ...p, label: converted || null }
-                              : p
-                          )
-                        )
+                        setPaths((ps) => ps.map((p) => (p.id === selectedPath.id ? withPathLabel(p, val) : p)))
                       }}
                       placeholder={isDatasetPath(selectedPath, nodes) ? "(required - CSV column name)" : "(optional)"}
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
@@ -4086,7 +4250,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               viewBox={viewBoxAttr}
               preserveAspectRatio="xMidYMid meet"
               style={isPanning ? { cursor: 'grabbing' } : spaceHeld ? { cursor: 'grab' } : undefined}
-              onMouseDownCapture={onCanvasPanMouseDown}
+              onMouseDownCapture={(e) => {
+                clearPageTextSelection()
+                onCanvasPanMouseDown(e)
+              }}
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
@@ -4150,7 +4317,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
               {/* draw paths with layer-based opacity */}
               {paths.map((p) => {
-                  const isSelected = selectedPathIds.has(p.id)
+                  const isSelected = drawnPathIds.has(p.id)
                   const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
@@ -4231,9 +4398,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             const width = Math.max(24, approxCharW * displayText.length + padding * 2)
             const height = fontSize + padding
             const rx = 4
+            // a data path mapping a column its (loaded) dataset does not have
+            const missingColumn = isMissingColumn(p, nodes)
             return (
               <g
                 key={`${p.id}-label`}
+                data-path-label={p.id}
+                data-missing-column={missingColumn ? 'true' : undefined}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 style={{ pointerEvents: 'auto', cursor: 'text', opacity, zIndex }}
                 onDoubleClick={(e) => {
@@ -4241,14 +4412,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   startEditing('path', p.id, p.label ?? '', pos)
                 }}
               >
+                {missingColumn && <title>{`The dataset has no column "${p.label ?? ''}"`}</title>}
                 <rect
                   x={-width / 2}
                   y={-height / 2}
                   width={width}
                   height={height}
                   rx={rx}
-                  fill={DISPLAY_COLORS.fill}
-                  stroke="none"
+                  fill={missingColumn ? WARNING_COLORS.fill : DISPLAY_COLORS.fill}
+                  stroke={missingColumn ? WARNING_COLORS.stroke : 'none'}
                   opacity={0.95}
                 />
                 <text
@@ -4257,7 +4429,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={fontSize}
-                  fill={DISPLAY_COLORS.stroke}
+                  fill={missingColumn ? WARNING_COLORS.text : DISPLAY_COLORS.stroke}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {displayText}
@@ -4315,10 +4487,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           {marquee && (
             <rect
               data-testid="selection-marquee"
-              x={marquee.minX}
-              y={marquee.minY}
-              width={marquee.maxX - marquee.minX}
-              height={marquee.maxY - marquee.minY}
+              x={marquee.rect.minX}
+              y={marquee.rect.minY}
+              width={marquee.rect.maxX - marquee.rect.minX}
+              height={marquee.rect.maxY - marquee.rect.minY}
               fill="rgba(14, 165, 233, 0.08)"
               stroke="#0ea5e9"
               strokeWidth={1}
@@ -4367,7 +4539,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           {/* draw nodes */}
           {nodes.map((n) => {
-            const isSelected = selectedNodeIds.has(n.id)
+            const isSelected = drawnNodeIds.has(n.id)
             // Check if this node is connected to a hovered column (via a path from the selected dataset)
             const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
             const inLayer = isNodeInLayer(n)
@@ -4403,6 +4575,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                             textAnchor="middle"
                             fontWeight={isMatchingHoveredColumn ? 'bold' : 'normal'}
                             style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                            /* a press on the label is a press on the node (never on a path beneath) */
+                            onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onDoubleClick={(e) => {
                               e.stopPropagation()
                               startEditing('node', n.id, n.label, centerOf(n))
@@ -4421,6 +4595,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     y={6}
                     textAnchor="middle"
                     style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text', fontWeight: isMatchingHoveredColumn ? 'bold' : 'normal' }}
+                    /* a press on the label is a press on the node (never on a path beneath) */
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       startEditing('node', n.id, n.label, centerOf(n))
@@ -4508,6 +4684,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     y={6}
                     textAnchor="middle"
                     style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                    /* a press on the label is a press on the node (never on a path beneath) */
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       startEditing('node', n.id, n.label, centerOf(n))
@@ -4537,6 +4715,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   y={6}
                   textAnchor="middle"
                   style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                  /* a press on the label is a press on the node (never on a path beneath) */
+                  onMouseDown={(e) => onNodeMouseDown(e, n)}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
                     startEditing('node', n.id, n.label, centerOf(n))

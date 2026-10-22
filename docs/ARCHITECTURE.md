@@ -183,9 +183,19 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   together), the same in every context: Shift/Cmd/Ctrl-click toggles an
   element (on macOS only Shift/Cmd; there Ctrl+click acts as a right click,
   `src/utils/platform.ts`); a left-drag on the background draws a selection
-  rectangle (nodes entirely inside it, plus paths with both endpoints
-  selected; active layer only; the toggle modifiers add). Dragging, nudging
-  and deleting act on the whole selection, one undo step each
+  rectangle (the nodes drawn entirely inside it, and each path attached to a
+  selected node of which it covers an unbroken 24 units, or half when the
+  path is shorter: a path's visible line, curve, self-loop or, for a data
+  path, its cable branch without the shared trunk, measured from the path data
+  the canvas draws minus the parts under its endpoint nodes. So a box close
+  around a node leaves out its paths and a broad one takes them; a path with
+  no selected endpoint is never selected. `marqueeSelection()` in
+  `src/utils/selection.ts`. Active layer only; the toggle modifiers add to the
+  selection, and the existing selection's nodes count as endpoints; while
+  dragging, what it would select is drawn as selected, and the selection
+  itself changes on release). Nodes are drawn over paths, and a press on
+  a node's label selects the node. Dragging, nudging and deleting act on the
+  whole selection, one undo step each
 - Web frontend: drag-to-many paths (`src/utils/groupEdits.ts`). A path drag
   (right-drag from a node, or the P/T path tools) that starts on a node of a
   multi-selection draws from every selected node; released on a selected node
@@ -205,21 +215,55 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   they differ), and Duplicate
 - Web frontend: copy, cut, paste and duplicate of the selection
   (`src/utils/clipboard.ts`), the same in every context: Cmd/Ctrl+C,
-  Cmd/Ctrl+X, Cmd/Ctrl+V, Cmd/Ctrl+D (duplicate in place, without the
-  clipboard) and the multi-selection popup's Duplicate. The clipboard holds a
-  JSON fragment in schema shapes (`{"drawSEMClipboard": 1, nodes, paths}`;
-  labels and `from`/`to`, no runtime ids; other text is ignored), written with
+  Cmd/Ctrl+X, Cmd/Ctrl+V, Cmd/Ctrl+D (duplicate, without the clipboard) and
+  the multi-selection popup's Duplicate. The clipboard holds a
+  JSON fragment in schema shapes (`{"drawSEMClipboard": 1, nodes, paths,
+  external}`; labels and `from`/`to`, no runtime ids; `external` names the
+  label and type of each path endpoint outside the copy; other text is
+  ignored), written with
   `navigator.clipboard` and read from the paste event (else `readText`), so
   a copy in one window pastes in another; an in-memory copy is the fallback
-  when the system clipboard is unavailable. Copied: the selected variables and
-  constants (never datasets), every non-data path between them, and mean paths
-  from an uncopied constant (re-attached to the target's constant of that
-  label). Copies get no data connections and no `manifestLatent` lock. Pasted
-  labels are made unique like new nodes (`V<n>`, `1b`, else `name_2`); named
-  free parameters are renamed the same way (paths sharing a name keep sharing
-  the new one). Pastes are offset by 30 units (repeated pastes step further),
-  become the selection, and are one undo step each, as is a cut (copy + group
-  delete). Layout-only mode: copy only
+  when the system clipboard is unavailable. Each Cmd/Ctrl+V pastes once,
+  whichever of its paste event and `readText` comes first. A real page text
+  selection leaves Cmd/Ctrl+C and X to the browser; a press on the diagram
+  (background, node or path) clears it. Copied: the selected variables and
+  constants (never datasets) and only the selected paths with at least one
+  endpoint among them, data paths included (a path between two copied nodes
+  only when it is itself selected). In the SEM layer, where data paths cannot
+  be selected, the data paths into copied variables come along. Copying only
+  paths copies nothing. On paste, an endpoint outside the copy re-attaches to
+  the target model's node of the same label and type (variable, constant or
+  dataset); the path is dropped when there is none or the types do not fit it
+  (a data path runs from a dataset to a variable). Copies get no
+  `manifestLatent` lock. Pasted labels are made unique like new nodes
+  (`V<n>`, `1b`, else `name_2`); named free parameters are renamed the same
+  way (paths sharing a name keep sharing the new one); a pasted data path
+  maps the column named like its pasted variable (`X3` mapping `X3` pastes as
+  `X3_2` mapping `X3_2`), linked to it (see the data mapping row below).
+  Duplicate follows the same rules. Pastes and duplicates step right only, by 1.5 times the width
+  of the copied nodes' bounding box (repeated pastes of the same content step
+  further); the first paste after a cut is in place. Pastes become the
+  selection and are one undo step each, as is a cut, which removes only what
+  was copied (with every path touching it): selected datasets stay, selected.
+  Layout-only mode: copy only
+- Web frontend: data mapping row (`src/utils/dataMapping.ts`). A selected
+  variable's popup has one row per data path into it: the dataset, the column
+  it maps (the data path's `label`) and a "Same as variable name" checkbox.
+  While ticked, the column field is greyed out and shows the variable's label,
+  and renaming the variable (inline or in the popup) renames the mapping in
+  the same undo step; ticking maps the variable's label, unticking frees the
+  field. The tick is a runtime-only flag on the data path (`mappingLinked`),
+  never serialized. It is set on load (import, initial load, R `load`) for
+  every data path whose column equals its variable's label; R pushes that keep
+  the history (`data`, `fit`) keep the flags of data paths that still exist
+  (same dataset and variable labels) and tick new ones whose names match; a
+  column dropped from the dataset panel ticks the new variable's data path
+  (onto an existing node, only when it is named like the column; the node
+  keeps its label), as does a dataset -> variable path drag; pasted and
+  duplicated data paths are ticked. Once unticked it stays unticked. When the
+  dataset's columns are known (its data is loaded), a data path mapping a
+  column the dataset lacks is flagged in its row and its cable label is drawn
+  as a warning (not in image export)
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results
