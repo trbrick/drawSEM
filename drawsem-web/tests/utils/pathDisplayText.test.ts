@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash } from '../../src/utils/helpers'
+import { pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, followGeneratedLabels } from '../../src/utils/helpers'
 import type { Path } from '../../src/utils/helpers'
 
 const path = (over: Partial<Path> = {}): Path => ({ id: 'p', from: 'F', to: 'x', twoSided: false, ...over })
@@ -102,5 +102,44 @@ describe('path name clashes', () => {
       p('f', {}), p('g', {}),
     ]
     expect([...pathIdsWithNameClash(ps)].sort()).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('followGeneratedLabels', () => {
+  const nodes = [
+    { id: 'n1', label: 'x', type: 'variable' },
+    { id: 'n2', label: 'y', type: 'variable' },
+    { id: 'k', label: '1', type: 'constant' },
+  ]
+  const p = (id: string, over: Partial<Path>): Path => ({ id, from: 'n1', to: 'n1', twoSided: false, ...over })
+
+  it('renames V_{x}, M_{x} and C_{x,y} that match the old node labels', () => {
+    const ps = [
+      p('v', { twoSided: true, label: 'V_{x}', freeParameter: true }),
+      p('m', { from: 'k', label: 'M_{x}', freeParameter: true }),
+      p('c', { to: 'n2', twoSided: true, label: 'C_{x,y}', freeParameter: true }),
+      p('c2', { from: 'n2', to: 'n1', twoSided: true, label: 'C_{y,x}' }),
+    ]
+    const out = followGeneratedLabels(ps, nodes, 'n1', 'z')
+    expect(out.map((q) => q.label)).toEqual(['V_{z}', 'M_{z}', 'C_{z,y}', 'C_{y,z}'])
+    expect(out[0].displayName).toBeDefined()
+  })
+
+  it('keeps user labels, labels of other nodes, and parameter names', () => {
+    const ps = [
+      p('u', { twoSided: true, label: 'resid', freeParameter: 'V_{x}' }),
+      p('o', { from: 'n2', to: 'n2', twoSided: true, label: 'V_{y}' }),
+      p('w', { from: 'k', label: 'V_{x}' }),
+    ]
+    const out = followGeneratedLabels(ps, nodes, 'n1', 'z')
+    expect(out).toEqual(ps)
+  })
+
+  it('makes the new label unique', () => {
+    const ps = [
+      p('v', { twoSided: true, label: 'V_{x}', freeParameter: true }),
+      p('o', { from: 'n2', to: 'n2', twoSided: true, label: 'x', freeParameter: 'V_{z}' }),
+    ]
+    expect(followGeneratedLabels(ps, nodes, 'n1', 'z')[0].label).toBe('V_{z}_2')
   })
 })

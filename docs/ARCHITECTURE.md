@@ -208,8 +208,8 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   a release on the hovered node would add
 - Web frontend: the popup for a multi-selection shows a summary and, outside
   layout-only mode, group actions (one undo step each): Add means (free
-  `mean` paths from the selected constant, else "1", else a new constant below
-  the selection), Correlate all (free `covariance` paths between selected
+  `mean` paths labelled `M_{x}`, from the selected constant, else "1", else a new constant below
+  the selection), Correlate all (free `covariance` paths labelled `C_{x,y}` between selected
   variables; the paths either adds, and a constant Add means creates, join the selection), free/fixed, parameter name and value for all selected structural
   paths, and the manifest/latent lock for all selected variables ("mixed" when
   they differ), and Duplicate
@@ -272,9 +272,13 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   unnamed free path its value; an unnamed fixed path nothing at 1, else its
   value; a data path its column. Values mode shows the value, both mode
   "name=value". A free path with neither name nor label is drawn dashed, its
-  value written "≈value" instead of "=value", and its inspector warns. Two
-  structural paths shown under the same name without both having it as their
-  parameter name (`pathNameClashes()`) are flagged: only a
+  value written "≈value" instead of "=value", and its inspector warns. The
+  editor's generated free paths are labelled (never named) so they are not
+  unnamed: a new variable's or drawn self-loop's variance `V_{x}`, Add means
+  `M_{x}`, Correlate all `C_{x,y}`, each made unique against the model's
+  labels and parameter names (`_2`, `_3`, ...); a paste or a node rename
+  (`followGeneratedLabels()`) renames those still matching their nodes. Two structural paths shown under the same name without both
+  having it as their parameter name (`pathNameClashes()`) are flagged: only a
   shared parameter name is an equality constraint, and R suffixes a repeated
   label (`_2`) for OpenMx. The inspector warns, both canvas labels are drawn
   as warnings, and committing such a label inline shows a notice. Image

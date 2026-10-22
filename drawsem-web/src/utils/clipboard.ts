@@ -38,7 +38,7 @@
  */
 import { convertModelToRuntime } from './runtimeConverter'
 import { modelToSchemaModel } from './runtimeToSchema'
-import { DANGLING_ENDPOINT_PREFIX, defaultVarianceLabel, isDatasetPath, uid, uniqueNodeLabel, withManifestLatent } from './helpers'
+import { DANGLING_ENDPOINT_PREFIX, defaultCovarianceLabel, defaultMeanLabel, defaultVarianceLabel, isDatasetPath, uid, uniqueNodeLabel, withManifestLatent } from './helpers'
 import type { Node, Path } from './helpers'
 import { MANIFEST_DEFAULT_W } from './constants'
 
@@ -312,10 +312,12 @@ export function planPaste(nodes: readonly Node[], paths: readonly Path[], fragme
     const oldParam = typeof p.freeParameter === 'string' ? p.freeParameter : null
     if (oldParam && paramMap.has(oldParam)) out.freeParameter = paramMap.get(oldParam)
     // Keep the labels the editor derives from a name truthful: a variance
-    // labelled V_{node} follows the node's new label, a label that is the
-    // parameter name follows the new name.
+    // labelled V_{node}, a mean M_{node} or a covariance C_{a,b} follows the
+    // nodes' new labels, a label that is the parameter name follows the new name.
     if (typeof p.label === 'string') {
       if (p.from === p.to && p.label === defaultVarianceLabel(p.from)) out.label = defaultVarianceLabel(to)
+      else if (p.label === defaultMeanLabel(p.to)) out.label = defaultMeanLabel(to)
+      else if (p.label === defaultCovarianceLabel(p.from, p.to)) out.label = defaultCovarianceLabel(from, to)
       else if (oldParam && p.label === oldParam) out.label = out.freeParameter
     }
     return out

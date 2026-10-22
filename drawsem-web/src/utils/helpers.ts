@@ -302,13 +302,77 @@ export function defaultVarianceLabel(nodeLabel: string): string {
   return `V_{${nodeLabel}}`
 }
 
+/** Default label for a generated mean path from a constant: M_{<variable label>}. */
+export function defaultMeanLabel(nodeLabel: string): string {
+  return `M_{${nodeLabel}}`
+}
+
+/** Default label for a generated covariance: C_{<label a>,<label b>}. */
+export function defaultCovarianceLabel(aLabel: string, bLabel: string): string {
+  return `C_{${aLabel},${bLabel}}`
+}
+
 /**
- * A free error-variance self-loop for a new variable, labelled
- * V_{<variable label>} (see defaultVarianceLabel). Its display name is the
- * unicode form of that label, as when a labelled path is loaded.
+ * `base`, else base_2, base_3, ... : the first not used as a label or a
+ * parameter name (`freeParameter` string) by any of `paths`. OpenMx names a
+ * parameter by its name, else its label, so generated labels avoid both.
  */
-export function makeVariancePath(nodeId: string, nodeLabel: string): Path {
-  const label = defaultVarianceLabel(nodeLabel)
+export function uniquePathLabel(paths: readonly { label?: string | null; freeParameter?: boolean | string }[], base: string): string {
+  const taken = new Set<string>()
+  for (const p of paths) {
+    if (p.label) taken.add(p.label)
+    if (typeof p.freeParameter === 'string' && p.freeParameter) taken.add(p.freeParameter)
+  }
+  return uniqueNodeLabel([...taken].map((label) => ({ label })), 'name', base)
+}
+
+/**
+ * The label the editor generates for `path` (V_{x}, M_{x} or C_{x,y}), given
+ * a node id -> label lookup, or null when it generates none: a self-loop gets
+ * V_{x}, a one-headed path from a constant M_{x}, a two-headed path between
+ * two nodes C_{x,y}.
+ */
+export function generatedPathLabel(path: Path, labelOf: (id: string) => string | undefined, isConstant: (id: string) => boolean): string | null {
+  if (path.type === 'data') return null
+  const from = labelOf(path.from)
+  const to = labelOf(path.to)
+  if (from === undefined || to === undefined) return null
+  if (path.from === path.to && path.twoSided) return defaultVarianceLabel(to)
+  if (!path.twoSided && isConstant(path.from)) return defaultMeanLabel(to)
+  if (path.twoSided) return defaultCovarianceLabel(from, to)
+  return null
+}
+
+/**
+ * Paths after the node `nodeId` is renamed to `newLabel`: a path at it whose
+ * label is still the generated V_{x}, M_{x} or C_{x,y} for the old labels
+ * gets the one for the new labels (made unique against the other paths), its
+ * displayName following. Other labels are the user's and are kept.
+ */
+export function followGeneratedLabels(paths: readonly Path[], nodes: readonly { id: string; label: string; type: string }[], nodeId: string, newLabel: string): Path[] {
+  const oldLabel = (id: string) => nodes.find((n) => n.id === id)?.label
+  const newLabelOf = (id: string) => (id === nodeId ? newLabel : oldLabel(id))
+  const isConstant = (id: string) => nodes.find((n) => n.id === id)?.type === 'constant'
+  const out = [...paths]
+  out.forEach((p, i) => {
+    if (!p.label || (p.from !== nodeId && p.to !== nodeId)) return
+    if (p.label !== generatedPathLabel(p, oldLabel, isConstant)) return
+    const next = generatedPathLabel(p, newLabelOf, isConstant)
+    if (!next || next === p.label) return
+    const label = uniquePathLabel(out.filter((_, j) => j !== i), next)
+    out[i] = { ...p, label, displayName: convertToUnicode(label) }
+  })
+  return out
+}
+
+/**
+ * A free error-variance self-loop, labelled V_{<variable label>} (see
+ * defaultVarianceLabel), made unique against `paths` (uniquePathLabel). Its
+ * display name is the unicode form of that label, as when a labelled path is
+ * loaded. Used for a new variable's error variance and a drawn self-loop.
+ */
+export function makeVariancePath(nodeId: string, nodeLabel: string, paths: readonly Path[] = []): Path {
+  const label = uniquePathLabel(paths, defaultVarianceLabel(nodeLabel))
   return makePath({
     from: nodeId,
     to: nodeId,

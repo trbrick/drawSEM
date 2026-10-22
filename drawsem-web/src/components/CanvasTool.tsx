@@ -11,7 +11,7 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, followGeneratedLabels, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
 import type { Node, Path, PathLabelMode } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
@@ -1275,7 +1275,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const ns = m.nodes.map((n) => (n.id === nodeId ? { ...n, label, displayName: convertToUnicode(label) } : n))
       // unlabeled paths at the node show its name ("F → x1"): keep that truthful
       const name = (id: string) => convertToUnicode(ns.find((n) => n.id === id)?.label ?? id)
-      const ps = followLinkedMappings(m.paths, nodeId, label).map((p) =>
+      // generated labels (V_{x}, M_{x}, C_{x,y}) still matching the old name follow it
+      const ps = followGeneratedLabels(followLinkedMappings(m.paths, nodeId, label), m.nodes, nodeId, label).map((p) =>
         !p.label && (p.from === nodeId || p.to === nodeId)
           ? { ...p, displayName: name(p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(p.to) }
           : p
@@ -2454,7 +2455,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
       // add variance path automatically for variable nodes (free error variance by default)
       if (type !== 'constant') {
-        const variance = makeVariancePath(n.id, n.label)
+        const variance = makeVariancePath(n.id, n.label, paths)
         setPaths((ps) => [...ps, variance])
       }
 
@@ -2478,7 +2479,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setNodes((s) => [...s, n])
     selectElement(n.id, 'node')
     // Add a free error variance self-loop automatically
-    const variance = makeVariancePath(n.id, n.label)
+    const variance = makeVariancePath(n.id, n.label, paths)
     setPaths((ps) => [...ps, variance])
     setMode('select')
   }
@@ -2522,7 +2523,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
-      const variance = makeVariancePath(newNode.id, newNode.label)
+      const variance = makeVariancePath(newNode.id, newNode.label, paths)
       setPaths((ps) => [...ps, variance])
     }
   }
