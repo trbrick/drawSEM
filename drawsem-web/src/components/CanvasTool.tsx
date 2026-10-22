@@ -704,7 +704,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               const headers = (results.data && results.data.length > 0) ? Object.keys(results.data[0]) : []
               
               // Validate that expected columns (from datasetSource.columnTypes) exist in the file
-              const expectedCols = node.datasetSource.columnTypes ? Object.keys(node.datasetSource.columnTypes) : []
+              const expectedCols = node.datasetSource?.columnTypes ? Object.keys(node.datasetSource.columnTypes) : []
               const missingCols = expectedCols.filter((col) => !headers.includes(col))
               if (missingCols.length > 0) {
                 const colErr = `Dataset ${fileName} is missing expected columns: ${missingCols.join(', ')}`
