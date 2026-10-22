@@ -4,12 +4,16 @@
 \alias{buildMxData}
 \title{Build mxData Object}
 \usage{
-buildMxData(model, data)
+buildMxData(model, data, missingness = "FIML")
 }
 \arguments{
 \item{model}{The model list from schema}
 
 \item{data}{A named list of data.frames}
+
+\item{missingness}{The model's \code{optimization.missingness}. \code{"listwise"}
+drops every row with a missing value in the mapped columns
+(\code{stats::na.omit()}); anything else leaves the rows for FIML.}
 }
 \value{
 An mxData object (for single dataset) or list of mxData objects
