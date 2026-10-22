@@ -47,7 +47,8 @@ Extracts the model structure, parameters, and data from RAM specification models
 \item Asymmetric (A) and symmetric (S) matrix paths become graph edges
 \item Current parameter values and free/fixed status are preserved
 \item Parameter types inferred from path structure (loading, regression, etc.)
-\item Optimization hints (start values, bounds) extracted at path level
+\item Bounds extracted at path level (values become each path's \code{value}, not a
+separate \code{optimization.start})
 \item Data from the model is linked by reference
 \item Fit function type is extracted (ML, WLS, etc.)
 \item Unsupported features (constraints, algebras, thresholds) are warned about

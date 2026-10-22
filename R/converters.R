@@ -140,7 +140,8 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   
   # Phase 3: Build mxPath list ==========================================
   constant_labels <- getConstantNodeLabels(model$nodes)
-  paths_to_create <- buildPathList(model$paths, constant_labels)
+  paths_to_create <- buildPathList(model$paths, constant_labels,
+                                   parameterTypes = model$optimization$parameterTypes)
 
   normalize_bound <- function(x) {
     if (is.null(x) || length(x) == 0 || is.na(x)) {
@@ -229,10 +230,10 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
 #'
 #' @param model The model list from schema
 #' @param data A named list of data.frames
-#'
 #' @param missingness The model's `optimization.missingness`. `"listwise"`
 #'   drops every row with a missing value in the mapped columns
 #'   (`stats::na.omit()`); anything else leaves the rows for FIML.
+#'
 #' @return An mxData object (for single dataset) or list of mxData objects
 #'
 #' @keywords internal
@@ -396,7 +397,6 @@ buildMxData <- function(model, data, missingness = "FIML") {
     colnames(df) <- var_names
   }
   
-  # Create mxData
   # Listwise deletion over the mapped columns only; unmapped columns are
   # already gone, so they cannot drop rows.
   if (identical(missingness, "listwise")) {
@@ -413,5 +413,6 @@ buildMxData <- function(model, data, missingness = "FIML") {
     }
   }
 
+  # Create mxData
   OpenMx::mxData(df, type = "raw")
 }

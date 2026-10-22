@@ -293,7 +293,7 @@ saveSchema <- function(g, filepath, ..., dataPath = ".", dataFile = NULL,
   
   # Write schema JSON
   tryCatch(
-    jsonlite::write_json(schema, filepath, pretty = pretty),
+    jsonlite::write_json(schema, filepath, pretty = pretty, null = "null"),
     error = function(e) {
       stop("Failed to write JSON: ", conditionMessage(e), call. = FALSE)
     }
