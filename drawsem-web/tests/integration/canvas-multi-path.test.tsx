@@ -423,6 +423,8 @@ describe('group actions in the multi-selection popup', () => {
     expect(means.map((p: any) => p.to)).toEqual(['X1', 'X2', 'X3'])
     expect(means[0]).toMatchObject({ numberOfArrows: 1, freeParameter: true, parameterType: 'mean' })
     expect(info()).toContain('Added constant "1" and 3 mean paths.')
+    // the new paths join the selection
+    expect(summary()).toBe('3 nodes, 3 paths selected')
 
     // again: nothing to add
     fireEvent.click(screen.getByRole('button', { name: /Add means/ }))
@@ -459,6 +461,7 @@ describe('group actions in the multi-selection popup', () => {
     const cov = lastModel(ctx.onModelChange).paths.at(-1)
     expect(cov).toMatchObject({ freeParameter: true, parameterType: 'covariance', numberOfArrows: 2 })
     expect(info()).toContain('Added 3 covariances.')
+    expect(summary()).toBe('3 nodes, 3 paths selected')
     fireEvent.click(screen.getByRole('button', { name: /Correlate all/ }))
     await nextTask()
     expect(info()).toContain('No covariances added; skipped 3')
