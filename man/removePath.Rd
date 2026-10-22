@@ -2,24 +2,69 @@
 % Please edit documentation in R/verbs.R
 \name{removePath}
 \alias{removePath}
-\title{Remove a Structural Path from a GraphModel}
+\title{Remove Structural Paths from a GraphModel}
 \usage{
 removePath(graphModel, from, to, numberOfArrows = NULL)
 }
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
 
-\item{from}{Character. Label of the source/endpoint node.}
+\item{from}{Character vector. Label(s) of the source/endpoint node(s).}
 
-\item{to}{Character. Label of the target/endpoint node.}
+\item{to}{Character vector. Label(s) of the target/endpoint node(s).}
 
-\item{numberOfArrows}{Integer, \code{1} or \code{2}, or \code{NULL}. Required when
-\code{from}/\code{to} alone would match more than one path (e.g. both a directed
-and a covariance path exist between the same two nodes).}
+\item{numberOfArrows}{\code{NULL} (the default: match any arrow count), or
+\code{1}/\code{2}, applied to every path, or a vector with one element per path.
+Required when \code{from}/\code{to} alone would match more than one path (e.g.
+both a directed and a covariance path exist between the same two
+nodes).}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-Cannot remove a \code{type: "data"} path -- use \code{\link[=disconnectData]{disconnectData()}} for that.
+Removes one or more existing paths. \code{from} and \code{to} are vectorized with
+the same shapes as \code{\link[=addPath]{addPath()}}:
+}
+\details{
+\itemize{
+\item \code{length(from) == 1}, \code{length(to) == n}: fan-out -- the path from \code{from}
+to each element of \code{to}.
+\item \code{length(from) == n}, \code{length(to) == 1}: fan-in -- the path from each
+element of \code{from} to \code{to}.
+\item \code{length(from) == length(to)}: pairwise -- \code{from[i]} to \code{to[i]}.
+}
+
+Any other combination of lengths is an error; there is no recycling and
+no all-pairs form.
+
+Two-headed paths are matched either way round (\verb{from = "A", to = "B"}
+finds a covariance stored as \verb{B <-> A}); one-headed paths only in the
+order given.
+
+The call is atomic: every requested path is looked up before any is
+removed, and if any of them can't be removed, none are, and the error
+names every offending pair. A path can't be removed if no such path
+exists; if \code{from}/\code{to} alone match more than one path (supply
+\code{numberOfArrows}); if the same path is requested twice in one call; or if
+it is a \code{type: "data"} connection -- use \code{\link[=disconnectData]{disconnectData()}} for that.
+}
+\examples{
+gm <- GraphModel() |>
+  addVariable("F") |>
+  addVariable("x1") |>
+  addVariable("x2") |>
+  addPath("F", c("x1", "x2"), 1) |>
+  addPath(c("x1", "x2", "x1"), c("x1", "x2", "x2"), 2)
+
+# fan-out: both loadings
+gm <- removePath(gm, "F", c("x1", "x2"), 1)
+
+# pairwise: the residual variances, leaving the x1 <-> x2 covariance
+gm <- removePath(gm, c("x1", "x2"), c("x1", "x2"), 2)
+
+# a covariance can be named either way round
+gm <- removePath(gm, "x2", "x1", 2)
+paths(gm)
+
 }

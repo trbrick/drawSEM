@@ -724,7 +724,7 @@ setLocation <- function(graphModel, nodeId, x, y) {
 #' gm <- GraphModel() |>
 #'   addVariable("F") |>
 #'   addVariable("x1") |>
-#'   addPath("F", "x1")
+#'   addPath("F", "x1", 1)
 #' gm <- setVisualization(gm, viewport = c(x = -200, y = -100, width = 400, height = 300),
 #'                        activeLayer = "all", offLayerVisibility = "transparent")
 #' gm@schema$models[[1]]$visualization

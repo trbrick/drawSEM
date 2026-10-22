@@ -159,7 +159,7 @@ setMethod(
 #'
 #' @examples
 #' gm <- GraphModel()
-#' schema(gm)
+#' gm@schema
 #'
 #' gm2 <- GraphModel(label = "mymodel")
 #'

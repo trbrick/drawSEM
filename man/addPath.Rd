@@ -2,7 +2,7 @@
 % Please edit documentation in R/verbs.R
 \name{addPath}
 \alias{addPath}
-\title{Add a Structural Path to a GraphModel}
+\title{Add Structural Paths to a GraphModel}
 \usage{
 addPath(
   graphModel,
@@ -17,28 +17,90 @@ addPath(
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
 
-\item{from}{Character. Label of the source node.}
+\item{from}{Character vector. Label(s) of the source node(s).}
 
-\item{to}{Character. Label of the target node.}
+\item{to}{Character vector. Label(s) of the target node(s). The constant
+node is labeled \code{"1"} by convention.}
 
-\item{numberOfArrows}{Integer, \code{1} or \code{2}. \code{1} = directed path
+\item{numberOfArrows}{Integer, \code{1} or \code{2}, applied to every path, or a
+vector with one element per path. \code{1} = directed path
 (regression/loading/mean); \code{2} = covariance or variance.}
 
 \item{freeParameter}{\code{NULL}/\code{FALSE} (fixed, the default), \code{TRUE} (free,
 anonymous), or a non-empty string (free and named -- implies an
 equality constraint if the same name is reused elsewhere). An empty
-string is rejected.}
+string is rejected. Either a single value, applied to every path, or
+one value per path: a logical vector, a character vector, or a list
+when mixing the two (e.g. \code{list(FALSE, TRUE, "b")}). Note that a single
+name applied to several paths gives all of them the same parameter
+label, which constrains them to be equal -- legal, and sometimes
+intended, but easy to do by accident.}
 
-\item{value}{Numeric or \code{NULL}. The path's fixed or starting value.}
+\item{value}{Numeric or \code{NULL}. The path's fixed or starting value. A
+single value, applied to every path, or one value per path; an \code{NA}
+element leaves that path's value unset.}
 
-\item{tags}{Character vector or \code{NULL}. Optional tags for the path.}
+\item{tags}{Character vector or \code{NULL}. Optional tags, applied to every
+path added by this call.}
 }
 \value{
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-Adds a new path between two nodes. Errors if a path already exists with
-the same \code{from}, \code{to}, and \code{numberOfArrows} -- there is no upsert form;
-use \code{\link[=changePath]{changePath()}} to modify an existing path's \code{freeParameter}/\code{value},
-or \code{\link[=convertPath]{convertPath()}} to change its arrow count.
+Adds one or more new paths between nodes. \code{from} and \code{to} are vectorized,
+so one call can fan out from one node, fan in to one node, or add a set
+of pairs:
+}
+\details{
+\itemize{
+\item \code{length(from) == 1}, \code{length(to) == n}: fan-out -- one path from \code{from}
+to each element of \code{to} (e.g. means from the constant \code{"1"} to several
+variables, or loadings from one factor).
+\item \code{length(from) == n}, \code{length(to) == 1}: fan-in -- one path from each
+element of \code{from} to \code{to} (e.g. several predictors of one outcome).
+\item \code{length(from) == length(to)}: pairwise -- \code{from[i]} to \code{to[i]}.
+}
+
+Any other combination of lengths is an error; there is no recycling, so a
+mismatched vector can't silently mispair endpoints (the same rule as
+\code{\link[=connectData]{connectData()}}).
+
+The call is atomic: every requested path is checked before any is added,
+and if any of them can't be added, none are, and the error names every
+offending pair. A path can't be added if an endpoint doesn't exist; if an
+endpoint isn't a legal path endpoint (a dataset node -- use
+\code{\link[=connectData]{connectData()}} for data connections -- or a constant node anywhere but
+the source of a one-headed path); if it is a one-headed self-loop (a
+variance is a two-headed path with \code{from == to}); if the same path is
+requested twice in one call; or if it already exists. There is no upsert
+form: use \code{\link[=changePath]{changePath()}} to modify an existing path's
+\code{freeParameter}/\code{value}, or \code{\link[=convertPath]{convertPath()}} to change its arrow count.
+Two-headed paths are symmetric: \verb{A <-> B} and \verb{B <-> A} are the same path
+for both duplicate checks.
+}
+\examples{
+gm <- GraphModel() |>
+  addConstant() |>
+  addVariable("F") |>
+  addVariable("x1") |>
+  addVariable("x2") |>
+  addVariable("x3")
+
+# fan-out: loadings from F, the first fixed at 1 for identification
+gm <- addPath(gm, "F", c("x1", "x2", "x3"), 1,
+              freeParameter = list(FALSE, TRUE, TRUE), value = 1)
+
+# pairwise: residual variances (self-loops) and the factor variance
+gm <- addPath(gm, c("x1", "x2", "x3", "F"), c("x1", "x2", "x3", "F"), 2,
+              freeParameter = TRUE, value = 1)
+
+# fan-out from the constant: means
+gm <- addPath(gm, "1", c("x1", "x2", "x3"), 1, freeParameter = TRUE, value = 0)
+
+# one shared name makes the paths equal -- here, equal residual variances
+gm2 <- GraphModel() |> addVariable("y1") |> addVariable("y2") |>
+  addPath(c("y1", "y2"), c("y1", "y2"), 2, freeParameter = "resid")
+
+paths(gm, from = "F")
+
 }

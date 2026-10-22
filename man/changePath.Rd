@@ -2,7 +2,7 @@
 % Please edit documentation in R/verbs.R
 \name{changePath}
 \alias{changePath}
-\title{Change an Existing Path's Free-Parameter Status, Value, or Tags}
+\title{Change Existing Paths' Free-Parameter Status, Value, or Tags}
 \usage{
 changePath(
   graphModel,
@@ -19,22 +19,31 @@ changePath(
 \arguments{
 \item{graphModel}{A \code{GraphModel} object to modify.}
 
-\item{from}{Character. Label of the source/endpoint node.}
+\item{from}{Character vector. Label(s) of the source/endpoint node(s).}
 
-\item{to}{Character. Label of the target/endpoint node.}
+\item{to}{Character vector. Label(s) of the target/endpoint node(s).}
 
-\item{numberOfArrows}{Integer, \code{1} or \code{2}, or \code{NULL}. Required when
-\code{from}/\code{to} alone would match more than one path.}
+\item{numberOfArrows}{\code{NULL} (the default: match any arrow count), or
+\code{1}/\code{2}, applied to every path, or a vector with one element per path.
+Required when \code{from}/\code{to} alone would match more than one path.}
 
 \item{freeParameter}{\code{NA} (unchanged, default), \code{FALSE} (clear -- fixed),
 \code{TRUE} (free, anonymous), or a non-empty string (free, named). An empty
-string is rejected.}
+string is rejected. A single value, applied to every path, or one value
+per path: a logical vector, a character vector, or a list when mixing
+(e.g. \code{list(NA, FALSE, "a")}). A single name applied to several paths
+gives all of them the same parameter label, which constrains them to be
+equal.}
 
-\item{value}{\code{NA} (unchanged, default) or a number (set).}
+\item{value}{\code{NA} (unchanged, default) or a number (set). A single value,
+applied to every path, or one value per path; an \code{NA} element leaves
+that path's value unchanged.}
 
-\item{addTags}{Character vector or \code{NULL}. Tags to ensure are present.}
+\item{addTags}{Character vector or \code{NULL}. Tags to ensure are present on
+every path.}
 
-\item{removeTags}{Character vector or \code{NULL}. Tags to ensure are absent.}
+\item{removeTags}{Character vector or \code{NULL}. Tags to ensure are absent
+from every path.}
 
 \item{strict}{Logical, default \code{FALSE}. If \code{TRUE}, \code{addTags}/\code{removeTags}
 error when a tag is already present/absent instead of silently doing
@@ -44,19 +53,57 @@ nothing for that tag.}
 The modified \code{graphModel} object (invisibly).
 }
 \description{
-\code{from}, \code{to}, and \code{numberOfArrows} identify the existing path to change
-and are never themselves modified by this function -- \code{changePath()}
-cannot change a path's arrow count (see \code{\link[=convertPath]{convertPath()}}) or redirect its
-endpoints (a path has no identity independent of what it connects, so
-redirecting one is \code{\link[=removePath]{removePath()}} + \code{\link[=addPath]{addPath()}}, not a property edit).
-Errors if no such path exists, rather than silently creating one -- see
-\code{\link[=addPath]{addPath()}} for that. Cannot change a \code{type: "data"} path -- use
-\code{\link[=disconnectData]{disconnectData()}}/\code{\link[=connectData]{connectData()}}/\code{\link[=reconnectData]{reconnectData()}} for those.
+\code{from}, \code{to}, and \code{numberOfArrows} identify the existing path(s) to
+change and are never themselves modified by this function --
+\code{changePath()} cannot change a path's arrow count (see \code{\link[=convertPath]{convertPath()}})
+or redirect its endpoints (a path has no identity independent of what it
+connects, so redirecting one is \code{\link[=removePath]{removePath()}} + \code{\link[=addPath]{addPath()}}, not a
+property edit). Errors if no such path exists, rather than silently
+creating one -- see \code{\link[=addPath]{addPath()}} for that. Cannot change a \code{type: "data"}
+path -- use \code{\link[=disconnectData]{disconnectData()}}/\code{\link[=connectData]{connectData()}}/\code{\link[=reconnectData]{reconnectData()}} for
+those.
 }
 \details{
+\code{from} and \code{to} are vectorized with the same shapes as \code{\link[=addPath]{addPath()}}:
+fan-out (\code{length(from) == 1}), fan-in (\code{length(to) == 1}), or pairwise
+(equal lengths, \code{from[i]} to \code{to[i]}). Any other combination of lengths
+is an error; there is no recycling and no all-pairs form. Two-headed
+paths are matched either way round; one-headed paths only in the order
+given.
+
 \code{freeParameter} and \code{value} each follow the convention: \code{NA} (default)
 leaves the field unchanged, \code{FALSE} clears it (\code{freeParameter} only --
 \code{value} has no \code{FALSE}/clear form, since the schema's own default of 1.0
 makes "absent" and "explicitly 1.0" equivalent), any other legal value
-sets it.
+sets it. Each takes either a single value, applied to every path, or one
+value per path, so the convention applies path by path: e.g.
+\code{freeParameter = list(NA, FALSE, "a")} leaves the first path's
+\code{freeParameter} unchanged, fixes the second, and names the third.
+\code{addTags}/\code{removeTags}/\code{strict} apply to every path.
+
+The call is atomic: every requested path is looked up (and, under
+\code{strict = TRUE}, its tag changes checked) before any is changed, and if
+any of them can't be changed, none are, and the error names every
+offending pair. A path can't be changed if no such path exists; if
+\code{from}/\code{to} alone match more than one path (supply \code{numberOfArrows}); if
+the same path is requested twice in one call; or if it is a data
+connection.
+}
+\examples{
+gm <- GraphModel() |>
+  addVariable("F") |>
+  addVariable("x1") |>
+  addVariable("x2") |>
+  addVariable("x3") |>
+  addPath("F", c("x1", "x2", "x3"), 1, freeParameter = TRUE)
+
+# fan-out: fix the first loading at 1, leave the second as it is, and
+# name the third
+gm <- changePath(gm, "F", c("x1", "x2", "x3"), 1,
+                 freeParameter = list(FALSE, NA, "lam3"), value = c(1, NA, NA))
+
+# tag every loading
+gm <- changePath(gm, "F", c("x1", "x2", "x3"), addTags = "loading")
+paths(gm, from = "F")
+
 }

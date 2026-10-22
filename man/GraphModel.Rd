@@ -24,7 +24,7 @@ populated with the verb functions (\code{addVariable()}, \code{addPath()}, etc.)
 }
 \examples{
 gm <- GraphModel()
-schema(gm)
+gm@schema
 
 gm2 <- GraphModel(label = "mymodel")
 

@@ -11,7 +11,7 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
@@ -23,7 +23,14 @@ import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
 import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
 import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
-import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { useEditorKeyboard, useEditorPaste, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { copySelection, isCopyableNode, serializeFragment, parseFragment, planPaste, planDuplicate, pasteOffset, writeClipboardText, readClipboardText, clipboardTextFrom, eventClipboardText } from '../utils/clipboard'
+import type { PastePlan } from '../utils/clipboard'
+import { EMPTY_SELECTION, selectionOf, unionSelections, selectionSize, toggleInSelection, pruneSelection, sameSelection, boundsFromPoints, unionBounds, marqueeSelection, svgPathPoints } from '../utils/selection'
+import { withMappingLinked, withMappingColumn, followLinkedMappings, incomingDataPaths, isMissingColumn, linkMappingsOnLoad } from '../utils/dataMapping'
+import type { Selection, SelectionKind, Bounds, Point } from '../utils/selection'
+import { isMacPlatform, isSecondaryPress, isToggleModifier } from '../utils/platform'
+import { pathIssue, PATH_ISSUE_MESSAGE, dragPathPairs, planDraggedPaths, draggedPathsMessage, planAddMeans, addMeansMessage, planCorrelateAll, correlateAllMessage, sharedValue, MIXED } from '../utils/groupEdits'
 import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
 
 type NodeType = Node['type']
@@ -73,13 +80,28 @@ const SCROLL_HINT_SHOW_MS = 1200
 const SCROLL_HINT_FADE_MS = 300
 /** "Ctrl + scroll to zoom", with ⌘ on macOS / iOS. */
 function scrollHintText(): string {
-  const platform = typeof navigator !== 'undefined' ? ((navigator as any).userAgentData?.platform || navigator.platform || navigator.userAgent || '') : ''
-  return /mac|iphone|ipad/i.test(platform) ? '⌘ + scroll to zoom' : 'Ctrl + scroll to zoom'
+  return isMacPlatform() ? '⌘ + scroll to zoom' : 'Ctrl + scroll to zoom'
 }
+
+/** A Cmd/Ctrl+V keypress: when it was pressed, and whether it has pasted. */
+interface PasteKeypress {
+  at: number
+  done: boolean
+}
+// A paste event this soon after a Cmd/Ctrl+V is that keypress's own
+const PASTE_EVENT_WINDOW_MS = 1000
+
+// A data path's cable label when its column is missing from its dataset
+const WARNING_COLORS = { fill: '#fef3c7', stroke: '#d97706', text: '#b45309' }
 
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
 const EMPTY_PARAMETER_TYPES: Record<string, any> = {}
+
+// An undo step R kept is loaded like a document: its mapping links are not saved
+function linkSnapshotMappings<S extends { models: RuntimeModel[] }>(snapshot: S): S {
+  return { ...snapshot, models: linkMappingsOnLoad(snapshot.models) }
+}
 
 export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'full', editMode = 'full' }: CanvasToolProps): JSX.Element {
   const isLayoutOnly = editMode === 'layout'
@@ -369,51 +391,27 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Helper: Show error message with auto-dismiss
   const showPathError = (message: string) => {
+    setInfoMessage(null)
     setErrorMessage(message)
     setTimeout(() => setErrorMessage(null), 4000)
   }
 
-  // Helper: Check if a path is valid and return error message if not
+  // Helper: why the path src -> dst cannot be added (the full message), or null
   const getPathValidationError = (srcId: string, dstId: string, twoSided: boolean): string | null => {
-    const srcNode = nodes.find((n) => n.id === srcId)
-    const dstNode = nodes.find((n) => n.id === dstId)
-
-    // Can't have self-paths with one arrow (only two-sided variance)
-    if (srcId === dstId && !twoSided) {
-      return 'Self-paths must be two-headed (variance). Use ↔ to create variance.'
-    }
-
-    // Dataset nodes can only be sources, never destinations
-    if (dstNode?.type === 'dataset') {
-      return 'Dataset nodes can only be data sources, not path destinations. Paths must originate FROM datasets, not TO datasets.'
-    }
-
-    // Constants can only be sources (one-headed incoming paths), not destinations and no two-headed paths
-    if (dstNode?.type === 'constant') {
-      return 'Constants cannot be path destinations. Constants are fixed values that can only serve as sources (→).'
-    }
-
-    // Constants can't have any two-headed paths (self or outgoing)
-    if (srcNode?.type === 'constant' && twoSided) {
-      return 'Constants cannot have two-headed paths (↔). Constants can only have one-headed outgoing paths (→).'
-    }
-
-    // Datasets can only be sources, never destinations (handled above at line 182)
-    // If they're also the source, they can't have two-headed paths
-    if (srcNode?.type === 'dataset' && twoSided) {
-      return 'Datasets cannot have two-headed paths. Use → for one-headed paths from datasets.'
-    }
-
-    // Duplicate one-headed paths
-    if (!twoSided) {
-      const exists = paths.find((pp) => pp.from === srcId && pp.to === dstId && pp.twoSided === false)
-      if (exists) {
-        return 'A one-headed path already exists between these nodes.'
-      }
-    }
-
-    return null
+    const issue = pathIssue(nodes, paths, srcId, dstId, twoSided)
+    return issue ? PATH_ISSUE_MESSAGE[issue] : null
   }
+
+  // A neutral, transient notice (e.g. what a many-path edit added and skipped)
+  const [infoMessage, setInfoMessage] = useState<string | null>(null)
+  const infoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showInfo = (message: string) => {
+    setErrorMessage(null)
+    setInfoMessage(message)
+    if (infoTimerRef.current) clearTimeout(infoTimerRef.current)
+    infoTimerRef.current = setTimeout(() => setInfoMessage(null), 6000)
+  }
+  React.useEffect(() => () => { if (infoTimerRef.current) clearTimeout(infoTimerRef.current) }, [])
 
   // Layer helpers: determine if a node/path should be highlighted in the current layer
   const getElementOpacity = (inLayer: boolean): number => {
@@ -498,7 +496,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         }
 
         if (mounted && g && typeof (g as any).models === 'object' && !Array.isArray((g as any).models)) {
-          const modelsOut = convertDocToRuntime(g as any)
+          // a new document: data paths named like their variable are linked
+          const modelsOut = linkMappingsOnLoad(convertDocToRuntime(g as any))
 
           // Auto-layout only when no node of the model has a position
           try {
@@ -517,7 +516,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               { models: modelsOut, currentModelId: modelsOut[0]?.id ?? null },
               { layoutOnly: isLayoutOnly }
             )
-            if (restored) history.loadStacks(restored.past, restored.future)
+            if (restored) history.loadStacks(restored.past.map(linkSnapshotMappings), restored.future.map(linkSnapshotMappings))
           }
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
@@ -571,7 +570,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           if (kind === 'data') history.markChange()
-          loadModels(modelsOut)
+          // Mapping links: a new document links data paths named like their
+          // variable; a push that keeps the history keeps the links it had.
+          if (kind === 'load') loadModels(linkMappingsOnLoad(modelsOut))
+          else loadModels((prev) => linkMappingsOnLoad(modelsOut, prev))
           if (kind === 'load') history.reset()
           setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
@@ -793,8 +795,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }, [models, docPassthrough, onModelChange])
   const [mode, setMode] = useState<Mode>('select')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedType, setSelectedType] = useState<'node' | 'path' | null>(null)
+  // The selection: any number of nodes and paths (runtime ids; see utils/selection)
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
@@ -820,9 +822,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   )
 
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null)
-  // pending drag holds initial press until movement threshold is reached
-  const pendingDragRef = useRef<{ id: string; startClientX: number; startClientY: number; offsetX: number; offsetY: number } | null>(null)
+  // A node drag moves every node in `origins` (the selected nodes) by the
+  // cursor's offset from `start` (canvas coordinates). The object is also the
+  // drag's undo key, so a whole drag is one step.
+  type NodeDrag = { origins: Map<string, { x: number; y: number }>; start: { x: number; y: number } }
+  const dragRef = useRef<NodeDrag | null>(null)
+  // pending drag holds initial press until movement threshold is reached.
+  // `collapseTo`: a press on a node of a multi-selection keeps the group for a
+  // drag; released without dragging (a plain click) it selects that node alone.
+  const pendingDragRef = useRef<(NodeDrag & { startClientX: number; startClientY: number; collapseTo: string | null }) | null>(null)
+  // Selection rectangle (canvas coordinates) while a background drag is active,
+  // with what it would select if released now (drawn as selected meanwhile)
+  const [marquee, setMarquee] = useState<{ rect: Bounds; preview: Selection } | null>(null)
+  const marqueeCleanupRef = useRef<(() => void) | null>(null)
   // Self-loop drag-to-pin: armed on mousedown on a self-loop, becomes active past
   // the drag threshold; while active the loop previews the nearest side and on
   // release that side is pinned (Path.side).
@@ -832,8 +844,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const suppressClickRef = useRef(false)
   // track which node the cursor is hovering over (for path drop target)
   const hoverNodeRef = useRef<string | null>(null)
-  // true when current path drag was initiated by right-click (forces twoSided=false)
-  const rightClickDragRef = useRef(false)
+  // A path drag (right-drag from a node, or the path tools) starts at
+  // `pathSource`; `pathSources` are the nodes it draws from (every selected node
+  // when it started on a node of a multi-selection). Holding Shift makes it
+  // two-headed while held (`pathShift`, for the live preview; the release
+  // decides). The add-two-path tool is always two-headed.
+  const [pathSources, setPathSources] = useState<string[]>([])
+  const [pathShift, setPathShift] = useState(false)
+  // macOS: Ctrl+left press acts as a right press, and Ctrl does not toggle selection
+  const isMac = React.useMemo(() => isMacPlatform(), [])
   const [tempLine, setTempLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const [editing, setEditing] = useState<{
     id: string
@@ -997,10 +1016,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setValidationWarnings(getAllValidationWarnings())
   }, [nodes, paths])
 
+  const selectedNodeIds = React.useMemo(() => new Set(selection.nodeIds), [selection])
+  const selectedPathIds = React.useMemo(() => new Set(selection.pathIds), [selection])
+  // What the canvas draws as selected: during a selection-rectangle drag, what
+  // releasing it now would select (the selection itself is unchanged until then)
+  const drawnSelection = marquee?.preview ?? selection
+  const drawnNodeIds = React.useMemo(() => new Set(drawnSelection.nodeIds), [drawnSelection])
+  const drawnPathIds = React.useMemo(() => new Set(drawnSelection.pathIds), [drawnSelection])
+  const selectionCount = selectionSize(selection)
+
+  // The single-element views of the selection: set only when exactly one
+  // element is selected. Everything that shows or edits one element (the
+  // popup's details, the dataset column panel, column drag-and-drop) uses these.
   const selectedNode = React.useMemo(() => {
-    if (selectedType !== 'node' || !selectedId) return null
-    return nodes.find((n) => n.id === selectedId) || null
-  }, [selectedType, selectedId, nodes])
+    if (selection.nodeIds.length !== 1 || selection.pathIds.length !== 0) return null
+    return nodes.find((n) => n.id === selection.nodeIds[0]) || null
+  }, [selection, nodes])
 
   // Why the inspector's label draft wasn't applied, if it wasn't
   const labelDraftError = selectedNode && labelDraft?.nodeId === selectedNode.id && labelDraft.value !== selectedNode.label
@@ -1008,34 +1039,208 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     : null
 
   const selectedPath = React.useMemo(() => {
-    if (selectedType !== 'path' || !selectedId) return null
-    return paths.find((p) => p.id === selectedId) || null
-  }, [selectedType, selectedId, paths])
+    if (selection.pathIds.length !== 1 || selection.nodeIds.length !== 0) return null
+    return paths.find((p) => p.id === selection.pathIds[0]) || null
+  }, [selection, paths])
 
-  // Unified selection helper: select a node or path
-  function selectElement(id: string, type: 'node' | 'path') {
-    // Simply select the element (no toggle on every click)
-    setSelectedId(id)
-    setSelectedType(type)
+  // Selected ids that no longer exist (deleted, undone, another model shown)
+  // are dropped, so the selection only ever names live elements. While
+  // off-layer elements are hidden they are dropped too, so a group delete
+  // never removes something the user cannot see.
+  React.useEffect(() => {
+    const hideOffLayer = offLayerVisibility === 'invisible'
+    const nodeIds = new Set(nodes.filter((n) => !hideOffLayer || isNodeInLayer(n)).map((n) => n.id))
+    const pathIds = new Set(paths.filter((p) => !hideOffLayer || isPathInLayer(p)).map((p) => p.id))
+    setSelection((s) => pruneSelection(s, nodeIds, pathIds))
+  }, [nodes, paths, activeLayer, offLayerVisibility])
+
+  // Select just this element (a plain click)
+  function selectElement(id: string, type: SelectionKind) {
+    setSelection(selectionOf(type, id))
   }
 
-  // Unified deselection helper
+  // Add the element to the selection, or remove it (Shift / Cmd / Ctrl + click)
+  function toggleElement(id: string, type: SelectionKind) {
+    setSelection((s) => toggleInSelection(s, type, id))
+  }
+
   function deselectAll() {
-    setSelectedId(null)
-    setSelectedType(null)
+    setSelection((s) => (selectionSize(s) === 0 ? s : EMPTY_SELECTION))
   }
 
+  // Cmd/Ctrl+A: every node and path in the active layer
+  function selectAllInLayer() {
+    const next: Selection = {
+      nodeIds: nodes.filter((n) => isNodeInLayer(n)).map((n) => n.id),
+      pathIds: paths.filter((p) => isPathInLayer(p)).map((p) => p.id),
+    }
+    setSelection((s) => (sameSelection(s, next) ? s : next))
+  }
+
+  // Delete every selected node (with the paths touching it) and every selected
+  // path. One handler, so one undo step.
   function deleteSelected() {
     if (isLayoutOnly) return
-    if (selectedType === 'node' && selectedId) {
-      setNodes((s) => s.filter((n) => n.id !== selectedId))
-      // Also remove any paths connected to this node
-      setPaths((s) => s.filter((p) => p.from !== selectedId && p.to !== selectedId))
-      deselectAll()
-    } else if (selectedType === 'path' && selectedId) {
-      setPaths((s) => s.filter((p) => p.id !== selectedId))
-      deselectAll()
+    if (selectedNodeIds.size === 0 && selectedPathIds.size === 0) return
+    const nodeIds = selectedNodeIds
+    const pathIds = selectedPathIds
+    if (nodeIds.size > 0) setNodes((s) => s.filter((n) => !nodeIds.has(n.id)))
+    setPaths((s) => s.filter((p) => !pathIds.has(p.id) && !nodeIds.has(p.from) && !nodeIds.has(p.to)))
+    deselectAll()
+  }
+
+  // ---- Group actions (multi-selection popup; one undo step each) ----
+  const selectedNodesList = React.useMemo(() => nodes.filter((n) => selectedNodeIds.has(n.id)), [nodes, selectedNodeIds])
+  const selectedVariables = React.useMemo(() => selectedNodesList.filter((n) => n.type === 'variable'), [selectedNodesList])
+  const selectedPathsList = React.useMemo(() => paths.filter((p) => selectedPathIds.has(p.id)), [paths, selectedPathIds])
+  // Structural paths only: data paths have no value or free/fixed state
+  const selectedStructuralPaths = selectedPathsList.filter((p) => !isDatasetPath(p, nodes))
+  const selectedDataPathCount = selectedPathsList.length - selectedStructuralPaths.length
+
+  // Paths (and a constant) added from the multi-selection popup join the selection
+  function selectAdded(added: readonly Path[], node?: Node | null) {
+    setSelection((s) => unionSelections(s, { nodeIds: node ? [node.id] : [], pathIds: added.map((p) => p.id) }))
+  }
+
+  // "Add means": a free mean path from a constant to every selected variable without one
+  function addMeansToSelection() {
+    if (isLayoutOnly) return
+    const below = unionBounds(selectedNodesList.map((n) => nodeBounds(n)))
+    const plan = planAddMeans(nodes, paths, selection.nodeIds, below)
+    if (plan.newConstant) {
+      const c = plan.newConstant
+      setNodes((ns) => [...ns, c])
     }
+    if (plan.added.length > 0) {
+      setPaths((ps) => [...ps, ...plan.added])
+      selectAdded(plan.added, plan.newConstant)
+    }
+    const constantLabel = plan.constantId ? (plan.newConstant ?? nodes.find((n) => n.id === plan.constantId))?.label ?? null : null
+    showInfo(addMeansMessage(plan, constantLabel))
+  }
+
+  // "Correlate all": a free covariance between every pair of selected variables without one
+  function correlateSelection() {
+    if (isLayoutOnly) return
+    const plan = planCorrelateAll(nodes, paths, selection.nodeIds)
+    if (plan.added.length > 0) {
+      setPaths((ps) => [...ps, ...plan.added])
+      selectAdded(plan.added)
+    }
+    showInfo(correlateAllMessage(plan))
+  }
+
+  // ---- Copy, cut, paste, duplicate (rules in utils/clipboard.ts) ----
+  // Repeated pastes of the same clipboard content step further from the copy:
+  // `count` is the step of the last paste (0 after a copy, -1 after a cut, so
+  // that the first paste after a cut lands in place).
+  const pasteCountRef = useRef<{ text: string; count: number } | null>(null)
+  // The last Cmd/Ctrl+V, until its paste event arrives (see handleClipboardKey)
+  const pasteKeyRef = useRef<PasteKeypress | null>(null)
+
+  // In the SEM layer data paths cannot be selected, so a copied manifest
+  // variable takes its data paths along; elsewhere they are copied when selected.
+  const copyOptions = { withDataPaths: activeLayer === 'sem' }
+
+  /** Copy the selection to the clipboard. False when nothing in it is copyable. */
+  function copySelected(): boolean {
+    const fragment = copySelection(nodes, paths, selection, copyOptions)
+    if (!fragment) return false
+    const text = serializeFragment(fragment)
+    pasteCountRef.current = { text, count: 0 }
+    void writeClipboardText(text)
+    return true
+  }
+
+  /**
+   * Copy, then delete what was copied: the selected variables and constants
+   * with every path touching them (data paths included). Selected datasets are
+   * never copied, so they stay, and stay selected. One undo step.
+   */
+  function cutSelected(): boolean {
+    if (isLayoutOnly || !copySelected()) return false
+    pasteCountRef.current = { ...pasteCountRef.current!, count: -1 }
+    const cut = new Set(selectedNodesList.filter(isCopyableNode).map((n) => n.id))
+    const touchesCut = (p: Path) => cut.has(p.from) || cut.has(p.to)
+    setNodes((s) => s.filter((n) => !cut.has(n.id)))
+    setPaths((s) => s.filter((p) => !touchesCut(p)))
+    setSelection({
+      nodeIds: selection.nodeIds.filter((id) => !cut.has(id)),
+      pathIds: selectedPathsList.filter((p) => !touchesCut(p)).map((p) => p.id),
+    })
+    return true
+  }
+
+  /** Add pasted / duplicated elements as one undo step and select them. */
+  function insertPastePlan(plan: PastePlan | null) {
+    if (isLayoutOnly || !plan || !currentModelId) return
+    const modelId = currentModelId
+    setModels((ms) => ms.map((m) => (m.id === modelId ? { ...m, nodes: [...m.nodes, ...plan.nodes], paths: [...m.paths, ...plan.paths] } : m)))
+    setSelection({ nodeIds: plan.nodes.map((n) => n.id), pathIds: plan.paths.map((p) => p.id) })
+  }
+
+  function pasteText(text: string | null) {
+    if (isLayoutOnly || !text) return
+    const fragment = parseFragment(text)
+    if (!fragment) return
+    const last = pasteCountRef.current
+    const count = last && last.text === text ? last.count + 1 : 1
+    pasteCountRef.current = { text, count }
+    insertPastePlan(planPaste(nodes, paths, fragment, pasteOffset(fragment, count)))
+  }
+  // Pastes that complete asynchronously use the latest render's state
+  const pasteTextRef = useRef(pasteText)
+  pasteTextRef.current = pasteText
+
+  /** Paste `text` for the Cmd/Ctrl+V `press`, unless that press has pasted already. */
+  function pasteForKeypress(press: PasteKeypress, text: string | null) {
+    if (press.done || !parseFragment(text)) return
+    press.done = true
+    pasteTextRef.current(text)
+  }
+
+  function duplicateSelected() {
+    if (isLayoutOnly) return
+    insertPastePlan(planDuplicate(nodes, paths, selection, copyOptions))
+  }
+
+  /** Apply `f` to every selected structural (non-data) path. */
+  function updateSelectedStructuralPaths(f: (p: Path) => Path) {
+    if (isLayoutOnly) return
+    const ids = new Set(selectedStructuralPaths.map((p) => p.id))
+    if (ids.size === 0) return
+    setPaths((ps) => ps.map((p) => (ids.has(p.id) ? f(p) : p)))
+  }
+
+  /** Set the manifest/latent lock of every selected variable. */
+  function setSelectedManifestLatent(value: 'manifest' | 'latent' | undefined) {
+    if (isLayoutOnly) return
+    const ids = new Set(selectedVariables.map((n) => n.id))
+    setNodes((ns) => ns.map((n) => (ids.has(n.id) ? withManifestLatent(n, value) : n)))
+  }
+
+  /** Canvas-space bounding box of a node as drawn (its shape, not its label). */
+  function nodeBounds(n: Node): Bounds {
+    const x = nodeX(n)
+    const y = nodeY(n)
+    const box = (hw: number, top: number, bottom: number): Bounds => ({ minX: x - hw, maxX: x + hw, minY: y + top, maxY: y + bottom })
+    if (n.type === 'variable') {
+      if (getVariableRenderType(n.id) === 'manifest') {
+        const w = n.width ?? MANIFEST_DEFAULT_W
+        const h = n.height ?? MANIFEST_DEFAULT_H
+        return box(w / 2, -h / 2, h / 2)
+      }
+      return box(LATENT_RADIUS, -LATENT_RADIUS, LATENT_RADIUS)
+    }
+    if (n.type === 'dataset') {
+      // the cylinder as drawn below: top ellipse to bottom ellipse
+      const w = n.width ?? MANIFEST_DEFAULT_W
+      const h = n.height ?? MANIFEST_DEFAULT_H
+      const ry = Math.max(5, Math.round(h * 0.18))
+      return box(w / 2, -h / 2 - ry / 2, h / 2 + 2 * ry)
+    }
+    // constant triangle: points 0,-22 19,11 -19,11
+    return box(19, -22, 11)
   }
 
   // An unlabeled path's displayName is generated from its endpoints and arrow
@@ -1046,6 +1251,58 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const to = nodes.find((n) => n.id === p.to)
     const name = (n: Node | undefined, id: string) => convertToUnicode(n?.label ?? id)
     return { ...p, displayName: name(from, p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(to, p.to) }
+  }
+
+  // Set a path's label exactly as typed (it is a parameter or column name, so
+  // LaTeX-style text such as x_1 is kept); only the displayName shown on the
+  // canvas is converted to Unicode.
+  function withPathLabel(p: Path, label: string): Path {
+    const next = label ? { ...p, label, displayName: convertToUnicode(label) } : withAutoDisplayName({ ...p, label: null })
+    return keepMappingLinkTruthful(next)
+  }
+
+  /**
+   * Rename a node; data paths into it whose mapping is linked to its name
+   * ("Same as variable name") map the new name. One state update, so one
+   * undo step (and one coalesced typing step in the inspector).
+   */
+  function renameNode(nodeId: string, label: string) {
+    const modelId = currentModelId
+    if (!modelId) return
+    setModels((ms) => ms.map((m) => {
+      if (m.id !== modelId) return m
+      // the label is kept as typed; only the displayed name is Unicode
+      const ns = m.nodes.map((n) => (n.id === nodeId ? { ...n, label, displayName: convertToUnicode(label) } : n))
+      // unlabeled paths at the node show its name ("F → x1"): keep that truthful
+      const name = (id: string) => convertToUnicode(ns.find((n) => n.id === id)?.label ?? id)
+      const ps = followLinkedMappings(m.paths, nodeId, label).map((p) =>
+        !p.label && (p.from === nodeId || p.to === nodeId)
+          ? { ...p, displayName: name(p.from) + (p.twoSided ? ' ↔ ' : ' → ') + name(p.to) }
+          : p
+      )
+      return { ...m, nodes: ns, paths: ps }
+    }))
+  }
+
+  /** A data path edited elsewhere keeps its mapping link only while its column is still its variable's name. */
+  function keepMappingLinkTruthful(p: Path): Path {
+    if (!p.mappingLinked) return p
+    return withMappingLinked(p, p.label === nodes.find((n) => n.id === p.to)?.label)
+  }
+
+  /** Set the column a data path maps (the inspector's mapping field). */
+  function setMappingColumn(pathId: string, column: string) {
+    setPaths((ps) => ps.map((p) => (p.id === pathId ? withMappingColumn(p, column, nodes.find((n) => n.id === p.to)?.label) : p)))
+  }
+
+  /** Tick or untick "Same as variable name": ticking maps the variable's name. */
+  function setMappingLinked(pathId: string, linked: boolean) {
+    setPaths((ps) => ps.map((p) => {
+      if (p.id !== pathId) return p
+      const variable = nodes.find((n) => n.id === p.to)
+      if (!linked || !variable) return withMappingLinked(p, false)
+      return withMappingLinked(withMappingColumn(p, variable.label, variable.label), true)
+    }))
   }
 
   // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
@@ -1094,12 +1351,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
-  // Debug effect: log selection state changes
-  React.useEffect(() => {
-    // Selection state tracking (no debug output needed)
-    return
-  }, [selectedId, selectedType])
-
   // ---- Undo/redo and keyboard shortcuts ----
 
   // Root element of this editor instance. Keyboard shortcuts apply only to the
@@ -1113,7 +1364,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (dragRef.current) return dragRef.current
     const active = typeof document !== 'undefined' ? document.activeElement : null
     if (active && active.tagName !== 'SELECT' && isTextEntryTarget(active) && editorRootRef.current?.contains(active)) {
-      return fieldKey(active, `${selectedType}:${selectedId}`)
+      return fieldKey(active, `nodes:${selection.nodeIds.join(',')};paths:${selection.pathIds.join(',')}`)
     }
     return undefined
   }
@@ -1133,33 +1384,31 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function undoRedo(direction: 'undo' | 'redo') {
     const restored = direction === 'undo' ? history.undo() : history.redo()
     if (!restored) return
-    // An in-progress path creation refers to the replaced state: drop it. Clear
-    // the selection if the selected element no longer exists.
-    rightClickDragRef.current = false
-    setPathSource(null)
-    setTempLine(null)
+    // An in-progress path creation refers to the replaced state: drop it. Drop
+    // selected elements that no longer exist.
+    endPathDrag()
     const model = restored.models.find((m) => m.id === restored.currentModelId)
-    const stillExists = selectedType === 'node'
-      ? model?.nodes.some((n) => n.id === selectedId)
-      : model?.paths.some((p) => p.id === selectedId)
-    if (selectedId && !stillExists) deselectAll()
+    const nodeIds = new Set((model?.nodes ?? []).map((n) => n.id))
+    const pathIds = new Set((model?.paths ?? []).map((p) => p.id))
+    setSelection((s) => pruneSelection(s, nodeIds, pathIds))
   }
 
-  // Arrow-key nudge of the selected node. A run of nudges (e.g. key repeat)
-  // coalesces into one undo step.
+  // Arrow-key nudge of the selected nodes. A run of nudges (e.g. key repeat) of
+  // the same nodes coalesces into one undo step.
   const NUDGE_WINDOW_MS = 1000
-  function nudgeSelectedNode(dx: number, dy: number): boolean {
-    if (selectedType !== 'node' || !selectedId) return false
-    const id = selectedId
-    if (!nodes.some((n) => n.id === id)) return false
-    history.withKey(`nudge:${id}`, NUDGE_WINDOW_MS, () => {
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
+  function nudgeSelectedNodes(dx: number, dy: number): boolean {
+    const ids = selection.nodeIds.filter((id) => nodes.some((n) => n.id === id))
+    if (ids.length === 0) return false
+    const moving = new Set(ids)
+    history.withKey(`nudge:${[...ids].sort().join(',')}`, NUDGE_WINDOW_MS, () => {
+      setNodes((ns) => ns.map((n) => (moving.has(n.id) ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
     })
     return true
   }
 
   // Escape: close an open toolbar menu, else cancel an in-progress path, else
-  // leave an add mode, else deselect (which also closes the element popup).
+  // leave an add mode, else clear the whole selection (which also closes the
+  // element popup).
   function handleEscapeKey() {
     if (showExportMenu || showSaveMenu) {
       setShowExportMenu(false)
@@ -1167,9 +1416,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
     if (pathSource || tempLine) {
-      rightClickDragRef.current = false
-      setPathSource(null)
-      setTempLine(null)
+      endPathDrag()
       setMode('select')
       return
     }
@@ -1178,6 +1425,43 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
     deselectAll()
+  }
+
+  // Text selected on the page (e.g. in the popup) is copied by the browser as usual
+  function pageHasTextSelection(): boolean {
+    const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection() : null
+    return !!sel && !sel.isCollapsed && sel.toString() !== ''
+  }
+
+  // A press on the diagram (background, node or path) drops any page text
+  // selection, which would otherwise keep Cmd/Ctrl+C and X copying that text.
+  // Node and path presses prevent the default, so the browser does not.
+  function clearPageTextSelection() {
+    if (typeof window !== 'undefined' && window.getSelection) window.getSelection()?.removeAllRanges()
+  }
+
+  function handleClipboardKey(key: string, e: KeyboardEvent) {
+    if (key === 'c') {
+      if (!pageHasTextSelection() && copySelected()) e.preventDefault()
+    } else if (key === 'x') {
+      if (!pageHasTextSelection() && cutSelected()) e.preventDefault()
+    } else if (key === 'd') {
+      e.preventDefault() // the browser's bookmark shortcut
+      duplicateSelected()
+    } else if (key === 'v' && !isLayoutOnly) {
+      // Not prevented: the browser then sends a paste event with the clipboard
+      // text (useEditorPaste below). Where it does not (some browsers send none
+      // outside text fields), read the clipboard once this event is done. The
+      // paste event may also come later than that (e.g. Chrome on macOS routes
+      // Cmd+V through the app's Edit menu), so the event and the read race:
+      // whichever has the text first pastes, once, for this keypress.
+      const press: PasteKeypress = { at: Date.now(), done: false }
+      pasteKeyRef.current = press
+      setTimeout(() => {
+        if (press.done) return
+        void readClipboardText().then((text) => pasteForKeypress(press, text))
+      }, 0)
+    }
   }
 
   const TOOL_KEYS: Record<string, Mode> = { v: 'add-variable', c: 'add-constant', p: 'add-one-path', t: 'add-two-path' }
@@ -1208,6 +1492,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
+    // Select all (in the active layer): Cmd/Ctrl+A. Never while typing (the
+    // keyboard hook ignores text fields).
+    if (hasPrimaryModifier(e) && !e.altKey && !e.shiftKey && key === 'a') {
+      e.preventDefault()
+      selectAllInLayer()
+      return
+    }
+
+    // Copy, cut, paste, duplicate: Cmd/Ctrl + C, X, V, D. Paste, cut and
+    // duplicate are structural edits, so not in layout-only mode.
+    if (hasPrimaryModifier(e) && !e.altKey && !e.shiftKey && (key === 'c' || key === 'x' || key === 'v' || key === 'd')) {
+      handleClipboardKey(key, e)
+      return
+    }
+
     // Delete the selection. 'Backspace' is the physical delete key on macOS.
     if (key === 'Delete' || key === 'Backspace') {
       if (isLayoutOnly) return
@@ -1223,12 +1522,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     if (e.metaKey || e.ctrlKey || e.altKey) return
 
-    // Arrows nudge the selected node (Shift: 10 units). A visual change, so
+    // Arrows nudge the selected nodes (Shift: 10 units). A visual change, so
     // also allowed in layout-only mode.
     const arrow = ARROW_KEYS[key]
     if (arrow) {
       const step = e.shiftKey ? 10 : 1
-      if (nudgeSelectedNode(arrow[0] * step, arrow[1] * step)) e.preventDefault()
+      if (nudgeSelectedNodes(arrow[0] * step, arrow[1] * step)) e.preventDefault()
       return
     }
 
@@ -1236,11 +1535,24 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const tool = TOOL_KEYS[key]
     if (tool && !e.shiftKey && !isLayoutOnly && viewMode !== 'widget') {
       e.preventDefault()
-      rightClickDragRef.current = false
       setMode(tool)
-      setPathSource(null)
-      setTempLine(null)
+      endPathDrag()
     }
+  }, { acceptUnfocused: viewMode !== 'widget' })
+
+  // Paste events (Cmd/Ctrl+V, or a browser/host Paste menu): the system
+  // clipboard's text, else the in-memory copy (see utils/clipboard.ts).
+  // A paste event soon after a Cmd/Ctrl+V belongs to that keypress, and pastes
+  // only if the keypress's clipboard read has not.
+  useEditorPaste(editorRootRef, (e) => {
+    const press = pasteKeyRef.current
+    pasteKeyRef.current = null
+    if (showSaveToRDialog || showCodeExportDialog || isLayoutOnly) return
+    const text = clipboardTextFrom(eventClipboardText(e))
+    if (!text || !parseFragment(text)) return
+    e.preventDefault()
+    if (press && Date.now() - press.at <= PASTE_EVENT_WINDOW_MS) pasteForKeypress(press, text)
+    else pasteTextRef.current(text)
   }, { acceptUnfocused: viewMode !== 'widget' })
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
@@ -1416,7 +1728,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         const loadedSchema = await adapter.load(text)
         
         // convert validated document to runtime CanvasTool shape (multi-model)
-        const modelsOut = convertDocToRuntime(loadedSchema)
+        const modelsOut = linkMappingsOnLoad(convertDocToRuntime(loadedSchema))
         
         // apply into runtime state
         setModels(modelsOut)
@@ -1683,8 +1995,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // The one difference: the embedded widget (viewMode 'widget') leaves plain
   // wheel / two-finger scroll to the document so the page still scrolls over a
   // diagram, and briefly shows a "Ctrl + scroll to zoom" hint instead.
-  // Plain left-drag on the background is left unused on purpose (reserved for
-  // marquee selection).
+  // Plain left-drag on the background draws a selection rectangle (see
+  // startMarquee).
   const pointerOverRootRef = useRef(false)
   const pointerOverCanvasRef = useRef(false)
   const spaceHeldRef = useRef(false)
@@ -1850,13 +2162,89 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     startPan(e)
   }
 
-  // Right-drag on the background pans. Bubble phase: a right press on a node
-  // stops propagation there (it draws a path), so only background presses
-  // (and paths, which have no right-button action) reach this.
+  // Right-drag (Ctrl+left-drag on macOS) on the background pans. Bubble
+  // phase: a right press on a node stops propagation there (it draws a path),
+  // so only background presses (and paths, which have no right-button action)
+  // reach this. A left press on the empty background may start a selection
+  // rectangle.
   function onCanvasMouseDown(e: React.MouseEvent) {
-    if (e.button !== 2) return
-    startPan(e)
+    if (isSecondaryPress(e, isMac)) {
+      startPan(e)
+      return
+    }
+    if (e.button === 0 && e.target === svgRef.current && !pathSource) startMarquee(e)
   }
+
+  // Selection rectangle: a left-drag on the empty background, in every mode
+  // and context (an add tool acts on a click, never on a drag). It becomes a
+  // rectangle once the pointer moves past the drag threshold; a press released
+  // before that is an ordinary background click. On release it selects the
+  // in-layer nodes drawn entirely inside it, and the in-layer paths attached
+  // to a selected node with enough of their line (line, loop or cable branch;
+  // see pathPoints) inside it (rules in marqueeSelection). Shift / Cmd / Ctrl
+  // (not Ctrl on macOS) adds to the selection.
+  function startMarquee(e: React.MouseEvent) {
+    const svg = svgRef.current
+    const ctm = svg?.getScreenCTM?.()
+    if (!svg || !ctm) return
+    const toCanvas = (clientX: number, clientY: number) => {
+      const m = svg.getScreenCTM?.()
+      if (!m) return null
+      const pt = svg.createSVGPoint()
+      pt.x = clientX
+      pt.y = clientY
+      const c = pt.matrixTransform(m.inverse())
+      return { x: c.x, y: c.y }
+    }
+    // Anchored in canvas coordinates, so a zoom mid-drag keeps the start corner on the canvas
+    const start = toCanvas(e.clientX, e.clientY)
+    if (!start) return
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const base = isToggleModifier(e, isMac) ? selection : null
+    // The candidates, fixed for the drag
+    const candidateNodes = nodes.filter((n) => isNodeInLayer(n)).map((n) => ({ id: n.id, bounds: nodeBounds(n) }))
+    const pathLines: { id: string; from: string; to: string; points: Point[]; ends: Bounds[] }[] = []
+    for (const p of paths) {
+      const points = isPathInLayer(p) ? pathPoints(p) : null
+      if (!points) continue
+      // the line runs on under its endpoint nodes; only what shows counts
+      const ends = [p.from, p.to].map((id) => nodes.find((n) => n.id === id)).filter((n): n is Node => !!n).map(nodeBounds)
+      pathLines.push({ id: p.id, from: p.from, to: p.to, points, ends })
+    }
+    let active = false
+    let rect: Bounds | null = null
+    function onMove(ev: MouseEvent) {
+      if (!active && Math.hypot(ev.clientX - startClientX, ev.clientY - startClientY) <= 4) return
+      active = true
+      const cur = toCanvas(ev.clientX, ev.clientY)
+      if (!cur) return
+      const r = boundsFromPoints(start!, cur)
+      rect = r
+      setMarquee({ rect: r, preview: marqueeSelection(r, candidateNodes, pathLines, base) })
+    }
+    function end() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      marqueeCleanupRef.current = null
+      setMarquee(null)
+    }
+    function onUp(ev: MouseEvent) {
+      if (ev.button !== 0) return
+      end()
+      if (!active || !rect) return
+      const next = marqueeSelection(rect, candidateNodes, pathLines, base)
+      setSelection((s) => (sameSelection(s, next) ? s : next))
+      // the click that follows must not deselect or place a node
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    }
+    marqueeCleanupRef.current?.()
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    marqueeCleanupRef.current = end
+  }
+  React.useEffect(() => () => marqueeCleanupRef.current?.(), [])
 
   function startPan(e: React.MouseEvent) {
     const svg = svgRef.current
@@ -1911,7 +2299,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         setEditing((cur) => (cur ? { ...cur, left: pos.left, top: pos.top } : cur))
       }
     }
-    if (selectedId) setViewEpoch((n) => n + 1)
+    if (selectionCount > 0) setViewEpoch((n) => n + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewBoxAttr])
 
@@ -1944,25 +2332,31 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const dy = e.clientY - pd.startClientY
       const slop = 4 // pixels before starting actual drag
       if (Math.hypot(dx, dy) > slop) {
-        dragRef.current = { id: pd.id, offsetX: pd.offsetX, offsetY: pd.offsetY }
+        dragRef.current = { origins: pd.origins, start: pd.start }
         pendingDragRef.current = null
       }
     }
 
-    // if dragging a node, move it
+    // if dragging nodes, move them all by the cursor's offset
     if (dragRef.current) {
-      const { id, offsetX, offsetY } = dragRef.current
-      setNodes((list) => list.map((n) => (n.id === id ? { ...n, x: cursor.x - offsetX, y: cursor.y - offsetY } : n)))
+      const { origins, start } = dragRef.current
+      const dx = cursor.x - start.x
+      const dy = cursor.y - start.y
+      setNodes((list) => list.map((n) => {
+        const o = origins.get(n.id)
+        return o ? { ...n, x: o.x + dx, y: o.y + dy } : n
+      }))
       return
     }
 
     // if creating a path, update temporary line
     if (pathSource && tempLine) {
       setTempLine({ ...tempLine, x2: cursor.x, y2: cursor.y })
+      if (e.shiftKey !== pathShift) setPathShift(e.shiftKey)
     }
   }
 
-  function onMouseUp() {
+  function onMouseUp(e?: React.MouseEvent) {
     // finish a self-loop drag: pin the previewed side (a plain click just selects)
     if (loopDragRef.current) {
       const ld = loopDragRef.current
@@ -1978,9 +2372,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
-    // clear pending drag if mouse released before moving
+    // clear pending drag if mouse released before moving; a plain click on a
+    // node of a multi-selection selects that node alone
     if (pendingDragRef.current) {
+      const collapseTo = pendingDragRef.current.collapseTo
       pendingDragRef.current = null
+      if (collapseTo) selectElement(collapseTo, 'node')
     }
 
     // finish node drag if any
@@ -1989,53 +2386,84 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       return
     }
 
-    // if we were creating a path, try to finalize it
-    if (pathSource && hoverNodeRef.current && !isLayoutOnly) {
-      const src = pathSource
+    // if we were creating a path, try to finalize it; released on the
+    // background, cancel and revert to select
+    if (pathSource) {
+      const twoSided = mode === 'add-two-path' || (e ? e.shiftKey : pathShift)
       const dst = hoverNodeRef.current
-      const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
-      rightClickDragRef.current = false
-
-      // Validate the path
-      const validationError = getPathValidationError(src, dst, twoSided)
-      if (validationError) {
-        showPathError(validationError)
-        setTempLine(null)
-        setPathSource(null)
-        setMode('select')
-        return
-      }
-
-      const srcNode = nodes.find((n) => n.id === src)
-      const dstNode = nodes.find((n) => n.id === dst)
-
-      // Dataset paths carry the target node label as the column name (type='data',
-      // fixed, no value); structural paths get no label and no value (schema default).
-      const newPath: Path = srcNode?.type === 'dataset'
-        ? makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
-        : makePath({
-            from: src,
-            to: dst,
-            twoSided,
-            // Self-loops default to free error variance
-            ...(src === dst && twoSided ? { freeParameter: true, parameterType: 'errorVariance' } : {}),
-            displayName: convertToUnicode(srcNode?.label ?? src) + (twoSided ? ' ↔ ' : ' → ') + convertToUnicode(dstNode?.label ?? dst),
-          })
-
-      setPaths((ps) => [...ps, newPath])
-      setTempLine(null)
-      setPathSource(null)
+      if (dst && !isLayoutOnly) finishPathDrag(dst, twoSided)
+      // started outside a multi-selection: select the start node alone, unless
+      // the drag ended on the selection (a fan-in)
+      const start = pathSource
+      const endInGroup = !!dst && selection.nodeIds.length > 1 && selectedNodeIds.has(dst)
+      if (!selectedNodeIds.has(start) && !endInGroup && nodes.some((n) => n.id === start)) selectElement(start, 'node')
+      endPathDrag()
       setMode('select')
+    }
+  }
+
+  // Start a path drag from node `n` (right-drag, or a path tool). Starting on a
+  // node of a multi-selection keeps the selection and draws from every
+  // selected node; otherwise the node is selected alone and is the only source.
+  // Starting on an unselected node while several nodes are selected keeps that
+  // selection on screen until the release (its nodes are the fan-in targets);
+  // unless the drag ends on one of them, the start node is then selected alone.
+  function startPathDrag(n: Node, shiftKey: boolean) {
+    const inGroup = selectedNodeIds.has(n.id) && selectionCount > 1
+    if (!inGroup && selection.nodeIds.length < 2) selectElement(n.id, 'node')
+    const c = centerOf(n)
+    setPathSource(n.id)
+    setPathSources(inGroup ? [...selection.nodeIds] : [n.id])
+    setPathShift(shiftKey)
+    setTempLine({ x1: c.x, y1: c.y, x2: c.x, y2: c.y })
+  }
+
+  function endPathDrag() {
+    setPathSource(null)
+    setTempLine(null)
+    setPathSources([])
+    setPathShift(false)
+  }
+
+  // Shift pressed or released mid-drag switches the preview between one- and
+  // two-headed (mouse events report it too, see onMouseMove).
+  React.useEffect(() => {
+    if (!pathSource) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Shift') setPathShift(e.type === 'keydown')
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKey)
+    }
+  }, [pathSource])
+
+  /** The (from, to) pairs a drag from pathSource released on `dst` creates. */
+  function pathDragPairs(dst: string, twoSided: boolean) {
+    if (!pathSource) return []
+    return dragPathPairs({
+      start: pathSource,
+      end: dst,
+      sources: pathSources.length > 0 ? pathSources : [pathSource],
+      selected: selection.nodeIds,
+      twoSided,
+    })
+  }
+
+  // Add the paths of a path drag released on `dst`, as one undo step. One
+  // refused path shows why; several pairs report what was added and skipped.
+  function finishPathDrag(dst: string, twoSided: boolean) {
+    const pairs = pathDragPairs(dst, twoSided)
+    if (pairs.length === 0) return
+    const plan = planDraggedPaths(nodes, paths, pairs, twoSided)
+    if (plan.added.length > 0) setPaths((ps) => [...ps, ...plan.added])
+    if (pairs.length === 1) {
+      if (plan.skipped.length === 1) showPathError(PATH_ISSUE_MESSAGE[plan.skipped[0].issue])
       return
     }
-
-    // if we were creating a path but released on background, cancel and revert to select
-    if (pathSource) {
-      rightClickDragRef.current = false
-      setPathSource(null)
-      setTempLine(null)
-      setMode('select')
-    }
+    showInfo(draggedPathsMessage(nodes, plan, twoSided))
   }
 
   function onCanvasClick(e: React.MouseEvent) {
@@ -2108,8 +2536,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       // Remove any existing database paths to this node
       setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
 
-      // Create new data path from dataset to variable with column name as label
-      const newPath = makeDataPath(selectedNode.id, targetNode.id, columnName, displayName)
+      // Create new data path from dataset to variable with column name as label;
+      // linked to the variable's name when it is the column's (the node keeps its label)
+      const newPath = withMappingLinked(makeDataPath(selectedNode.id, targetNode.id, columnName, displayName), targetNode.label === columnName)
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
@@ -2119,8 +2548,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const newNode = makeNode({ label, displayName: label === columnName ? displayName : convertToUnicode(label), type: 'variable', x: dropX, y: dropY })
       setNodes((ns) => [...ns, newNode])
 
-      // Create data path from dataset to new variable with column name as label
-      const newPath = makeDataPath(selectedNode.id, newNode.id, columnName, displayName)
+      // Create data path from dataset to new variable with column name as label,
+      // linked to the variable's name (unless the name had to be suffixed)
+      const newPath = withMappingLinked(makeDataPath(selectedNode.id, newNode.id, columnName, displayName), label === columnName)
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
@@ -2132,23 +2562,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function onNodeMouseDown(e: React.MouseEvent, n: Node) {
     e.stopPropagation()
     hoverNodeRef.current = n.id
+    // Right press (or Ctrl+left on macOS): never toggles the selection
+    const secondary = isSecondaryPress(e, isMac)
 
-    // Right-click in select mode: start a one-headed path drag without changing mode
-    if (e.button === 2 && mode === 'select' && !isLayoutOnly) {
+    // Right-drag in select mode: start a one-headed path drag (two-headed while
+    // Shift is held) without changing mode
+    if (secondary && mode === 'select' && !isLayoutOnly) {
       e.preventDefault()
-      const c = centerOf(n)
-      selectElement(n.id, 'node')
-      setPathSource(n.id)
-      setTempLine({ x1: c.x, y1: c.y, x2: c.x, y2: c.y })
-      rightClickDragRef.current = true
+      startPathDrag(n, e.shiftKey)
       return
     }
 
     // start path-drag if in path mode
     if ((mode === 'add-one-path' || mode === 'add-two-path') && !isLayoutOnly) {
-      const c = centerOf(n)
-      setPathSource(n.id)
-      setTempLine({ x1: c.x, y1: c.y, x2: c.x, y2: c.y })
+      if (secondary) e.preventDefault()
+      startPathDrag(n, e.shiftKey)
       return
     }
 
@@ -2159,123 +2587,74 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     pt.x = e.clientX
     pt.y = e.clientY
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
-    // record selection immediately
-    selectElement(n.id, 'node')
-    if (mode === 'select') {
-      pendingDragRef.current = { id: n.id, startClientX: e.clientX, startClientY: e.clientY, offsetX: cursor.x - nodeX(n), offsetY: cursor.y - nodeY(n) }
+    // Record the selection immediately, and which nodes a drag would move:
+    //  - Shift / Cmd (and Ctrl, except on macOS) toggles the node; a drag then
+    //    moves the selection if the node is now in it;
+    //  - a press on a node of a multi-selection keeps the group (to drag it);
+    //  - otherwise the node is selected alone (and dragged alone).
+    let dragIds: readonly string[]
+    let collapseTo: string | null = null
+    if (!secondary && isToggleModifier(e, isMac)) {
+      const wasSelected = selectedNodeIds.has(n.id)
+      toggleElement(n.id, 'node')
+      dragIds = wasSelected ? [] : [...selection.nodeIds, n.id]
+    } else if (mode === 'select' && selectedNodeIds.has(n.id) && selectionCount > 1) {
+      dragIds = selection.nodeIds
+      collapseTo = n.id
+    } else {
+      selectElement(n.id, 'node')
+      dragIds = [n.id]
     }
-
-    // finish node drag if any
-    if (dragRef.current) {
-      dragRef.current = null
-      return
-    }
-
-    // if we were creating a path, try to finalize it
-    if (pathSource && hoverNodeRef.current && !isLayoutOnly) {
-      const src = pathSource
-      const dst = hoverNodeRef.current
-      const twoSided = rightClickDragRef.current ? false : (mode as any) === 'add-two-path'
-      rightClickDragRef.current = false
-
-      // Validate the path
-      const validationError = getPathValidationError(src, dst, twoSided)
-      if (validationError) {
-        showPathError(validationError)
-        setTempLine(null)
-        setPathSource(null)
-        setMode('select')
-        return
-      }
-
-      const srcNode = nodes.find((n) => n.id === src)
-      const dstNode = nodes.find((n) => n.id === dst)
-
-      // Dataset paths: target node label as the column name; other paths: no label
-      const p: Path = srcNode?.type === 'dataset'
-        ? makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
-        : makePath({
-            from: src,
-            to: dst,
-            twoSided,
-            displayName: convertToUnicode(srcNode?.label ?? src) + (twoSided ? ' ↔ ' : ' → ') + convertToUnicode(dstNode?.label ?? dst),
-          })
-
-      setPaths((ps) => [...ps, p])
-      setTempLine(null)
-      setPathSource(null)
-      setMode('select')
-      return
-    }
-
-    // if we were creating a path but released on background, cancel and revert to select
-    if (pathSource) {
-      rightClickDragRef.current = false
-      setPathSource(null)
-      setTempLine(null)
-      setMode('select')
+    if (mode === 'select' && dragIds.length > 0) {
+      const moving = new Set(dragIds)
+      const origins = new Map(nodes.filter((x) => moving.has(x.id)).map((x) => [x.id, { x: nodeX(x), y: nodeY(x) }] as const))
+      pendingDragRef.current = { origins, start: { x: cursor.x, y: cursor.y }, startClientX: e.clientX, startClientY: e.clientY, collapseTo }
     }
   }
 
-  // Helper: Determine popup position to avoid covering selected node/path
-  // Returns position classes like "top-4 right-4" or "top-4 left-4" etc.
-  function getPopupPositionClasses(): string {
-    const POPUP_WIDTH = 420
-    const POPUP_HEIGHT = 300 // approximate
-    const MARGIN = 16
-    const PADDING = 16
+  // "3 nodes, 2 paths selected"
+  function selectionSummary(): string {
+    const part = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`
+    const parts: string[] = []
+    if (selection.nodeIds.length > 0) parts.push(part(selection.nodeIds.length, 'node'))
+    if (selection.pathIds.length > 0) parts.push(part(selection.pathIds.length, 'path'))
+    return `${parts.join(', ')} selected`
+  }
 
+  // Canvas point the element popup is placed relative to (see getPopupPositionClasses)
+  function selectionAnchor(): { x: number; y: number } | null {
+    if (selectedNode) return { x: nodeX(selectedNode), y: nodeY(selectedNode) }
+    if (selectedPath) return pathLabelPos(selectedPath)
+    const boxes: Bounds[] = []
+    for (const n of nodes) if (selectedNodeIds.has(n.id)) boxes.push(nodeBounds(n))
+    for (const p of paths) {
+      if (!selectedPathIds.has(p.id)) continue
+      const pos = cableGeometryFor(p, cableGroups)?.labelPos ?? pathLabelPos(p)
+      if (pos) boxes.push({ minX: pos.x, maxX: pos.x, minY: pos.y, maxY: pos.y })
+    }
+    const u = unionBounds(boxes)
+    return u ? { x: (u.minX + u.maxX) / 2, y: (u.minY + u.maxY) / 2 } : null
+  }
+
+  // Helper: Determine popup position to avoid covering the selection
+  // Returns position classes like "top-4 right-4" or "top-4 left-4" etc.
+  // The anchor is the selected node's centre or the selected path's label; for
+  // a multi-selection, the centre of the selection's bounding box.
+  function getPopupPositionClasses(): string {
     // If nothing selected, default to top-right
-    if (!selectedId || !selectedType || !svgRef.current) {
+    if (selectionCount === 0 || !svgRef.current) {
       return 'top-4 right-4'
     }
 
     try {
-      // Get SVG bounds in viewport
       const svg = svgRef.current
-      const svgRect = svg.getBoundingClientRect()
       const containerRect = svg.parentElement?.getBoundingClientRect()
       if (!containerRect) return 'top-4 right-4'
 
-      // Get selected object position in SVG coords
-      let objX = 0
-      let objY = 0
-      let objWidth = 0
-      let objHeight = 0
-
-      if (selectedType === 'node') {
-        const node = selectedNode
-        if (!node) return 'top-4 right-4'
-
-        objX = nodeX(node)
-        objY = nodeY(node)
-
-        if (node.type === 'variable') {
-          const renderType = getVariableRenderType(node.id)
-          if (renderType === 'manifest') {
-            objWidth = node.width ?? MANIFEST_DEFAULT_W
-            objHeight = node.height ?? MANIFEST_DEFAULT_H
-          } else {
-            objWidth = LATENT_RADIUS * 2
-            objHeight = LATENT_RADIUS * 2
-          }
-        } else if (node.type === 'dataset') {
-          objWidth = node.width ?? DATASET_DEFAULT_W
-          objHeight = node.height ?? DATASET_DEFAULT_H
-        } else if (node.type === 'constant') {
-          objWidth = 38
-          objHeight = 33
-        }
-      } else if (selectedType === 'path') {
-        const path = selectedPath
-        if (!path) return 'top-4 right-4'
-        const pos = pathLabelPos(path)
-        if (!pos) return 'top-4 right-4'
-        objX = pos.x
-        objY = pos.y
-        objWidth = 60
-        objHeight = 40
-      }
+      const anchor = selectionAnchor()
+      if (!anchor) return 'top-4 right-4'
+      const objX = anchor.x
+      const objY = anchor.y
 
       // Convert SVG coords to screen/viewport coords
       const pt = svg.createSVGPoint()
@@ -2685,6 +3064,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return trunk && target ? cableBranch(trunk, centerOf(target), (t) => getBoundaryPoint(target, t)) : null
   }
 
+  /**
+   * Canvas-space polyline of a path's line as drawn (the same path data the
+   * canvas renders: line, curve, self-loop, or a data path's cable branch
+   * without the shared trunk). Null when the path is not drawn.
+   */
+  function pathPoints(p: Path): Point[] | null {
+    const d = cableGeometryFor(p, cableGroups)?.d ?? pathD(p)
+    return d ? svgPathPoints(d) : null
+  }
+
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     if (isLayoutOnly) return
@@ -2710,25 +3099,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   function saveEditing() {
     if (!editing) return
     const { id, kind, value } = editing
-    // Apply converter to normalize LaTeX notation to Unicode (idempotent, so safe to apply multiple times)
-    const convertedValue = convertToUnicode(value)
     // Only an actual change is written (opening and closing the editor is not an edit).
-    if (kind === 'node') {
-      const current = nodes.find((n) => n.id === id)
-      const labelError = current && current.label !== convertedValue ? nodeLabelError(nodes, id, convertedValue) : null
-      if (labelError) {
-        showPathError(labelError)
-        setEditing(null)
-        return
-      }
-      setNodes((ns) => ns.map((n) => (n.id === id && n.label !== convertedValue ? { ...n, label: convertedValue } : n)))
-    } else {
-      setPaths((ps) =>
-        ps.map((p) =>
-          p.id === id && convertedValue !== (p.label ?? '') ? { ...p, label: convertedValue || null } : p
-        )
-      )
+    if (kind === 'path') {
+      setPaths((ps) => ps.map((p) => (p.id === id && value !== (p.label ?? '') ? withPathLabel(p, value) : p)))
+      setEditing(null)
+      return
     }
+    // Node labels, like path labels, are kept as typed (renameNode converts the displayed name)
+    const current = nodes.find((n) => n.id === id)
+    const labelError = current && current.label !== value ? nodeLabelError(nodes, id, value) : null
+    if (labelError) showPathError(labelError)
+    else if (current && current.label !== value) renameNode(id, value)
     setEditing(null)
   }
 
@@ -3163,11 +3544,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           </>
         )}
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
-        {viewMode !== 'widget' && (selectedNode || selectedPath) && (
+        {viewMode !== 'widget' && (selectedNode || selectedPath || selectionCount > 1) && (
           <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
             {/* Header section */}
             <div className="flex items-center justify-between mb-3">
               <div>
+                {selectionCount > 1 && (
+                  // A multi-selection: a summary; group actions below (not in layout-only mode)
+                  <div className="text-sm font-semibold" data-testid="selection-summary">{selectionSummary()}</div>
+                )}
                 {selectedNode && selectedNode.type === 'dataset' && (
                   <>
                     <div className="text-sm font-semibold">Dataset: {selectedNode.displayName || selectedNode.label}</div>
@@ -3205,6 +3590,50 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       </select>
                       )}
                     </div>
+                    {/* One row per data path into the variable: its dataset and the column it maps */}
+                    {incomingDataPaths(nodes, paths, selectedNode.id).map((dp) => {
+                      const ds = nodes.find((n) => n.id === dp.from)
+                      const dsName = ds?.displayName || ds?.label || dp.from
+                      const linked = !!dp.mappingLinked
+                      const missing = isMissingColumn(dp, nodes)
+                      return (
+                        <div key={dp.id} className="text-xs text-slate-600 mt-1" data-testid="data-mapping-row">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>Data:</span>
+                            <span className="font-medium">{dsName}</span>
+                            <span>column</span>
+                            {isLayoutOnly ? (
+                              <span className="font-medium">{dp.label ?? ''}</span>
+                            ) : (
+                            <>
+                            <input
+                              type="text"
+                              aria-label={`Column of ${dsName}`}
+                              value={linked ? selectedNode.label : (dp.label ?? '')}
+                              disabled={linked}
+                              title={linked ? 'Same as the variable name: untick to map another column' : 'The dataset column mapped to this variable'}
+                              onChange={(e) => setMappingColumn(dp.id, e.target.value)}
+                              className={`px-2 py-1 border rounded text-xs w-28 ${linked ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'} ${missing ? 'border-amber-500' : ''}`}
+                            />
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={linked}
+                                onChange={(e) => setMappingLinked(dp.id, e.target.checked)}
+                              />
+                              Same as variable name
+                            </label>
+                            </>
+                            )}
+                          </div>
+                          {missing && (
+                            <div className="mt-1 text-amber-700" data-testid="missing-column-warning">
+                              {dsName} has no column "{dp.label ?? ''}".
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </>
                 )}
                 {selectedNode && selectedNode.type === 'constant' && (
@@ -3251,7 +3680,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               <div className="flex items-center gap-2">
                 {!isLayoutOnly && (
                 <button
-                  title="Delete (Backspace)"
+                  title={selectionCount > 1 ? 'Delete the selected elements (Backspace)' : 'Delete (Backspace)'}
                   className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
                   onClick={deleteSelected}
                 >
@@ -3276,6 +3705,128 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 </button>
               </div>
             </div>
+
+            {/* Group actions: a multi-selection outside layout-only mode (they are structural) */}
+            {selectionCount > 1 && !isLayoutOnly && (() => {
+              const freeFixed = sharedValue(selectedStructuralPaths, (p) => (p.freeParameter !== undefined ? 'free' : 'fixed'))
+              const name = sharedValue(selectedStructuralPaths, (p) => (typeof p.freeParameter === 'string' ? p.freeParameter : ''))
+              const value = sharedValue(selectedStructuralPaths, (p) => p.value ?? undefined)
+              const ml = sharedValue(selectedVariables, (n) => n.variableCharacteristics?.manifestLatent ?? 'auto')
+              const btn = 'px-2 py-1 rounded border bg-white hover:bg-sky-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white'
+              const field = 'px-2 py-1 border rounded text-xs bg-white'
+              const pathCount = selectedStructuralPaths.length
+              return (
+                <div data-testid="group-actions" className="text-xs space-y-3 border-t pt-3 mb-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      className={btn}
+                      disabled={selectedVariables.length === 0}
+                      onClick={addMeansToSelection}
+                      title={'Add a free mean: a one-headed path from a constant to every selected variable that has none yet. Uses the selected constant (if exactly one), else the constant "1", else adds one.'}
+                    >
+                      △→ Add means
+                    </button>
+                    <button
+                      type="button"
+                      className={btn}
+                      disabled={selectedVariables.length < 2}
+                      onClick={correlateSelection}
+                      title="Add a free covariance (two-headed path) between every pair of selected variables that has none yet"
+                    >
+                      ↔ Correlate all
+                    </button>
+                    <button
+                      type="button"
+                      className={btn}
+                      disabled={!selectedNodesList.some((n) => n.type !== 'dataset')}
+                      onClick={duplicateSelected}
+                      title="Duplicate the selected variables and constants with the paths between them (datasets and data connections are not duplicated). Cmd/Ctrl+D"
+                    >
+                      ⧉ Duplicate
+                    </button>
+                  </div>
+                  {pathCount > 0 && (
+                    <div className="space-y-1">
+                      <div className="font-medium text-slate-700" data-testid="group-paths-heading">
+                        All {pathCount} selected path{pathCount === 1 ? '' : 's'}
+                        {selectedDataPathCount > 0 && (
+                          <span className="font-normal text-slate-500"> ({selectedDataPathCount} data path{selectedDataPathCount === 1 ? '' : 's'} not changed)</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <select
+                          aria-label="Free or fixed (all selected paths)"
+                          title="Free (estimated) or fixed, for every selected path"
+                          value={freeFixed === MIXED ? 'mixed' : (freeFixed as string)}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (v === 'fixed') updateSelectedStructuralPaths((p) => withFreeParameter(p, undefined))
+                            else if (v === 'free') updateSelectedStructuralPaths((p) => (p.freeParameter !== undefined ? p : withFreeParameter(p, true)))
+                          }}
+                          className={field}
+                        >
+                          {freeFixed === MIXED && <option value="mixed" disabled>mixed</option>}
+                          <option value="free">free</option>
+                          <option value="fixed">fixed</option>
+                        </select>
+                        {freeFixed === 'free' && (
+                          <input
+                            type="text"
+                            aria-label="Parameter name (all selected paths)"
+                            placeholder={name === MIXED ? 'mixed' : 'name (optional)'}
+                            value={name === MIXED ? '' : (name as string)}
+                            onChange={(e) => {
+                              const n = e.target.value.trim()
+                              updateSelectedStructuralPaths((p) => withFreeParameter(p, n.length > 0 ? n : true))
+                            }}
+                            className={`${field} w-28`}
+                            title="Parameter name for every selected path. The same name on several paths constrains them to be equal (one estimated parameter). Leave empty for free, anonymous parameters."
+                          />
+                        )}
+                        <span className="font-medium">Value:</span>
+                        <input
+                          type="number"
+                          step="any"
+                          aria-label="Value (all selected paths)"
+                          title="Value (or starting value, for free paths) of every selected path"
+                          value={value === MIXED ? '' : formatPathValue(value as number | undefined)}
+                          placeholder={value === MIXED ? 'mixed' : '1 (default)'}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value)
+                            updateSelectedStructuralPaths((p) => ({ ...p, value: isNaN(v) ? undefined : v }))
+                          }}
+                          className={`${field} w-24 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {selectedVariables.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-700">
+                        All {selectedVariables.length} selected variable{selectedVariables.length === 1 ? '' : 's'}: Manifest/Latent
+                      </span>
+                      <select
+                        aria-label="Manifest/latent (all selected variables)"
+                        title="Lock every selected variable as manifest or latent, or let it be inferred from its data (auto)"
+                        value={ml === MIXED ? 'mixed' : (ml as string)}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (v === 'auto') setSelectedManifestLatent(undefined)
+                          else if (v === 'manifest' || v === 'latent') setSelectedManifestLatent(v)
+                        }}
+                        className={field}
+                      >
+                        {ml === MIXED && <option value="mixed" disabled>mixed</option>}
+                        <option value="auto">Auto (inferred)</option>
+                        <option value="manifest">Manifest</option>
+                        <option value="latent">Latent</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Dataset file metadata */}
             {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
@@ -3396,12 +3947,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     onChange={(e) => {
                       // Edits apply as typed while the label stays valid; an empty or
                       // duplicate label is held as a draft and never reaches the model.
-                      const converted = convertToUnicode(e.target.value)
-                      setLabelDraft({ nodeId: selectedNode.id, value: converted })
-                      if (!nodeLabelError(nodes, selectedNode.id, converted)) {
-                        setNodes((ns) =>
-                          ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
-                        )
+                      const typed = e.target.value
+                      setLabelDraft({ nodeId: selectedNode.id, value: typed })
+                      if (!nodeLabelError(nodes, selectedNode.id, typed) && typed !== selectedNode.label) {
+                        renameNode(selectedNode.id, typed)
                       }
                     }}
                     onBlur={() => setLabelDraft(null)}
@@ -3473,7 +4022,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   <div><span className="font-medium">Label:</span> {selectedPath.label || <span className="text-slate-400">(none)</span>}</div>
                   {!isDatasetPath(selectedPath, nodes) && (
                   <>
-                  <div><span className="font-medium">Value:</span> {selectedPath.value !== null && selectedPath.value !== undefined ? (selectedPath.value as number).toFixed(6).replace(/\.?0+$/, '') : '--'}</div>
+                  <div><span className="font-medium">Value:</span> {formatPathValue(selectedPath.value) || '--'}</div>
                   <div>
                     <span className="font-medium">Free/Fixed:</span>{' '}
                     {selectedPath.freeParameter !== undefined
@@ -3492,14 +4041,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       value={selectedPath.label || ''}
                       onChange={(e) => {
                         const val = e.target.value.trim()
-                        const converted = convertToUnicode(val)
-                        setPaths((ps) =>
-                          ps.map((p) =>
-                            p.id === selectedPath.id
-                              ? { ...p, label: converted || null }
-                              : p
-                          )
-                        )
+                        setPaths((ps) => ps.map((p) => (p.id === selectedPath.id ? withPathLabel(p, val) : p)))
                       }}
                       placeholder={isDatasetPath(selectedPath, nodes) ? "(required - CSV column name)" : "(optional)"}
                       className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
@@ -3511,7 +4053,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     <input
                       type="number"
                       step="any"
-                      value={selectedPath.value !== null && selectedPath.value !== undefined ? (selectedPath.value as number).toFixed(6).replace(/\.?0+$/, '') : ''}
+                      value={formatPathValue(selectedPath.value)}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value)
                         setPaths((ps) =>
@@ -3536,7 +4078,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         setPaths((ps) =>
                           ps.map((p) =>
                             p.id === selectedPath.id
-                              ? { ...p, freeParameter: e.target.value === 'free' ? true : undefined }
+                              ? withFreeParameter(p, e.target.value === 'free' ? true : undefined)
                               : p
                           )
                         )
@@ -3557,7 +4099,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           setPaths((ps) =>
                             ps.map((p) =>
                               p.id === selectedPath.id
-                                ? { ...p, freeParameter: name.length > 0 ? name : true }
+                                ? withFreeParameter(p, name.length > 0 ? name : true)
                                 : p
                             )
                           )
@@ -3719,7 +4261,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               viewBox={viewBoxAttr}
               preserveAspectRatio="xMidYMid meet"
               style={isPanning ? { cursor: 'grabbing' } : spaceHeld ? { cursor: 'grab' } : undefined}
-              onMouseDownCapture={onCanvasPanMouseDown}
+              onMouseDownCapture={(e) => {
+                clearPageTextSelection()
+                onCanvasPanMouseDown(e)
+              }}
               onMouseDown={onCanvasMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
@@ -3783,7 +4328,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
               {/* draw paths with layer-based opacity */}
               {paths.map((p) => {
-                  const isSelected = selectedType === 'path' && selectedId === p.id
+                  const isSelected = drawnPathIds.has(p.id)
                   const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
@@ -3795,7 +4340,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       // Self-loop: arm drag-to-pin (left button, select mode). Stop
                       // propagation so no node drag, pan or path creation starts.
                       e.stopPropagation()
-                      if (e.button !== 0 || mode !== 'select') return
+                      if (e.button !== 0 || mode !== 'select' || isSecondaryPress(e, isMac)) return
+                      if (isToggleModifier(e, isMac)) return // a modifier click toggles the loop instead
                       loopDragRef.current = { pathId: p.id, nodeId: p.from, startClientX: e.clientX, startClientY: e.clientY, active: false }
                     } : undefined,
                     onClick: (e: React.MouseEvent) => {
@@ -3804,7 +4350,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         suppressClickRef.current = false
                         return
                       }
-                      selectElement(p.id, 'path')
+                      if (isSecondaryPress(e, isMac)) return // macOS Ctrl+click: a right click
+                      if (isToggleModifier(e, isMac)) toggleElement(p.id, 'path')
+                      else selectElement(p.id, 'path')
                     },
                     onDoubleClick: (e: React.MouseEvent) => {
                       e.stopPropagation()
@@ -3861,9 +4409,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             const width = Math.max(24, approxCharW * displayText.length + padding * 2)
             const height = fontSize + padding
             const rx = 4
+            // a data path mapping a column its (loaded) dataset does not have
+            const missingColumn = isMissingColumn(p, nodes)
             return (
               <g
                 key={`${p.id}-label`}
+                data-path-label={p.id}
+                data-missing-column={missingColumn ? 'true' : undefined}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 style={{ pointerEvents: 'auto', cursor: 'text', opacity, zIndex }}
                 onDoubleClick={(e) => {
@@ -3871,14 +4423,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   startEditing('path', p.id, p.label ?? '', pos)
                 }}
               >
+                {missingColumn && <title>{`The dataset has no column "${p.label ?? ''}"`}</title>}
                 <rect
                   x={-width / 2}
                   y={-height / 2}
                   width={width}
                   height={height}
                   rx={rx}
-                  fill={DISPLAY_COLORS.fill}
-                  stroke="none"
+                  fill={missingColumn ? WARNING_COLORS.fill : DISPLAY_COLORS.fill}
+                  stroke={missingColumn ? WARNING_COLORS.stroke : 'none'}
                   opacity={0.95}
                 />
                 <text
@@ -3887,7 +4440,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={fontSize}
-                  fill={DISPLAY_COLORS.stroke}
+                  fill={missingColumn ? WARNING_COLORS.text : DISPLAY_COLORS.stroke}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {displayText}
@@ -3896,18 +4449,64 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             )
           })}
 
-          {/* temporary drag line while creating a path */}
-          {tempLine && (
-            <line
-              x1={tempLine.x1}
-              y1={tempLine.y1}
-              x2={tempLine.x2}
-              y2={tempLine.y2}
-              stroke="#000"
-              strokeWidth={1.2}
-              strokeDasharray="6 4"
-              markerEnd={mode === 'add-one-path' ? 'url(#arrow-end)' : 'url(#arrow-end)'}
-              markerStart={mode === 'add-two-path' ? 'url(#arrow-start)' : undefined}
+          {/* path drag preview: hovering a node, the paths a release there
+              would add; otherwise a rubber band from every source to the cursor */}
+          {tempLine && pathSource && (() => {
+            const twoSided = mode === 'add-two-path' || pathShift
+            const lineProps = {
+              stroke: '#000',
+              strokeWidth: 1.2,
+              strokeDasharray: '6 4',
+              markerEnd: 'url(#arrow-end)',
+              markerStart: twoSided ? 'url(#arrow-start)' : undefined,
+              pointerEvents: 'none' as const,
+            }
+            const hover = hoverNodeRef.current
+            const fan = hover && hover !== pathSource
+              ? planDraggedPaths(nodes, paths, pathDragPairs(hover, twoSided), twoSided).added
+              : []
+            if (fan.length > 0) {
+              return (
+                <g data-testid="path-preview" data-two-sided={twoSided ? 'true' : 'false'}>
+                  {fan.map((fp, i) => {
+                    const a = nodes.find((n) => n.id === fp.from)
+                    const b = nodes.find((n) => n.id === fp.to)
+                    if (!a || !b) return null
+                    const p1 = getBoundaryPoint(a, centerOf(b))
+                    const p2 = getBoundaryPoint(b, centerOf(a))
+                    return <line key={i} data-preview-from={a.label} data-preview-to={b.label} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} {...lineProps} />
+                  })}
+                </g>
+              )
+            }
+            const cursor = { x: tempLine.x2, y: tempLine.y2 }
+            const sources = (pathSources.length > 0 ? pathSources : [pathSource])
+              .map((id) => nodes.find((n) => n.id === id))
+              .filter((n): n is Node => !!n)
+            return (
+              <g data-testid="path-preview" data-two-sided={twoSided ? 'true' : 'false'}>
+                {sources.map((n) => {
+                  // from the node's centre (the node is drawn over the line's start)
+                  const c = centerOf(n)
+                  return <line key={n.id} data-preview-from={n.label} x1={c.x} y1={c.y} x2={cursor.x} y2={cursor.y} {...lineProps} />
+                })}
+              </g>
+            )
+          })()}
+
+          {/* selection rectangle (background drag); same stroke width at any zoom */}
+          {marquee && (
+            <rect
+              data-testid="selection-marquee"
+              x={marquee.rect.minX}
+              y={marquee.rect.minY}
+              width={marquee.rect.maxX - marquee.rect.minX}
+              height={marquee.rect.maxY - marquee.rect.minY}
+              fill="rgba(14, 165, 233, 0.08)"
+              stroke="#0ea5e9"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              pointerEvents="none"
             />
           )}
 
@@ -3951,7 +4550,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
           {/* draw nodes */}
           {nodes.map((n) => {
-            const isSelected = selectedType === 'node' && n.id === selectedId
+            const isSelected = drawnNodeIds.has(n.id)
             // Check if this node is connected to a hovered column (via a path from the selected dataset)
             const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
             const inLayer = isNodeInLayer(n)
@@ -3987,6 +4586,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                             textAnchor="middle"
                             fontWeight={isMatchingHoveredColumn ? 'bold' : 'normal'}
                             style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                            /* a press on the label is a press on the node (never on a path beneath) */
+                            onMouseDown={(e) => onNodeMouseDown(e, n)}
                             onDoubleClick={(e) => {
                               e.stopPropagation()
                               startEditing('node', n.id, n.label, centerOf(n))
@@ -4005,6 +4606,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     y={6}
                     textAnchor="middle"
                     style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text', fontWeight: isMatchingHoveredColumn ? 'bold' : 'normal' }}
+                    /* a press on the label is a press on the node (never on a path beneath) */
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       startEditing('node', n.id, n.label, centerOf(n))
@@ -4092,6 +4695,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                     y={6}
                     textAnchor="middle"
                     style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                    /* a press on the label is a press on the node (never on a path beneath) */
+                    onMouseDown={(e) => onNodeMouseDown(e, n)}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       startEditing('node', n.id, n.label, centerOf(n))
@@ -4121,6 +4726,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   y={6}
                   textAnchor="middle"
                   style={{ userSelect: 'none', pointerEvents: 'auto', cursor: 'text' }}
+                  /* a press on the label is a press on the node (never on a path beneath) */
+                  onMouseDown={(e) => onNodeMouseDown(e, n)}
                   onDoubleClick={(e) => {
                     e.stopPropagation()
                     startEditing('node', n.id, n.label, centerOf(n))
@@ -4198,9 +4805,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         </div>
       )}
 
+      {/* Neutral notice (what a many-path edit or group action added / skipped) */}
+      {viewMode !== 'widget' && infoMessage && !errorMessage && (
+        <div role="status" data-testid="info-message" className="fixed bottom-0 left-0 right-0 bg-sky-50 border-t-2 border-sky-300 px-4 py-3 text-sm text-sky-900 shadow-md" style={{ zIndex: 50 }}>
+          <div className="flex items-start gap-2">
+            <span className="text-sky-600 font-bold text-lg">ℹ</span>
+            <div className="flex-1">{infoMessage}</div>
+            <button
+              title="Dismiss"
+              onClick={() => setInfoMessage(null)}
+              className="text-sky-600 hover:text-sky-900 font-bold text-lg ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Validation warnings notification - non-interfering, at bottom */}
       {viewMode !== 'widget' && validationWarnings.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-amber-50 border-t-2 border-amber-300 px-4 py-3 text-sm text-amber-800 shadow-md" style={{ zIndex: errorMessage ? 40 : 50 }}>
+        <div className="fixed bottom-0 left-0 right-0 bg-amber-50 border-t-2 border-amber-300 px-4 py-3 text-sm text-amber-800 shadow-md" style={{ zIndex: errorMessage || infoMessage ? 40 : 50 }}>
           <div className="flex items-start gap-2">
             <span className="text-amber-600 font-bold text-lg">⚠</span>
             <div className="flex-1">

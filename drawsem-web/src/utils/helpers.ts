@@ -61,6 +61,10 @@ export interface Path {
   // from/to, so the next step returns to two-headed. Never serialized. (The
   // direction itself always lives in from/to; there is no render-only flag.)
   reversedByCycle?: boolean
+  // UI-only, data paths: the column mapping (`label`) is kept the same as the
+  // variable's label ("Same as variable name"; see utils/dataMapping.ts).
+  // Absent = not linked. Never serialized.
+  mappingLinked?: boolean
   type?: 'data' | 'constant'          // 'data' = dataset mapping; 'constant' = mean/intercept
   parameterType?: string
   optimization?: {
@@ -369,4 +373,21 @@ export function withManifestLatent(n: Node, value: 'manifest' | 'latent' | undef
   const out: Node = { ...n, variableCharacteristics: vc }
   if (Object.keys(vc).length === 0) delete out.variableCharacteristics
   return out
+}
+
+/**
+ * Set a path's free/fixed state. `undefined` (fixed) removes `freeParameter`;
+ * `true` or `''` makes it free and anonymous; a non-empty string makes it free
+ * and named (paths sharing a name are constrained equal). `false` and `''` are
+ * never written.
+ */
+export function withFreeParameter(p: Path, value: true | string | undefined): Path {
+  const { freeParameter: _old, ...rest } = p
+  if (value === undefined) return rest
+  return { ...rest, freeParameter: value === '' ? true : value }
+}
+
+/** A path value as shown in the inspector's Value field ('' when absent). */
+export function formatPathValue(value: number | null | undefined): string {
+  return value !== null && value !== undefined ? value.toFixed(6).replace(/\.?0+$/, '') : ''
 }
