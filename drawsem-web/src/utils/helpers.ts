@@ -387,6 +387,112 @@ export function withFreeParameter(p: Path, value: true | string | undefined): Pa
   return { ...rest, freeParameter: value === '' ? true : value }
 }
 
+export type PathLabelMode = 'labels' | 'values' | 'both' | 'neither' | 'default'
+
+/**
+ * The name shown for a path: its parameter name (`freeParameter` string), else
+ * its label (as displayed), else null. The same order OpenMx uses to name the
+ * parameter (see R's .mxParamLabels()). An unlabeled path's generated
+ * displayName (from its endpoints) is not a name.
+ */
+export function pathShownName(path: Path): string | null {
+  if (typeof path.freeParameter === 'string' && path.freeParameter) return convertToUnicode(path.freeParameter)
+  return path.label ? (path.displayName || path.label) : null
+}
+
+/** A structural path's own name: its parameter name, else its label, else null. */
+function pathRawName(path: Path): string | null {
+  if (path.type === 'data') return null
+  if (typeof path.freeParameter === 'string' && path.freeParameter) return path.freeParameter
+  return path.label || null
+}
+
+const hasParameterName = (p: Path) => typeof p.freeParameter === 'string' && p.freeParameter !== ''
+
+/**
+ * The other structural paths shown under the same name as `path` (parameter
+ * name, else label) without both of them carrying it as a parameter name.
+ * Only a shared parameter name makes an equality constraint; R gives a
+ * repeated label a suffix (_2, ...) for OpenMx, so such paths look
+ * constrained on the canvas but are not.
+ */
+export function pathNameClashes(path: Path, paths: readonly Path[]): Path[] {
+  const name = pathRawName(path)
+  if (!name) return []
+  return paths.filter((q) => q.id !== path.id && pathRawName(q) === name && !(hasParameterName(path) && hasParameterName(q)))
+}
+
+/** Ids of every path with a name clash (pathNameClashes), for the canvas. */
+export function pathIdsWithNameClash(paths: readonly Path[]): Set<string> {
+  const byName = new Map<string, Path[]>()
+  for (const p of paths) {
+    const name = pathRawName(p)
+    if (name) byName.set(name, [...(byName.get(name) ?? []), p])
+  }
+  const out = new Set<string>()
+  for (const group of byName.values()) {
+    if (group.length < 2 || group.every(hasParameterName)) continue
+    for (const p of group) if (pathNameClashes(p, group).length > 0) out.add(p.id)
+  }
+  return out
+}
+
+/** Why a name clash (pathNameClashes) matters. */
+export function nameClashMessage(name: string, count: number): string {
+  const others = count === 1 ? 'Another path is' : `${count} other paths are`
+  return `${others} also named "${name}" but not constrained equal to this one: only a shared parameter name makes an equality constraint. Give them the same parameter name to constrain them, or different labels.`
+}
+
+/**
+ * A free structural path with neither a parameter name (`freeParameter`
+ * string) nor a label: nothing identifies its estimate in the output (R names
+ * an anonymous free parameter after the path's label). The canvas draws it
+ * dashed, marks its value with "≈", and the inspector warns about it.
+ */
+export function isUnnamedFreePath(path: Path): boolean {
+  if (path.type === 'data') return false
+  if (path.freeParameter === undefined || path.freeParameter === false) return false
+  if (typeof path.freeParameter === 'string' && path.freeParameter.length > 0) return false
+  return !path.label
+}
+
+/**
+ * The text drawn on a path in the canvas for a label mode (null = nothing).
+ * "Name" is pathShownName(): the parameter name, else the stored label (an
+ * unlabeled path's displayName may be generated from its endpoints, and is
+ * not shown as a name here). An absent `freeParameter` means fixed. Values read "=value", or "≈value" for an
+ * unnamed free path (isUnnamedFreePath).
+ * - 'labels': the name, else the displayName; 'values': the value; 'both':
+ *   "name=value" (just the value when unnamed).
+ * - 'default': a named path (and a data path, whose label is its column)
+ *   shows its name; an unnamed free path its value; an unnamed fixed path
+ *   nothing at unity (1, 1.0, ...), else its value.
+ */
+export function pathDisplayText(path: Path, mode: PathLabelMode): string | null {
+  const value = path.value ?? 1.0
+  const shownValue = `${isUnnamedFreePath(path) ? '≈' : '='}${value.toFixed(2)}`
+  const label = pathShownName(path)
+  const isFree = path.freeParameter !== undefined && path.freeParameter !== false
+
+  switch (mode) {
+    case 'labels':
+      return label ?? (path.displayName || null)
+    case 'values':
+      return shownValue
+    case 'both':
+      return label ? `${label}${shownValue}` : shownValue
+    case 'neither':
+      return null
+    case 'default':
+      if (label) return label
+      if (path.type === 'data') return null
+      if (isFree) return shownValue
+      return value === 1 ? null : shownValue
+    default:
+      return null
+  }
+}
+
 /** A path value as shown in the inspector's Value field ('' when absent). */
 export function formatPathValue(value: number | null | undefined): string {
   return value !== null && value !== undefined ? value.toFixed(6).replace(/\.?0+$/, '') : ''

@@ -264,6 +264,23 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   dataset's columns are known (its data is loaded), a data path mapping a
   column the dataset lacks is flagged in its row and its cable label is drawn
   as a warning (not in image export)
+- Web frontend: path labels on the canvas (`pathDisplayText()`,
+  `pathShownName()`, `isUnnamedFreePath()` in `src/utils/helpers.ts`). A
+  path's name is its parameter name (`freeParameter` string), else its
+  `label`, the order R uses for OpenMx parameter labels (`.mxParamLabels()`);
+  an absent `freeParameter` is fixed. Default mode shows the name; an
+  unnamed free path its value; an unnamed fixed path nothing at 1, else its
+  value; a data path its column. Values mode shows the value, both mode
+  "name=value". A free path with neither name nor label is drawn dashed, its
+  value written "≈value" instead of "=value", and its inspector warns. Two
+  structural paths shown under the same name without both having it as their
+  parameter name (`pathNameClashes()`) are flagged: only a
+  shared parameter name is an equality constraint, and R suffixes a repeated
+  label (`_2`) for OpenMx. The inspector warns, both canvas labels are drawn
+  as warnings, and committing such a label inline shows a notice. Image
+  export (`svgRenderer.ts`) has its own label rules.
+  Idea, not adopted: "≙" (U+2259, ESTIMATES) for estimated values instead of
+  "≈"; set aside because readers are unlikely to recognize it.
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results

@@ -55,7 +55,7 @@ function fixture(extra: { nodes?: any[]; paths?: any[] } = {}): GraphSchema {
 
 type Receive = (s: GraphSchema, u?: { kind?: ModelUpdateKind }) => void
 
-async function setup() {
+async function setup(schema: GraphSchema = fixture()) {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
   let receive: Receive | null = null
   const onModelChange = vi.fn()
@@ -67,7 +67,7 @@ async function setup() {
   }
   const utils = render(
     <AdapterContext.Provider value={adapter}>
-      <CanvasTool initialSchema={fixture()} onModelChange={onModelChange} viewMode="shiny" />
+      <CanvasTool initialSchema={schema} onModelChange={onModelChange} viewMode="shiny" />
     </AdapterContext.Provider>
   )
   await waitFor(() => expect(onModelChange).toHaveBeenCalled())
@@ -296,5 +296,53 @@ describe('missing columns', () => {
     fireEvent.change(columnField(), { target: { value: 'col_b' } })
     await waitFor(() => expect(ctx.container.querySelector('[data-missing-column]')).toBeNull())
     expect(screen.queryByTestId('missing-column-warning')).toBeNull()
+  })
+})
+
+describe('unnamed free paths', () => {
+  // F <-> F free, no label or name (unnamed); x1 <-> x1 free, labelled
+  const schema = () => fixture({
+    paths: [
+      { from: 'F', to: 'F', numberOfArrows: 2, freeParameter: true },
+      { from: 'x1', to: 'x1', numberOfArrows: 2, freeParameter: true, label: 'e1' },
+    ],
+  })
+  const pathEl = (ctx: Ctx, from: string, to: string) => {
+    const i = lastModel(ctx).paths.findIndex((p: any) => p.from === from && p.to === to)
+    return ctx.container.querySelectorAll('path[data-path-id]')[i] as SVGPathElement
+  }
+
+  it('are drawn dashed, labelled "≈value", and warned about in the inspector', async () => {
+    const ctx = await setup(schema())
+    const unnamed = pathEl(ctx, 'F', 'F')
+    expect(unnamed.getAttribute('data-unnamed-free')).toBe('true')
+    expect(unnamed.getAttribute('stroke-dasharray')).toBe('6 4')
+    expect(pathEl(ctx, 'x1', 'x1').getAttribute('stroke-dasharray')).toBeNull()
+    expect(screen.getByText('≈1.00')).toBeTruthy()
+
+    fireEvent.click(unnamed, { button: 0 })
+    await nextTask()
+    expect(screen.getByTestId('unnamed-free-warning')).toBeTruthy()
+    // a label clears the flag
+    fireEvent.change(labelField(ctx), { target: { value: 'vF' } })
+    await waitFor(() => expect(screen.queryByTestId('unnamed-free-warning')).toBeNull())
+    expect(pathEl(ctx, 'F', 'F').getAttribute('stroke-dasharray')).toBeNull()
+  })
+})
+
+describe('duplicate path names', () => {
+  it('a label typed in the inspector that repeats another path\'s is flagged there and on the canvas', async () => {
+    const ctx = await setup(fixture({ paths: [{ from: 'x1', to: 'x1', numberOfArrows: 2, freeParameter: true, label: 'e1' }] }))
+    const idx = (from: string, to: string) => lastModel(ctx).paths.findIndex((p: any) => p.from === from && p.to === to)
+    const el = () => ctx.container.querySelectorAll('path[data-path-id]')[idx('F', 'x2')]
+    fireEvent.click(el(), { button: 0 })
+    await nextTask()
+    expect(screen.queryByTestId('name-clash-warning')).toBeNull()
+    fireEvent.change(labelField(ctx), { target: { value: 'e1' } })
+    await waitFor(() => expect(screen.getByTestId('name-clash-warning').textContent).toContain('"e1"'))
+    expect(ctx.container.querySelectorAll('[data-name-clash="true"]')).toHaveLength(2)
+    fireEvent.change(labelField(ctx), { target: { value: 'e2' } })
+    await waitFor(() => expect(screen.queryByTestId('name-clash-warning')).toBeNull())
+    expect(ctx.container.querySelectorAll('[data-name-clash="true"]')).toHaveLength(0)
   })
 })

@@ -11,8 +11,8 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue } from '../utils/helpers'
-import type { Node, Path } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
+import type { Node, Path, PathLabelMode } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
@@ -798,7 +798,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // The selection: any number of nodes and paths (runtime ids; see utils/selection)
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
   const [pathSource, setPathSource] = useState<string | null>(null)
-  const [pathLabelMode, setPathLabelMode] = useState<'labels' | 'values' | 'both' | 'neither' | 'default'>('default')
+  const [pathLabelMode, setPathLabelMode] = useState<PathLabelMode>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
   const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
@@ -1317,38 +1317,6 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const fromNode = nodes.find((n) => n.id === p.from)
     if (fromNode?.type === 'dataset' || fromNode?.type === 'constant') return
     setPaths((ps) => ps.map((x) => (x.id === pathId ? withAutoDisplayName(cyclePathDirection(x)) : x)))
-  }
-
-  // Helper function to get path display text based on label mode
-  function getPathDisplayText(path: Path): string | null {
-    const value = path.value ?? 1.0
-    const label = path.displayName || path.label
-    const isFree = path.freeParameter !== undefined ? !!path.freeParameter : true
-
-    switch (pathLabelMode) {
-      case 'labels':
-        return label ?? null
-      case 'values':
-        return typeof value === 'number' ? value.toFixed(2) : value.toString()
-      case 'both':
-        return label ? `${label}=${typeof value === 'number' ? value.toFixed(2) : value}` : (typeof value === 'number' ? value.toFixed(2) : value.toString())
-      case 'neither':
-        return null
-      case 'default':
-        // If value is null and we have a label, show the label
-        if (path.value === null && label) {
-          return label
-        }
-        if (isFree) {
-          // free paths: show label if available, else show "=[value]"
-          return label ?? `=${typeof value === 'number' ? value.toFixed(2) : value}`
-        } else {
-          // fixed paths: show value only if not 1.0
-          return value !== 1.0 ? (typeof value === 'number' ? value.toFixed(2) : value.toString()) : null
-        }
-      default:
-        return null
-    }
   }
 
   // ---- Undo/redo and keyboard shortcuts ----
@@ -3101,6 +3069,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const { id, kind, value } = editing
     // Only an actual change is written (opening and closing the editor is not an edit).
     if (kind === 'path') {
+      const before = paths.find((p) => p.id === id)
+      if (before && value !== (before.label ?? '')) {
+        const after = withPathLabel(before, value)
+        const clashes = pathNameClashes(after, paths)
+        if (clashes.length > 0) showInfo(nameClashMessage(value, clashes.length))
+      }
       setPaths((ps) => ps.map((p) => (p.id === id && value !== (p.label ?? '') ? withPathLabel(p, value) : p)))
       setEditing(null)
       return
@@ -3974,6 +3948,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 <div className="space-y-2">
                   <div><span className="font-medium">From:</span> {selectedPath.from}</div>
                   <div><span className="font-medium">To:</span> {selectedPath.to}</div>
+                  {(() => {
+                    const clashes = pathNameClashes(selectedPath, paths)
+                    if (clashes.length === 0) return null
+                    const name = typeof selectedPath.freeParameter === 'string' && selectedPath.freeParameter ? selectedPath.freeParameter : (selectedPath.label ?? '')
+                    return (
+                      <div className="text-amber-700" data-testid="name-clash-warning">
+                        {nameClashMessage(name, clashes.length)}
+                      </div>
+                    )
+                  })()}
+                  {isUnnamedFreePath(selectedPath) && (
+                    <div className="text-amber-700" data-testid="unnamed-free-warning">
+                      Free parameter with no label or name: its estimate can't be told apart in the output.
+                      Give it a label or a parameter name.
+                    </div>
+                  )}
                   {selectedPath.from === selectedPath.to && (() => {
                     // Loop side: Auto (absent side, resolved from positions) or pinned.
                     const autoSide = computeLoopSides(selectedPath.id).get(selectedPath.id) ?? 'bottom'
@@ -4366,8 +4356,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       data-path-id={p.id}
                       data-loop-side={isLoop ? loopSideFor(p) : undefined}
                       data-cable={cable ? 'true' : undefined}
+                      data-unnamed-free={isUnnamedFreePath(p) ? 'true' : undefined}
                       d={cable ? cable.d : pathD(p)}
                       fill="none"
+                      strokeDasharray={isUnnamedFreePath(p) ? '6 4' : undefined}
                       stroke={isSelected ? DISPLAY_COLORS.selectedStroke : (isMatchingHoveredColumn ? '#1e40af' : (cable ? CABLE_COLOR : DISPLAY_COLORS.stroke))}
                       strokeWidth={isSelected ? DISPLAY_COLORS.selectedStrokeWidth : (isMatchingHoveredColumn ? 2.5 : (cable ? CABLE_WIDTH : 1.6))}
                       strokeLinecap={cable ? 'round' : undefined}
@@ -4394,8 +4386,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 })}
 
               {/* path labels */}
-          {paths.map((p) => {
-            const displayText = getPathDisplayText(p)
+          {(() => { const nameClashIds = pathIdsWithNameClash(paths); return paths.map((p) => {
+            const displayText = pathDisplayText(p, pathLabelMode)
             if (!displayText) return null
             const pos = cableGeometryFor(p, cableGroups)?.labelPos ?? pathLabelPos(p)
             if (!pos) return null
@@ -4411,11 +4403,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             const rx = 4
             // a data path mapping a column its (loaded) dataset does not have
             const missingColumn = isMissingColumn(p, nodes)
+            // shown under another path's name without a shared parameter name
+            const nameClash = nameClashIds.has(p.id)
+            const warn = missingColumn || nameClash
             return (
               <g
                 key={`${p.id}-label`}
                 data-path-label={p.id}
                 data-missing-column={missingColumn ? 'true' : undefined}
+                data-name-clash={nameClash ? 'true' : undefined}
                 transform={`translate(${pos.x}, ${pos.y})`}
                 style={{ pointerEvents: 'auto', cursor: 'text', opacity, zIndex }}
                 onDoubleClick={(e) => {
@@ -4424,14 +4420,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 }}
               >
                 {missingColumn && <title>{`The dataset has no column "${p.label ?? ''}"`}</title>}
+                {nameClash && <title>{`Another path is also named "${displayText}" but they are not constrained equal (no shared parameter name)`}</title>}
                 <rect
                   x={-width / 2}
                   y={-height / 2}
                   width={width}
                   height={height}
                   rx={rx}
-                  fill={missingColumn ? WARNING_COLORS.fill : DISPLAY_COLORS.fill}
-                  stroke={missingColumn ? WARNING_COLORS.stroke : 'none'}
+                  fill={warn ? WARNING_COLORS.fill : DISPLAY_COLORS.fill}
+                  stroke={warn ? WARNING_COLORS.stroke : 'none'}
                   opacity={0.95}
                 />
                 <text
@@ -4440,14 +4437,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={fontSize}
-                  fill={missingColumn ? WARNING_COLORS.text : DISPLAY_COLORS.stroke}
+                  fill={warn ? WARNING_COLORS.text : DISPLAY_COLORS.stroke}
                   style={{ userSelect: 'none', pointerEvents: 'none' }}
                 >
                   {displayText}
                 </text>
               </g>
             )
-          })}
+          }) })()}
 
           {/* path drag preview: hovering a node, the paths a release there
               would add; otherwise a rubber band from every source to the cursor */}
