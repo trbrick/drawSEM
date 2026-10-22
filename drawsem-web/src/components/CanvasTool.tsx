@@ -4,22 +4,27 @@ import Ajv from 'ajv'
 import schema from '../../schema/graph.schema.json'
 import { convertToUnicode } from '../utils/converters'
 import { convertDocToRuntime, docPassthroughOf } from '../utils/runtimeConverter'
-import { modelToSchema, modelsToSchema } from '../utils/runtimeToSchema'
-import type { RuntimeModel } from '../utils/runtimeToSchema'
+import { modelToSchema, modelsToSchema, withVisualization } from '../utils/runtimeToSchema'
+import type { RuntimeModel, RuntimeVisualization } from '../utils/runtimeToSchema'
 import { layoutModel, layoutIncomingModel } from '../utils/layoutModel'
 import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '../utils/dataCables'
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent } from '../utils/helpers'
 import type { Node, Path } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
 import { GraphSchema } from '../core/types'
+import type { ActiveLayer, OffLayerVisibility } from '../core/types'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
+import { useDocumentHistory, fieldKey } from '../hooks/useHistory'
+import { serializeEditHistory, restoreEditHistory, carryForwardHostState } from '../utils/editHistory'
+import { useEditorKeyboard, hasPrimaryModifier, isTextEntryTarget } from '../hooks/useEditorKeyboard'
+import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
 
 type NodeType = Node['type']
 
@@ -50,8 +55,6 @@ const DISPLAY_Z_INDEX = {
   background: 1,
 }
 
-type OffLayerVisibility = 'transparent' | 'invisible'
-
 interface CanvasToolProps {
   initialSchema?: GraphSchema
   onModelChange?: (schema: GraphSchema) => void
@@ -64,6 +67,15 @@ interface CanvasToolProps {
   editMode?: 'full' | 'layout'
 }
 
+
+// Embedded widget scroll hint: shown, then faded out (about 1.5 s in all).
+const SCROLL_HINT_SHOW_MS = 1200
+const SCROLL_HINT_FADE_MS = 300
+/** "Ctrl + scroll to zoom", with ⌘ on macOS / iOS. */
+function scrollHintText(): string {
+  const platform = typeof navigator !== 'undefined' ? ((navigator as any).userAgentData?.platform || navigator.platform || navigator.userAgent || '') : ''
+  return /mac|iphone|ipad/i.test(platform) ? '⌘ + scroll to zoom' : 'Ctrl + scroll to zoom'
+}
 
 const EMPTY_NODES: Node[] = []
 const EMPTY_PATHS: Path[] = []
@@ -83,6 +95,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // fields can change, however the change was triggered.
   const [models, loadModels] = useState<RuntimeModel[]>([])
   const setModels = (updater: React.SetStateAction<RuntimeModel[]>) => {
+    // Every user edit passes here: announce it to the undo history.
+    history.markChange(historyKeyForEdit())
     if (!isLayoutOnly) {
       loadModels(updater)
       return
@@ -98,6 +112,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     })
   }
   const [currentModelId, setCurrentModelId] = useState<string | null>(null)
+  // Undo/redo history of the document (models + current model). Snapshots are
+  // restored through the plain state setters, so the existing onModelChange
+  // sync sees an undo like any other edit. State R owns (fit results, its
+  // dataset summaries) is carried forward from the current document, never
+  // reverted. History is never saved; in the R contexts it goes to R only on
+  // Done (GraphModel@metadata$editHistory) and comes back on reopening.
+  const history = useDocumentHistory({ models, currentModelId }, (snapshot) => {
+    loadModels((current) => carryForwardHostState(snapshot.models, current))
+    setCurrentModelId(snapshot.currentModelId)
+  })
   // Document-level keys the editor does not own (schemaVersion, meta), captured
   // at load and re-emitted verbatim with every serialization of `models`.
   const [docPassthrough, setDocPassthrough] = useState<Record<string, any>>({})
@@ -175,13 +199,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // the view centres on the SEM structure instead of zooming out for a dataset
   // placed off to the side. Pass excludeDataset to override. Excluded datasets
   // still count for manifest inference. (Ported from coordinate-expansion 0aec616.)
-  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }) {
+  function fitViewToNodes(nodesToFit: Node[], pathsForFit: Path[], options?: { excludeDataset?: boolean }): string {
     // the current layer (via the ref: model loads call this from a callback created at startup)
     const excludeDataset = options?.excludeDataset ?? (activeLayerRef.current !== 'data')
     const fitted = excludeDataset ? nodesToFit.filter((n) => n.type !== 'dataset') : nodesToFit
     if (fitted.length === 0) {
-      setViewBoxAttr(`${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`)
-      return
+      const empty = `${-MIN_VB_SIZE / 2} ${-MIN_VB_SIZE / 2} ${MIN_VB_SIZE} ${MIN_VB_SIZE}`
+      setViewBoxAttr(empty)
+      return empty
     }
     const isLatentForFit = (n: Node): boolean => {
       if (n.type !== 'variable') return false
@@ -215,14 +240,58 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const vbH = Math.max(rawH, MIN_VB_SIZE)
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
-    setViewBoxAttr(`${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`)
+    const attr = `${cx - vbW / 2} ${cy - vbH / 2} ${vbW} ${vbH}`
+    setViewBoxAttr(attr)
+    return attr
   }
 
-  const [activeLayer, setActiveLayer] = useState<'all' | 'sem' | 'data'>('sem')
+  const [activeLayer, setActiveLayer] = useState<ActiveLayer>('sem')
   // For long-lived callbacks (model loads) that would otherwise see a stale layer
   const activeLayerRef = useRef(activeLayer)
   activeLayerRef.current = activeLayer
   const [offLayerVisibility, setOffLayerVisibility] = useState<OffLayerVisibility>('invisible')
+  const offLayerVisibilityRef = useRef(offLayerVisibility)
+  offLayerVisibilityRef.current = offLayerVisibility
+
+  // ---- Saved view (schema models[k].visualization) ----
+  // The view (viewport = the canvas viewBox, activeLayer, offLayerVisibility)
+  // is not model state: changing it is no undo step and is never synced per
+  // edit. On load the model's stored view is applied (else the view fits the
+  // model); the live view is written back only at explicit serialization
+  // points (standalone Save, addin Done) via currentVisualization().
+  // The view applied at the last load, to tell whether the user changed it.
+  const loadedViewRef = useRef<RuntimeVisualization | null>(null)
+  function showLoadedView(model: RuntimeModel) {
+    const vis = model.visualization
+    const layer = vis?.activeLayer
+    if (layer === 'all' || layer === 'sem' || layer === 'data') {
+      activeLayerRef.current = layer // so a fit below uses the stored layer
+      setActiveLayer(layer)
+    }
+    const olv = vis?.offLayerVisibility
+    if (olv === 'transparent' || olv === 'invisible') setOffLayerVisibility(olv)
+    const vb = viewBoxFromViewport(vis?.viewport)
+    const attr = vb ? formatViewBox(vb) : fitViewToNodes(model.nodes, model.paths)
+    loadedViewRef.current = {
+      viewport: roundViewBox(parseViewBox(attr)!),
+      activeLayer: activeLayerRef.current,
+      offLayerVisibility: olv === 'transparent' || olv === 'invisible' ? olv : offLayerVisibilityRef.current,
+    }
+    if (vb) setViewBoxAttr(attr)
+  }
+  /** The live view, as stored in `visualization`. */
+  function currentVisualization(): RuntimeVisualization {
+    const vb = parseViewBox(viewBoxAttr)
+    return {
+      ...(vb ? { viewport: roundViewBox(vb) } : {}),
+      activeLayer,
+      offLayerVisibility,
+    }
+  }
+  /** Whether the live view differs from the one applied at load. */
+  function viewChangedSinceLoad(view: RuntimeVisualization): boolean {
+    return JSON.stringify(view) !== JSON.stringify(loadedViewRef.current)
+  }
 
   // When a dataset node is added (e.g. data loaded from R), switch to the All
   // layer so it is visible (the default SEM layer hides dataset nodes), and
@@ -439,10 +508,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           loadModels(modelsOut)
+          history.reset()
+          // An undo history R kept from an earlier session on this model
+          // (only for the model R handed over, never for a fetched example).
+          if (!initialSchema && g === window.drawSEMConfig?.initialModel && window.drawSEMConfig?.editHistory) {
+            const restored = restoreEditHistory(
+              window.drawSEMConfig.editHistory,
+              { models: modelsOut, currentModelId: modelsOut[0]?.id ?? null },
+              { layoutOnly: isLayoutOnly }
+            )
+            if (restored) history.loadStacks(restored.past, restored.future)
+          }
           setDocPassthrough(docPassthroughOf(g))
           if (modelsOut.length > 0) {
             setCurrentModelId(modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+            showLoadedView(modelsOut[0])
           }
         }
       } catch (e) {
@@ -461,7 +541,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     
     // Register callback to handle model updates from R
-    adapterOptional.onModelReceived((schema: GraphSchema) => {
+    // `update.kind` (from R): 'load' replaces the document and its history;
+    // 'data' (Load Data) is an undo step like an edit; 'fit' keeps the history
+    // without being a step itself.
+    adapterOptional.onModelReceived((schema: GraphSchema, update) => {
+      const kind = update?.kind ?? 'load'
       try {
         if (typeof (schema as any).models === 'object' && !Array.isArray((schema as any).models)) {
           const modelsOut = convertDocToRuntime(schema as any)
@@ -486,11 +570,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })
           }
 
+          if (kind === 'data') history.markChange()
           loadModels(modelsOut)
+          if (kind === 'load') history.reset()
           setDocPassthrough(docPassthroughOf(schema))
           if (modelsOut.length > 0) {
-            setCurrentModelId(modelsOut[0].id)
-            fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+            setCurrentModelId((prev) =>
+              kind !== 'load' && prev !== null && modelsOut.some((m) => m.id === prev) ? prev : modelsOut[0].id)
+            // A new document shows its saved view; attached data refits so the
+            // new dataset is in view; a fit leaves the view where it is.
+            if (kind === 'load') showLoadedView(modelsOut[0])
+            else if (kind === 'data') fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
           }
         }
       } catch (e) {
@@ -513,13 +603,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // model, since this callback outlives renders (no current-model closure).
   React.useEffect(() => {
     adapterOptional?.onDatasetSummaries?.((summaries) => {
-      setModels((ms) => ms.map((m) => ({
+      // Derived display data from R, not an undo step
+      history.silently(() => setModels((ms) => ms.map((m) => ({
         ...m,
         nodes: m.nodes.map((n) => {
           const s = n.type === 'dataset' ? summaries[n.label] : undefined
           return s ? { ...n, dataset: { fileName: s.fileName, headers: s.headers, columns: s.columns } } : n
         }),
-      })))
+      }))))
     })
   }, [adapterOptional])
 
@@ -625,14 +716,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               // Compute per-column statistics (Welford)
               const columns = computeColumnStats(results.data, headers)
 
-              // Update the dataset node with loaded metadata
-              setNodes((ns) =>
+              // Update the dataset node with loaded metadata (derived, not an undo step)
+              history.silently(() => setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
                     ? { ...n, dataset: { fileName, headers, columns } }
                     : n
                 )
-              )
+              ))
               // Clear any previous errors for this node
               setDatasetErrors((prev) => {
                 const updated = new Map(prev)
@@ -680,11 +771,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         ? Object.keys(n.datasetSource.columnTypes)
         : (rows.length > 0 ? Object.keys(rows[0]) : [])
       const columns = computeColumnStats(rows, headers)
-      setNodes((ns) =>
+      // Derived metadata, not an undo step
+      history.silently(() => setNodes((ns) =>
         ns.map((node) =>
           node.id === n.id ? { ...node, dataset: { fileName: node.label, headers, columns } } : node
         )
-      )
+      ))
     })
   }, [nodes.filter((n) => n.type === 'dataset' && n.datasetSource?.type === 'embedded' && !n.dataset).map((n) => n.id).join(',')])
 
@@ -752,12 +844,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   } | null>(null)
   const editingInputRef = useRef<HTMLInputElement | null>(null)
   const editingDidFocusRef = useRef(false)
+  // SVG-space anchor of the inline editor, so it can follow zoom / pan
+  const editingSvgPosRef = useRef<{ x: number; y: number } | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [importErrors, setImportErrors] = useState<string[] | null>(null)
   const [datasetErrors, setDatasetErrors] = useState<Map<string, string>>(new Map())
   const csvFileInputRef = useRef<HTMLInputElement | null>(null)
   const [csvCollapsed, setCsvCollapsed] = useState<boolean>(false)
+  // The inspector's node-label field while it holds text that isn't the node's label
+  const [labelDraft, setLabelDraft] = useState<{ nodeId: string; value: string } | null>(null)
   const datasetNode = React.useMemo(() => {
     // Prefer the most recently-added dataset node that has attached metadata
     try {
@@ -906,6 +1002,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return nodes.find((n) => n.id === selectedId) || null
   }, [selectedType, selectedId, nodes])
 
+  // Why the inspector's label draft wasn't applied, if it wasn't
+  const labelDraftError = selectedNode && labelDraft?.nodeId === selectedNode.id && labelDraft.value !== selectedNode.label
+    ? nodeLabelError(nodes, selectedNode.id, labelDraft.value)
+    : null
+
   const selectedPath = React.useMemo(() => {
     if (selectedType !== 'path' || !selectedId) return null
     return paths.find((p) => p.id === selectedId) || null
@@ -999,35 +1100,148 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return
   }, [selectedId, selectedType])
 
-  // Handle Delete / Backspace key to remove selected node or path
-  // 'Delete' = forward-delete; 'Backspace' = the physical delete key on macOS
-  React.useEffect(() => {
-    if (isLayoutOnly) return
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Don't fire while the user is typing in an input/textarea
-        const tag = (e.target as HTMLElement).tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return
-        e.preventDefault()
-        deleteSelected()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, selectedType, isLayoutOnly])
+  // ---- Undo/redo and keyboard shortcuts ----
 
-  // Handle Ctrl+L / Cmd+L keyboard shortcut for auto-layout
-  React.useEffect(() => {
-    if (viewMode === 'widget') return
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'l' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault()
-        handleAutoLayout()
-      }
+  // Root element of this editor instance. Keyboard shortcuts apply only to the
+  // instance the user is interacting with (see useEditorKeyboard).
+  const editorRootRef = useRef<HTMLDivElement | null>(null)
+
+  // Which undo step an edit belongs to. A node drag is one step (keyed by the
+  // drag); typing into one inspector field is one step (keyed by the field and
+  // the selected element). Otherwise undefined: one step per event handler.
+  function historyKeyForEdit(): unknown {
+    if (dragRef.current) return dragRef.current
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    if (active && active.tagName !== 'SELECT' && isTextEntryTarget(active) && editorRootRef.current?.contains(active)) {
+      return fieldKey(active, `${selectedType}:${selectedId}`)
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentModel, isLayingOut, viewMode])
+    return undefined
+  }
+
+  // The undo history for R to keep with the returned model (Done only; never
+  // part of the schema or of the per-edit sync).
+  function editHistoryForDone(): { editHistory: string } | undefined {
+    try {
+      const editHistory = serializeEditHistory(history.stacks(), { models, currentModelId })
+      return editHistory ? { editHistory } : undefined
+    } catch (e) {
+      console.warn('[drawSEM] Could not serialize the edit history:', e)
+      return undefined
+    }
+  }
+
+  function undoRedo(direction: 'undo' | 'redo') {
+    const restored = direction === 'undo' ? history.undo() : history.redo()
+    if (!restored) return
+    // An in-progress path creation refers to the replaced state: drop it. Clear
+    // the selection if the selected element no longer exists.
+    rightClickDragRef.current = false
+    setPathSource(null)
+    setTempLine(null)
+    const model = restored.models.find((m) => m.id === restored.currentModelId)
+    const stillExists = selectedType === 'node'
+      ? model?.nodes.some((n) => n.id === selectedId)
+      : model?.paths.some((p) => p.id === selectedId)
+    if (selectedId && !stillExists) deselectAll()
+  }
+
+  // Arrow-key nudge of the selected node. A run of nudges (e.g. key repeat)
+  // coalesces into one undo step.
+  const NUDGE_WINDOW_MS = 1000
+  function nudgeSelectedNode(dx: number, dy: number): boolean {
+    if (selectedType !== 'node' || !selectedId) return false
+    const id = selectedId
+    if (!nodes.some((n) => n.id === id)) return false
+    history.withKey(`nudge:${id}`, NUDGE_WINDOW_MS, () => {
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: nodeX(n) + dx, y: nodeY(n) + dy } : n)))
+    })
+    return true
+  }
+
+  // Escape: close an open toolbar menu, else cancel an in-progress path, else
+  // leave an add mode, else deselect (which also closes the element popup).
+  function handleEscapeKey() {
+    if (showExportMenu || showSaveMenu) {
+      setShowExportMenu(false)
+      setShowSaveMenu(false)
+      return
+    }
+    if (pathSource || tempLine) {
+      rightClickDragRef.current = false
+      setPathSource(null)
+      setTempLine(null)
+      setMode('select')
+      return
+    }
+    if (mode !== 'select') {
+      setMode('select')
+      return
+    }
+    deselectAll()
+  }
+
+  const TOOL_KEYS: Record<string, Mode> = { v: 'add-variable', c: 'add-constant', p: 'add-one-path', t: 'add-two-path' }
+  const ARROW_KEYS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+
+  useEditorKeyboard(editorRootRef, (e) => {
+    // Modal dialogs own the keyboard while open.
+    if (showSaveToRDialog || showCodeExportDialog) return
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+
+    // Undo: Cmd/Ctrl+Z. Redo: Cmd/Ctrl+Shift+Z or Ctrl+Y.
+    if (hasPrimaryModifier(e) && !e.altKey && key === 'z') {
+      e.preventDefault()
+      undoRedo(e.shiftKey ? 'redo' : 'undo')
+      return
+    }
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === 'y') {
+      e.preventDefault()
+      undoRedo('redo')
+      return
+    }
+
+    // Auto-layout: Cmd/Ctrl+L (not in the plain widget preview)
+    if (hasPrimaryModifier(e) && !e.shiftKey && key === 'l') {
+      if (viewMode === 'widget') return
+      e.preventDefault()
+      handleAutoLayout()
+      return
+    }
+
+    // Delete the selection. 'Backspace' is the physical delete key on macOS.
+    if (key === 'Delete' || key === 'Backspace') {
+      if (isLayoutOnly) return
+      e.preventDefault()
+      deleteSelected()
+      return
+    }
+
+    if (key === 'Escape') {
+      handleEscapeKey()
+      return
+    }
+
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+
+    // Arrows nudge the selected node (Shift: 10 units). A visual change, so
+    // also allowed in layout-only mode.
+    const arrow = ARROW_KEYS[key]
+    if (arrow) {
+      const step = e.shiftKey ? 10 : 1
+      if (nudgeSelectedNode(arrow[0] * step, arrow[1] * step)) e.preventDefault()
+      return
+    }
+
+    // Tool keys, only where the add tools exist (not layout-only, not the widget preview)
+    const tool = TOOL_KEYS[key]
+    if (tool && !e.shiftKey && !isLayoutOnly && viewMode !== 'widget') {
+      e.preventDefault()
+      rightClickDragRef.current = false
+      setMode(tool)
+      setPathSource(null)
+      setTempLine(null)
+    }
+  }, { acceptUnfocused: viewMode !== 'widget' })
 
   // Convert a validated schema document to the CanvasTool runtime nodes/paths
   // ---- Importer UI & logic (AJV validation + conversion to runtime shape) ----
@@ -1062,8 +1276,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   async function handleSaveClick() {
     try {
-      const schema = buildCurrentSchema()
-      if (!schema) return
+      // A saved file keeps the view: the live viewport and layers go into the
+      // current model's visualization (only here and at the addin's Done).
+      if (models.length === 0) return
+      const schema = modelsToSchema(withVisualization(models, currentModelId, currentVisualization()), docPassthrough)
       await adapter.save(schema)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -1148,6 +1364,19 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
   }
 
+  // Done. Only the RStudio addin (layout-only editing) persists the view back
+  // to R, and only when the user changed it; drawSEM() never does.
+  // Done sends the undo history, and from the addin (layout-only) a changed view
+  function handleDone() {
+    const view = currentVisualization()
+    const withView = isLayoutOnly && currentModelId && viewChangedSinceLoad(view)
+      ? { visualization: { [currentModelId]: view } }
+      : {}
+    const extras = { ...(editHistoryForDone() ?? {}), ...withView }
+    if (Object.keys(extras).length > 0) adapter.done?.(extras)
+    else adapter.done?.()
+  }
+
   function handleSaveToEnv() {
     const varname = saveToRVarname.trim()
     if (!varname) return
@@ -1191,10 +1420,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         
         // apply into runtime state
         setModels(modelsOut)
+        history.reset()
         setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
-          fitViewToNodes(modelsOut[0].nodes, modelsOut[0].paths)
+          showLoadedView(modelsOut[0])
         }
         deselectAll()
         setPathSource(null)
@@ -1398,7 +1628,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               if (i % 2 === 0) candidateX += 40 * (i % 4 === 0 ? 1 : -1)
             }
 
-            const newNode: Node = { ...makeNode({ label: baseName, type: 'dataset', x, y }), dataset: meta }
+            const newNode: Node = { ...makeNode({ label: uniqueNodeLabel(cur, 'name', baseName), type: 'dataset', x, y }), dataset: meta }
             return [...cur, newNode]
           })
         } catch (err) {
@@ -1440,6 +1670,250 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const cursor = pt.matrixTransform(svg.getScreenCTM()!.inverse())
     return { x: cursor.x, y: cursor.y }
   }
+
+  // ---- Zoom / pan (view state only) ----
+  // Zoom and pan only change viewBoxAttr: no undo step, no per-edit sync (the
+  // view reaches the schema only at Save / addin Done, see showLoadedView).
+  // Same controls in every context:
+  //   mouse wheel -> zoom about the cursor; trackpad two-finger scroll -> pan
+  //   (told apart by isTrackpadWheel, best effort); pinch (ctrlKey wheel, or
+  //   Safari gesture events) and Ctrl/Cmd+wheel -> zoom; right-drag on the
+  //   background, middle-drag and Space+left-drag -> pan (right-drag from a
+  //   node draws a path instead).
+  // The one difference: the embedded widget (viewMode 'widget') leaves plain
+  // wheel / two-finger scroll to the document so the page still scrolls over a
+  // diagram, and briefly shows a "Ctrl + scroll to zoom" hint instead.
+  // Plain left-drag on the background is left unused on purpose (reserved for
+  // marquee selection).
+  const pointerOverRootRef = useRef(false)
+  const pointerOverCanvasRef = useRef(false)
+  const spaceHeldRef = useRef(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
+  const panCleanupRef = useRef<(() => void) | null>(null)
+
+  /** Zoom by `factor` (>1 zooms out) about a client point. */
+  function zoomAtClient(clientX: number, clientY: number, factor: number) {
+    const svg = svgRef.current
+    if (!svg) return
+    const rect = svg.getBoundingClientRect()
+    setViewBoxAttr((prev) => {
+      const vb = parseViewBox(prev)
+      if (!vb) return prev
+      const center = clientToViewBox(vb, rect, clientX, clientY)
+        ?? { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 }
+      return formatViewBox(zoomViewBox(vb, factor, center))
+    })
+  }
+
+  // "Show All": the same fit (and layer-dependent options) as model load and auto-layout.
+  function showAll() {
+    fitViewToNodes(nodes, paths)
+  }
+  const showAllRef = useRef(showAll)
+  showAllRef.current = showAll
+
+  // Embedded widget: brief "Ctrl + scroll to zoom" hint when the page is
+  // scrolled over the diagram (shown, then fading, then removed).
+  const [scrollHint, setScrollHint] = useState<'hidden' | 'shown' | 'fading'>('hidden')
+  const scrollHintTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  function flashScrollHint() {
+    scrollHintTimersRef.current.forEach(clearTimeout)
+    setScrollHint('shown')
+    scrollHintTimersRef.current = [
+      setTimeout(() => setScrollHint('fading'), SCROLL_HINT_SHOW_MS),
+      setTimeout(() => setScrollHint('hidden'), SCROLL_HINT_SHOW_MS + SCROLL_HINT_FADE_MS),
+    ]
+  }
+  const flashScrollHintRef = useRef(flashScrollHint)
+  flashScrollHintRef.current = flashScrollHint
+  React.useEffect(() => () => scrollHintTimersRef.current.forEach(clearTimeout), [])
+
+  // Wheel and Safari pinch gestures. Native non-passive listeners on the
+  // canvas only, since React's onWheel cannot preventDefault.
+  React.useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    function onWheel(e: WheelEvent) {
+      const rect = svg!.getBoundingClientRect()
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd+wheel, and trackpad pinch in Chromium/Firefox: zoom everywhere
+        e.preventDefault()
+        zoomAtClient(e.clientX, e.clientY, wheelZoomFactor(wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)))
+        return
+      }
+      if (viewMode === 'widget') {
+        // let the document scroll; say how to zoom instead
+        flashScrollHintRef.current()
+        return
+      }
+      e.preventDefault()
+      if (!e.shiftKey && !isTrackpadWheel(e as WheelEvent & { wheelDeltaX?: number; wheelDeltaY?: number })) {
+        // mouse wheel: zoom about the cursor
+        zoomAtClient(e.clientX, e.clientY, wheelZoomFactor(wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)))
+        return
+      }
+      // trackpad two-finger scroll (or Shift+wheel): pan
+      let dx = wheelDeltaPx(e.deltaX, e.deltaMode, rect.width)
+      let dy = wheelDeltaPx(e.deltaY, e.deltaMode, rect.height)
+      if (e.shiftKey && dx === 0) { dx = dy; dy = 0 } // Shift+wheel scrolls sideways
+      setViewBoxAttr((prev) => {
+        const vb = parseViewBox(prev)
+        const s = vb && viewScale(vb, rect)
+        return vb && s ? formatViewBox(panViewBox(vb, -dx, -dy, s)) : prev
+      })
+    }
+    // Safari reports pinch as gesture events (scale is cumulative per gesture)
+    let lastScale = 1
+    function onGestureStart(e: Event) {
+      e.preventDefault()
+      lastScale = (e as any).scale || 1
+    }
+    function onGestureChange(e: Event) {
+      e.preventDefault()
+      const ge = e as any
+      const scale = ge.scale || 1
+      zoomAtClient(ge.clientX, ge.clientY, lastScale / scale)
+      lastScale = scale
+    }
+    function onEnter() { pointerOverCanvasRef.current = true }
+    function onLeave() { pointerOverCanvasRef.current = false }
+    const nonPassive = { passive: false } as AddEventListenerOptions
+    svg.addEventListener('wheel', onWheel, nonPassive)
+    svg.addEventListener('gesturestart', onGestureStart, nonPassive)
+    svg.addEventListener('gesturechange', onGestureChange, nonPassive)
+    svg.addEventListener('mouseenter', onEnter)
+    svg.addEventListener('mouseleave', onLeave)
+    return () => {
+      svg.removeEventListener('wheel', onWheel)
+      svg.removeEventListener('gesturestart', onGestureStart)
+      svg.removeEventListener('gesturechange', onGestureChange)
+      svg.removeEventListener('mouseenter', onEnter)
+      svg.removeEventListener('mouseleave', onLeave)
+    }
+  }, [viewMode])
+
+  // Keys: Space (held, pointer over this canvas) arms drag-to-pan; Shift+1 is
+  // Show All. Scoped to this editor instance: the pointer must be over it, or
+  // focus inside it. Ignored while typing.
+  React.useEffect(() => {
+    function isTyping(t: EventTarget | null) {
+      const el = t as HTMLElement | null
+      if (!el || !el.tagName) return false
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
+    }
+    function isThisInstance() {
+      const root = editorRootRef.current
+      return pointerOverRootRef.current || (!!root && root.contains(document.activeElement))
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
+      if (e.code === 'Space') {
+        if (!pointerOverCanvasRef.current) return
+        e.preventDefault() // no page scroll / button press while panning
+        if (!spaceHeldRef.current) { spaceHeldRef.current = true; setSpaceHeld(true) }
+        return
+      }
+      if (e.code === 'Digit1' && e.shiftKey && isThisInstance()) {
+        e.preventDefault()
+        showAllRef.current()
+      }
+    }
+    function release() {
+      if (spaceHeldRef.current) { spaceHeldRef.current = false; setSpaceHeld(false) }
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === 'Space') release()
+    }
+    function onEnter() { pointerOverRootRef.current = true }
+    function onLeave() { pointerOverRootRef.current = false }
+    const root = editorRootRef.current
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', release)
+    root?.addEventListener('mouseenter', onEnter)
+    root?.addEventListener('mouseleave', onLeave)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', release)
+      root?.removeEventListener('mouseenter', onEnter)
+      root?.removeEventListener('mouseleave', onLeave)
+      panCleanupRef.current?.()
+    }
+  }, [])
+
+  // Drag-to-pan: middle button, or left button while Space is held. Runs in the
+  // capture phase so node / path handlers never see the press.
+  function onCanvasPanMouseDown(e: React.MouseEvent) {
+    if (!(e.button === 1 || (e.button === 0 && spaceHeldRef.current))) return
+    startPan(e)
+  }
+
+  // Right-drag on the background pans. Bubble phase: a right press on a node
+  // stops propagation there (it draws a path), so only background presses
+  // (and paths, which have no right-button action) reach this.
+  function onCanvasMouseDown(e: React.MouseEvent) {
+    if (e.button !== 2) return
+    startPan(e)
+  }
+
+  function startPan(e: React.MouseEvent) {
+    const svg = svgRef.current
+    const vb = parseViewBox(viewBoxAttr)
+    if (!svg || !vb) return
+    const s = viewScale(vb, svg.getBoundingClientRect())
+    if (!s) return
+    e.preventDefault() // also stops middle-click autoscroll
+    e.stopPropagation()
+    const startX = e.clientX
+    const startY = e.clientY
+    const button = e.button
+    setIsPanning(true)
+    function onMove(ev: MouseEvent) {
+      setViewBoxAttr(formatViewBox(panViewBox(vb!, ev.clientX - startX, ev.clientY - startY, s!)))
+    }
+    function end() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      panCleanupRef.current = null
+      setIsPanning(false)
+    }
+    function onUp(ev: MouseEvent) {
+      if (ev.button !== button) return
+      end()
+      if (button === 0) {
+        // the click that follows must not deselect or place a node
+        suppressClickRef.current = true
+        setTimeout(() => { suppressClickRef.current = false }, 0)
+      }
+      if (button === 2) {
+        // released off the canvas (where onContextMenu does not reach): no page menu
+        const block = (ce: Event) => ce.preventDefault()
+        window.addEventListener('contextmenu', block, true)
+        setTimeout(() => window.removeEventListener('contextmenu', block, true), 0)
+      }
+    }
+    panCleanupRef.current?.()
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    panCleanupRef.current = end
+  }
+
+  // Keep screen-positioned overlays in step with the view: move the inline
+  // label editor to its anchor, and re-render once so the element popup's
+  // corner is computed against the committed viewBox.
+  const [, setViewEpoch] = useState(0)
+  React.useLayoutEffect(() => {
+    if (editing && editingSvgPosRef.current) {
+      const pos = svgToContainerPos(editingSvgPosRef.current)
+      if (pos && (pos.left !== editing.left || pos.top !== editing.top)) {
+        setEditing((cur) => (cur ? { ...cur, left: pos.left, top: pos.top } : cur))
+      }
+    }
+    if (selectedId) setViewEpoch((n) => n + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewBoxAttr])
 
   function onMouseMove(e: React.MouseEvent) {
     const svg = svgRef.current
@@ -1578,7 +2052,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const p = clientToSvg(e)
     if ((mode === 'add-variable' || mode === 'add-constant') && !isLayoutOnly) {
       const type: NodeType = mode === 'add-variable' ? 'variable' : 'constant'
-      const n = makeNode({ label: type === 'constant' ? '1' : `V${nodes.length + 1}`, type, x: p.x, y: p.y })
+      const n = makeNode({ label: uniqueNodeLabel(nodes, type === 'constant' ? 'constant' : 'variable'), type, x: p.x, y: p.y })
       setNodes((s) => [...s, n])
       selectElement(n.id, 'node')
 
@@ -1604,7 +2078,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (pathSource) return
     if (isLayoutOnly) return
     const p = clientToSvg(e)
-    const n = makeNode({ label: `V${nodes.length + 1}`, type: 'variable', x: p.x, y: p.y })
+    const n = makeNode({ label: uniqueNodeLabel(nodes, 'variable'), type: 'variable', x: p.x, y: p.y })
     setNodes((s) => [...s, n])
     selectElement(n.id, 'node')
     // Add a free error variance self-loop automatically
@@ -1639,8 +2113,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
-      // Keep label as simple columnName for matching, use displayName for UI
-      const newNode = makeNode({ label: columnName, displayName, type: 'variable', x: dropX, y: dropY })
+      // Label it after the column (suffixed if a node already has that name; the
+      // data path's label still names the column), use displayName for UI
+      const label = uniqueNodeLabel(nodes, 'name', columnName)
+      const newNode = makeNode({ label, displayName: label === columnName ? displayName : convertToUnicode(label), type: 'variable', x: dropX, y: dropY })
       setNodes((ns) => [...ns, newNode])
 
       // Create data path from dataset to new variable with column name as label
@@ -2212,16 +2688,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // start inline editing at an SVG coordinate (svg-space x,y)
   function startEditing(kind: 'node' | 'path', id: string, value: string, svgPos: { x: number; y: number }) {
     if (isLayoutOnly) return
+    const pos = svgToContainerPos(svgPos)
+    if (!pos) return
+    editingSvgPosRef.current = svgPos
+    setEditing({ id, kind, value, left: pos.left, top: pos.top })
+  }
+
+  // SVG coordinates -> position relative to the canvas (for screen overlays)
+  function svgToContainerPos(svgPos: { x: number; y: number }): { left: number; top: number } | null {
     const svg = svgRef.current
-    if (!svg) return
+    const ctm = svg?.getScreenCTM?.()
+    if (!svg || !ctm) return null
     const pt = svg.createSVGPoint()
     pt.x = svgPos.x
     pt.y = svgPos.y
-    const screen = pt.matrixTransform(svg.getScreenCTM()!)
+    const screen = pt.matrixTransform(ctm)
     const rect = svg.getBoundingClientRect()
-    const left = screen.x - rect.left
-    const top = screen.y - rect.top
-    setEditing({ id, kind, value, left, top })
+    return { left: screen.x - rect.left, top: screen.y - rect.top }
   }
 
   function saveEditing() {
@@ -2231,6 +2714,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const convertedValue = convertToUnicode(value)
     // Only an actual change is written (opening and closing the editor is not an edit).
     if (kind === 'node') {
+      const current = nodes.find((n) => n.id === id)
+      const labelError = current && current.label !== convertedValue ? nodeLabelError(nodes, id, convertedValue) : null
+      if (labelError) {
+        showPathError(labelError)
+        setEditing(null)
+        return
+      }
       setNodes((ns) => ns.map((n) => (n.id === id && n.label !== convertedValue ? { ...n, label: convertedValue } : n)))
     } else {
       setPaths((ps) =>
@@ -2252,7 +2742,24 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   return (
     <>
-    <div className="flex flex-col h-full canvas-container">
+    <div
+      ref={editorRootRef}
+      className="flex flex-col h-full canvas-container outline-none"
+      // Focusable so a click anywhere in the editor makes it the instance that
+      // receives keyboard shortcuts (several widgets can share one page).
+      tabIndex={-1}
+      // Moving focus (e.g. into another inspector field) ends a coalesced
+      // typing step in the undo history.
+      onFocus={() => history.breakCoalescing()}
+      onMouseDown={(e) => {
+        // A handler that prevented the default (right-click path drag) also
+        // stopped the browser from focusing the editor: do it here.
+        const root = editorRootRef.current
+        if (e.defaultPrevented && root && !isTextEntryTarget(e.target) && document.activeElement !== root) {
+          root.focus({ preventScroll: true })
+        }
+      }}
+    >
       {/* Top toolbar with icon buttons */}
       {viewMode !== 'widget' && (
       <header className="border-b bg-white">
@@ -2292,14 +2799,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             {!isLayoutOnly && (
             <>
             <button
-              title="Add Variable (square or circle)"
+              title="Add Variable: square or circle (V)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-variable' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-variable')}
             >
               ▢○
             </button>
             <button
-              title="Add Constant (triangle)"
+              title="Add Constant: triangle (C)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-constant' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => setMode('add-constant')}
             >
@@ -2324,7 +2831,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             )}
             <div className="border-l mx-2"></div>
             <button
-              title="Add One-headed Path"
+              title="Add One-headed Path (P)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-one-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-one-path')
@@ -2334,7 +2841,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               →
             </button>
             <button
-              title="Add Two-headed Path"
+              title="Add Two-headed Path (T)"
               className={`py-2 px-3 rounded text-xl flex items-center justify-center ${mode === 'add-two-path' ? 'bg-sky-600 text-white' : 'bg-white border hover:bg-sky-100'}`}
               onClick={() => {
                 setMode('add-two-path')
@@ -2352,6 +2859,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               disabled={isLayingOut}
             >
               {isLayingOut ? '…' : '⟳'} Auto-layout
+            </button>
+            <button
+              title="Zoom to show the whole model (Shift+1)"
+              className="py-2 px-3 rounded text-lg flex items-center justify-center bg-white border hover:bg-sky-100"
+              onClick={showAll}
+            >
+              ⤢ Show All
             </button>
             <div className="border-l mx-2"></div>
             {viewMode !== 'shiny' && (
@@ -2549,7 +3063,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             <button
               title="Close editor and return model to R"
               className="py-1 px-3 rounded text-sm bg-green-600 text-white hover:bg-green-700"
-              onClick={() => adapter.done?.()}
+              onClick={handleDone}
             >
               Done
             </button>
@@ -2875,17 +3389,26 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   {isLayoutOnly ? (
                     <span className="ml-2">{selectedNode.label}</span>
                   ) : (
+                  <>
                   <input
                     type="text"
-                    value={selectedNode.label}
+                    value={labelDraft?.nodeId === selectedNode.id ? labelDraft.value : selectedNode.label}
                     onChange={(e) => {
+                      // Edits apply as typed while the label stays valid; an empty or
+                      // duplicate label is held as a draft and never reaches the model.
                       const converted = convertToUnicode(e.target.value)
-                      setNodes((ns) =>
-                        ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
-                      )
+                      setLabelDraft({ nodeId: selectedNode.id, value: converted })
+                      if (!nodeLabelError(nodes, selectedNode.id, converted)) {
+                        setNodes((ns) =>
+                          ns.map((n) => (n.id === selectedNode.id ? { ...n, label: converted } : n))
+                        )
+                      }
                     }}
-                    className="ml-2 px-2 py-1 border rounded text-xs bg-white w-48"
+                    onBlur={() => setLabelDraft(null)}
+                    className={`ml-2 px-2 py-1 border rounded text-xs bg-white w-48 ${labelDraftError ? 'border-red-500' : ''}`}
                   />
+                  {labelDraftError && <div className="mt-1 text-red-600">{labelDraftError} The label was not changed.</div>}
+                  </>
                   )}
                 </div>
                 <div><span className="font-medium">Position:</span> {selectedNode.x === undefined || selectedNode.y === undefined ? 'unplaced' : `(${selectedNode.x.toFixed(1)}, ${selectedNode.y.toFixed(1)})`}</div>
@@ -3195,6 +3718,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               className="w-full h-full bg-white border rounded"
               viewBox={viewBoxAttr}
               preserveAspectRatio="xMidYMid meet"
+              style={isPanning ? { cursor: 'grabbing' } : spaceHeld ? { cursor: 'grab' } : undefined}
+              onMouseDownCapture={onCanvasPanMouseDown}
+              onMouseDown={onCanvasMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onMouseLeave={onMouseUp}
@@ -3634,6 +4160,23 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               border: '1px solid #cbd5e1'
             }}
           />
+        )}
+        {scrollHint !== 'hidden' && (
+          <div
+            data-testid="scroll-zoom-hint"
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center"
+            style={{
+              pointerEvents: 'none',
+              zIndex: 45,
+              opacity: scrollHint === 'shown' ? 1 : 0,
+              transition: `opacity ${SCROLL_HINT_FADE_MS}ms ease-out`,
+            }}
+          >
+            <div style={{ background: 'rgba(15, 23, 42, 0.75)', color: '#fff', padding: '8px 14px', borderRadius: 6, fontSize: 14, fontFamily: 'system-ui, sans-serif' }}>
+              {scrollHintText()}
+            </div>
+          </div>
         )}
       </div>
 

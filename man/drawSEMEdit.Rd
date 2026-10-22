@@ -19,10 +19,10 @@ instead of placing the cursor on it, so it can be called from the console or
 a script.
 
 Opens the layout-only editor on \code{model}. On \strong{Done}, the new node positions
-are inserted into the active source editor on the line after the cursor, as
-a \code{setLocation()} call that updates the variable you passed (see
-\code{\link[=drawSEMAddin]{drawSEMAddin()}}). Nothing is inserted if no node moved or the dialog was
-closed without Done.
+(and the view, if you changed it) are inserted into the active source editor
+on the line after the cursor, as \code{setLocation()} / \code{setVisualization()}
+calls that update the variable you passed (see \code{\link[=drawSEMAddin]{drawSEMAddin()}}). Nothing is
+inserted if neither changed or the dialog was closed without Done.
 }
 \examples{
 \dontrun{

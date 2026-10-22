@@ -47,6 +47,37 @@ NULL
 }
 
 
+# ── Edit history (undo/redo) across Done and reopening ─────────────────
+# The editor sends its undo history on Done as one JSON string (format in
+# drawsem-web/src/utils/editHistory.ts); R keeps it, opaque, in
+# GraphModel@metadata$editHistory and hands it back to the widget when the
+# model is reopened. It is never part of the schema, so exportSchema() and
+# image export never see it.
+
+# The history string from a done_request payload, or NULL.
+.editHistoryFrom <- function(payload) {
+  h <- payload$editHistory
+  if (is.character(h) && length(h) == 1L && !is.na(h) && nzchar(h)) h else NULL
+}
+
+# Attach a history string to a semWidget() (kept separate from the schema).
+.withEditHistory <- function(widget, editHistory) {
+  if (is.character(editHistory) && length(editHistory) == 1L && nzchar(editHistory)) {
+    widget$x$editHistory <- editHistory
+  }
+  widget
+}
+
+# Whether the model's latest fit record matches its current structure.
+.fitIsCurrent <- function(gm) {
+  fit <- suppressWarnings(getFitResults(gm))
+  !is.null(fit) && !identical(fit, NA)
+}
+
+.fitStatusOf <- function(gm) {
+  if (isTRUE(suppressWarnings(getFitResults(gm))$converged)) "converged" else "failed"
+}
+
 #' Build the drawSEM Shiny UI
 #' @noRd
 .drawSEM_ui <- function() {
@@ -175,6 +206,15 @@ NULL
   tools::file_path_sans_ext(basename(fileName))
 }
 
+# TRUE when a node other than a dataset node already uses `label` in the
+# schema's first model (where .attachDatasetNode() writes).
+.labelTakenByNonDataset <- function(schema, label) {
+  model_ids <- names(schema$models %||% list())
+  if (length(model_ids) == 0) return(FALSE)
+  nodes <- schema$models[[model_ids[[1]]]]$nodes %||% list()
+  any(vapply(nodes, function(n) identical(n$label, label) && !identical(n$type, "dataset"), logical(1)))
+}
+
 # Add (or refresh) the dataset node labelled `label` for data `df` in the
 # schema's first model, recording where the data lives:
 #   "embedded": copied into the model (datasetSource type embedded);
@@ -267,10 +307,23 @@ NULL
 .drawSEM_server <- function(input, output, session, initialGM, onDone = NULL,
                             editMode = "full") {
   currentModel             <- shiny::reactiveVal(initialGM)
-  fitStatus                <- shiny::reactiveVal("unfitted")
+  # Start from the model's latest fit: none -> unfitted; current -> converged
+  # (or failed); out of date -> stale.
+  initialFit <- if (!is.null(initialGM)) suppressWarnings(getFitResults(initialGM)) else NULL
+  initialStatus <- if (is.null(initialFit)) {
+    "unfitted"
+  } else if (identical(initialFit, NA)) {
+    "stale"
+  } else if (isTRUE(initialFit$converged)) {
+    "converged"
+  } else {
+    "failed"
+  }
+  fitStatus                <- shiny::reactiveVal(initialStatus)
   svgData                  <- shiny::reactiveVal(NULL)
   lastVarname              <- shiny::reactiveVal("myModel")
-  lastStructuralFingerprint <- shiny::reactiveVal(NULL)
+  lastStructuralFingerprint <- shiny::reactiveVal(
+    if (identical(initialStatus, "unfitted")) NULL else hashStructure(initialGM))
 
   # ── Tailwind modal helpers ─────────────────────────────────────────────
   .modal <- function(id, title, body, footer = NULL, size = "m") {
@@ -399,7 +452,8 @@ NULL
   # ── Widget (rendered once with initial model) ──────────────────────────
   output$sem_widget_ui <- shiny::renderUI({
     schema <- if (!is.null(initialGM)) initialGM@schema else NULL
-    semWidget(initialModel = schema, width = "100%", height = "100%", editMode = editMode)
+    widget <- semWidget(initialModel = schema, width = "100%", height = "100%", editMode = editMode)
+    .withEditHistory(widget, if (!is.null(initialGM)) initialGM@metadata$editHistory)
   })
 
   # ── Model updates from JS ──────────────────────────────────────────────
@@ -426,6 +480,11 @@ NULL
       if (is_empty) {
         .sendFitStatus("unfitted")
         svgData(NULL)
+      } else if (fitStatus() == "stale" && .fitIsCurrent(gm)) {
+        # Back at the fitted structure (e.g. undo/redo): the editor carries the
+        # fit results forward, so the fit applies again.
+        lastStructuralFingerprint(hashStructure(gm))
+        .sendFitStatus(.fitStatusOf(gm))
       } else if (fitStatus() == "converged") {
         # Only dirty the fit on structural changes — visual-only moves do not
         # reset a converged fit.
@@ -479,7 +538,7 @@ NULL
       currentModel(gm)
       fitStatus("unfitted")
       svgData(NULL)
-      session$sendCustomMessage("update_model", list(schema = gm@schema))
+      session$sendCustomMessage("update_model", list(schema = gm@schema, kind = "load"))
       .sendDatasetSummaries(gm)
       .closeModal("dsem-modal-load")
       shiny::showNotification("Model loaded.", type = "message", duration = 2)
@@ -636,6 +695,12 @@ NULL
       shiny::showNotification("Enter a dataset label first.", type = "warning", duration = 4)
       return()
     }
+    # Node labels are unique; only an existing dataset node may be refreshed.
+    if (.labelTakenByNonDataset(currentModel()@schema, label)) {
+      shiny::showNotification(sprintf("A node named '%s' already exists. Choose another dataset label.", label),
+                              type = "warning", duration = 4)
+      return()
+    }
     embed <- isTRUE(input$data_embed)
     tryCatch({
       gm <- currentModel()
@@ -656,7 +721,7 @@ NULL
       gm@data[[label]] <- df
 
       currentModel(gm)
-      session$sendCustomMessage("update_model", list(schema = gm@schema))
+      session$sendCustomMessage("update_model", list(schema = gm@schema, kind = "data"))
       .sendDatasetSummaries(gm)
       .closeModal("dsem-modal-data")
       how <- c(embedded = "embedded in the model", file = "connected to the file", session = "held in the R session")[[source]]
@@ -701,7 +766,7 @@ NULL
     currentModel(result)
     .sendFitStatus("converged")
     lastStructuralFingerprint(hashStructure(result))
-    session$sendCustomMessage("update_model", list(schema = result@schema))
+    session$sendCustomMessage("update_model", list(schema = result@schema, kind = "fit"))
     .sendDatasetSummaries(result)
 
     fit_res    <- getFitResults(result)
@@ -928,6 +993,15 @@ NULL
   # ── Done ──────────────────────────────────────────────────────────────
   shiny::observeEvent(input$done_request, {
     gm <- currentModel()
+    # The editor's undo history, kept with the model so reopening it in the
+    # editor restores it (never written to the schema; see .withEditHistory()).
+    if (!is.null(gm)) gm@metadata$editHistory <- .editHistoryFrom(input$done_request)
+    # Saved view (visualization viewport / layers): only the addin (layout-only
+    # editing) persists it, and the widget sends it only when it changed.
+    # drawSEM() never writes the view back to R.
+    if (identical(editMode, "layout")) {
+      gm <- .applyDoneVisualization(gm, input$done_request$visualization)
+    }
     # Run caller work (e.g. the addin's insert into the editor) HERE, before
     # stopApp(): with dialogViewer() in RStudio, code after runGadget() may
     # never run (rstudio/rstudio#11714).
@@ -978,7 +1052,10 @@ NULL
 #' @param \dots Additional arguments passed to \code{\link[shiny]{runGadget}()}.
 #'
 #' @return A \code{\link{GraphModel}} representing the final model state, or
-#'   \code{NULL} if the editor was closed without clicking Done.
+#'   \code{NULL} if the editor was closed without clicking Done. The editor's
+#'   undo history is kept in its \code{@metadata$editHistory} (not in the
+#'   schema, so never in exported files), and reopening the returned model with
+#'   \code{drawSEM()} restores it.
 #'
 #' @examples
 #' \dontrun{

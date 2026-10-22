@@ -362,144 +362,10 @@ runModel <- function(
     ...
   )
   
-  # Step 3: Extract results
+  # Step 3: Record the fit (fit record, estimates into values, cached MxModel)
   message("Extracting fit metadata...")
-  
-  # Get fit value and status
-  fit_value <- fit_result$output$fit
-  converged <- (fit_result$output$status[[1]] == 0)
-  status_code <- fit_result$output$status[[1]]
-  status_remarks <- sprintf(
-    "Convergence %s. Code %d",
-    if (converged) "detected" else "NOT detected",
-    status_code
-  )
-  
-  # Extract parameter estimates and SEs
-  estimates <- fit_result$output$estimate
-  # OpenMx stores SEs as a one-column matrix with parameter names as row names;
-  # align them to the estimates by name (NA where OpenMx has none).
-  se_matrix <- fit_result$output$standardErrors
-  standard_errors <- setNames(rep(NA_real_, length(estimates)), names(estimates))
-  if (!is.null(se_matrix) && length(se_matrix) > 0) {
-    se_values <- setNames(as.numeric(se_matrix), rownames(se_matrix) %||% names(estimates))
-    shared <- intersect(names(estimates), names(se_values))
-    standard_errors[shared] <- se_values[shared]
-  }
-  
-  # Get sample size and DF
-  sample_size <- NA_integer_
-  degrees_of_freedom <- NA_integer_
-  
-  # Try to extract from data
-  if (!is.null(fit_result$data) && !is.null(fit_result$data$observed)) {
-    obs_data <- fit_result$data$observed
-    if (is.matrix(obs_data)) {
-      sample_size <- nrow(obs_data)
-    } else if (is.data.frame(obs_data)) {
-      sample_size <- nrow(obs_data)
-    }
-  }
-  
-  # OpenMx's own summary: DF here, and everything else it computed goes into
-  # the fit record's backendOutput (see .mxSummaryForRecord()).
-  summary_obj <- tryCatch(summary(fit_result), error = function(e) NULL)
-  if (!is.null(summary_obj$degreesOfFreedom)) {
-    degrees_of_freedom <- summary_obj$degreesOfFreedom
-  }
-  
-  # Step 4: Write fitted estimates into the named free parameters' values
-  # (so the schema shows them for inspection and export). Done before the
-  # structure hash is taken, so the fit records the model as it is returned;
-  # hashing first left every fit with a named free parameter stale at once.
-  result_model <- graphModel
-  model <- result_model@schema$models[[model_id]]
-  if (converged && length(estimates) > 0) {
-    model$paths <- lapply(model$paths, function(path) {
-      # If this path has a freeParameter label, look up its fitted estimate
-      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
-        param_name <- path$freeParameter
-        if (param_name %in% names(estimates)) {
-          path$value <- as.numeric(estimates[[param_name]])
-        }
-      } else if (isTRUE(path$freeParameter)) {
-        # For anonymous free parameters (freeParameter = true),
-        # the Backend names them; we'd need the OpenMx parameter table to match.
-        # For now, skip these (they're not commonly used).
-      }
-      path
-    })
-  }
-  result_model@schema$models[[model_id]] <- model
+  result_model <- .recordFit(graphModel, fit_result, model_id)
 
-  # Step 5: Create fit result entry
-  current_hash <- hashStructure(result_model, model_id)
-
-  # Capture a snapshot of the data that produced this fit, for
-  # reproducibility/staleness checks. Pulled from the model's dataset node;
-  # omitted when there is no dataset node (e.g. covariance-only fits).
-  data_binding <- NULL
-  fit_nodes <- graphModel@schema$models[[model_id]]$nodes
-  for (node in fit_nodes) {
-    if (!is.null(node$type) && node$type == "dataset") {
-      ds <- node$datasetSource
-      data_binding <- list(
-        datasetLabel = node$label,
-        md5 = ds$md5,
-        rowCount = ds$rowCount
-      )
-      # Drop NULL components so optional sub-fields are simply absent
-      data_binding <- data_binding[!vapply(data_binding, is.null, logical(1))]
-      break
-    }
-  }
-
-  fit_entry <- list(
-    timestamp = format(Sys.time(), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-    backend = "OpenMx",
-    converged = converged,
-    structureHash = current_hash,
-    statusRemarks = status_remarks,
-    fitValue = fit_value,
-    degreesOfFreedom = degrees_of_freedom,
-    sampleSize = sample_size,
-    parameterEstimates = as.list(estimates),
-    standardErrors = as.list(standard_errors)
-  )
-  if (!is.null(data_binding) && length(data_binding) > 0) {
-    fit_entry$dataBinding <- data_binding
-  }
-  if (!is.null(summary_obj)) {
-    fit_entry$backendOutput <- list(
-      tool    = "OpenMx",
-      version = as.character(utils::packageVersion("OpenMx")),
-      summary = .mxSummaryForRecord(summary_obj)
-    )
-  }
-  
-  # Step 6: Store in GraphModel schema
-  
-  # Initialize provenance if needed
-  if (is.null(model$provenance)) {
-    model$provenance <- list()
-  }
-  
-  # Append fit result
-  model$provenance$fitResults <- c(
-    model$provenance$fitResults %||% list(),
-    list(fit_entry)
-  )
-  
-  # Update hashes and timestamp
-  model$provenance$structureHash <- current_hash
-  model$provenance$lastModified <- fit_entry$timestamp
-  
-  result_model@schema$models[[model_id]] <- model
-  
-  # Step 7: Cache the fitted model, with a record of what it was fitted to
-  # (as.MxModel() returns it while the model still matches; see .cachedFit())
-  result_model <- .cacheFit(result_model, fit_result, model_id)
-  
   message("Fitting complete.")
   result_model
 }
@@ -669,4 +535,150 @@ generateData <- function(
     `BIC (sample-size adjusted)` = num(ic$BIC$sample)
   )
   out[!is.na(unlist(out))]
+}
+
+# ---- recording a fit -------------------------------------------------------------
+# Record a fitted MxModel on `graphModel`: write estimates into named free
+# parameters' values, append a fit record (provenance$fitResults, including
+# OpenMx's own summary as backendOutput), and cache the fitted MxModel. Used
+# by runModel() after mxRun(), and by as.GraphModel() on an MxModel that was
+# already fitted, so both show as fitted.
+.recordFit <- function(graphModel, fit_result, model_id) {
+  # Get fit value and status
+  fit_value <- fit_result$output$fit
+  converged <- (fit_result$output$status[[1]] == 0)
+  status_code <- fit_result$output$status[[1]]
+  status_remarks <- sprintf(
+    "Convergence %s. Code %d",
+    if (converged) "detected" else "NOT detected",
+    status_code
+  )
+  
+  # Extract parameter estimates and SEs
+  estimates <- fit_result$output$estimate
+  # OpenMx stores SEs as a one-column matrix with parameter names as row names;
+  # align them to the estimates by name (NA where OpenMx has none).
+  se_matrix <- fit_result$output$standardErrors
+  standard_errors <- setNames(rep(NA_real_, length(estimates)), names(estimates))
+  if (!is.null(se_matrix) && length(se_matrix) > 0) {
+    se_values <- setNames(as.numeric(se_matrix), rownames(se_matrix) %||% names(estimates))
+    shared <- intersect(names(estimates), names(se_values))
+    standard_errors[shared] <- se_values[shared]
+  }
+  
+  # Get sample size and DF
+  sample_size <- NA_integer_
+  degrees_of_freedom <- NA_integer_
+  
+  # Try to extract from data
+  if (!is.null(fit_result$data) && !is.null(fit_result$data$observed)) {
+    obs_data <- fit_result$data$observed
+    if (is.matrix(obs_data)) {
+      sample_size <- nrow(obs_data)
+    } else if (is.data.frame(obs_data)) {
+      sample_size <- nrow(obs_data)
+    }
+  }
+  
+  # OpenMx's own summary: DF here, and everything else it computed goes into
+  # the fit record's backendOutput (see .mxSummaryForRecord()).
+  summary_obj <- tryCatch(summary(fit_result), error = function(e) NULL)
+  if (!is.null(summary_obj$degreesOfFreedom)) {
+    degrees_of_freedom <- summary_obj$degreesOfFreedom
+  }
+  
+  # 1. Write fitted estimates into the named free parameters' values
+  # (so the schema shows them for inspection and export). Done before the
+  # structure hash is taken, so the fit records the model as it is returned;
+  # hashing first left every fit with a named free parameter stale at once.
+  result_model <- graphModel
+  model <- result_model@schema$models[[model_id]]
+  if (converged && length(estimates) > 0) {
+    model$paths <- lapply(model$paths, function(path) {
+      # If this path has a freeParameter label, look up its fitted estimate
+      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
+        param_name <- path$freeParameter
+        if (param_name %in% names(estimates)) {
+          path$value <- as.numeric(estimates[[param_name]])
+        }
+      } else if (isTRUE(path$freeParameter)) {
+        # For anonymous free parameters (freeParameter = true),
+        # the Backend names them; we'd need the OpenMx parameter table to match.
+        # For now, skip these (they're not commonly used).
+      }
+      path
+    })
+  }
+  result_model@schema$models[[model_id]] <- model
+
+  # 2. Create fit result entry
+  current_hash <- hashStructure(result_model, model_id)
+
+  # Capture a snapshot of the data that produced this fit, for
+  # reproducibility/staleness checks. Pulled from the model's dataset node;
+  # omitted when there is no dataset node (e.g. covariance-only fits).
+  data_binding <- NULL
+  fit_nodes <- graphModel@schema$models[[model_id]]$nodes
+  for (node in fit_nodes) {
+    if (!is.null(node$type) && node$type == "dataset") {
+      ds <- node$datasetSource
+      data_binding <- list(
+        datasetLabel = node$label,
+        md5 = ds$md5,
+        rowCount = ds$rowCount
+      )
+      # Drop NULL components so optional sub-fields are simply absent
+      data_binding <- data_binding[!vapply(data_binding, is.null, logical(1))]
+      break
+    }
+  }
+
+  fit_entry <- list(
+    # when OpenMx ran the fit (an imported model may have been fitted earlier)
+    timestamp = format(summary_obj$timestamp %||% Sys.time(), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    backend = "OpenMx",
+    converged = converged,
+    structureHash = current_hash,
+    statusRemarks = status_remarks,
+    fitValue = fit_value,
+    degreesOfFreedom = degrees_of_freedom,
+    sampleSize = sample_size,
+    parameterEstimates = as.list(estimates),
+    standardErrors = as.list(standard_errors)
+  )
+  if (!is.null(data_binding) && length(data_binding) > 0) {
+    fit_entry$dataBinding <- data_binding
+  }
+  if (!is.null(summary_obj)) {
+    fit_entry$backendOutput <- list(
+      tool    = "OpenMx",
+      version = as.character(utils::packageVersion("OpenMx")),
+      summary = .mxSummaryForRecord(summary_obj)
+    )
+  }
+  
+  # 3. Store in GraphModel schema
+  
+  # Initialize provenance if needed
+  if (is.null(model$provenance)) {
+    model$provenance <- list()
+  }
+  
+  # Append fit result
+  model$provenance$fitResults <- c(
+    model$provenance$fitResults %||% list(),
+    list(fit_entry)
+  )
+  
+  # Update hashes and timestamp
+  model$provenance$structureHash <- current_hash
+  model$provenance$lastModified <- fit_entry$timestamp
+  
+  result_model@schema$models[[model_id]] <- model
+  
+  # 4. Cache the fitted model, with a record of what it was fitted to
+  # (as.MxModel() returns it while the model still matches; see .cachedFit())
+  result_model <- .cacheFit(result_model, fit_result, model_id)
+  
+  result_model
 }

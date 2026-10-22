@@ -16,6 +16,7 @@ lavaan and blavaan are planned.
 **Live demos:**
 - [Stable editor](https://trbrick.github.io/drawSEM/) — built from `main`
 - [Experimental editor](https://trbrick.github.io/drawSEM/experimental/) — built from `coordinate-expansion`
+- PR previews — each open pull request is built to `https://trbrick.github.io/drawSEM/pr-preview/pr-<N>/` (linked in a comment on the PR, removed when it closes)
 
 ## Installation
 

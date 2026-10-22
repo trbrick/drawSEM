@@ -160,7 +160,11 @@ export const OWNED_PATH_KEYS: OwnedKeySpec = {
 /** Model keys written from runtime state. */
 export const OWNED_MODEL_KEYS: OwnedKeySpec = {
   keys: ['label', 'nodes', 'paths'],
-  nested: { optimization: ['parameterTypes'] },
+  nested: {
+    optimization: ['parameterTypes'],
+    // the saved editor view; visualization.anchor / displayContext pass through
+    visualization: ['viewport', 'activeLayer', 'offLayerVisibility'],
+  },
 }
 
 /** Document keys written from runtime state. */
@@ -236,6 +240,41 @@ export const DANGLING_ENDPOINT_PREFIX = '?'
 // no label unless the user (or a data column) named it, never a runtime id
 // outside `id`, and no passthrough.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Node labels. Paths refer to nodes by label in the schema, so labels must be
+// unique within a model (R's validateSchema rejects duplicates).
+// ---------------------------------------------------------------------------
+
+/**
+ * A label for a new node that no node in `nodes` already uses.
+ * - `'variable'`: the lowest free V1, V2, ...
+ * - `'constant'`: "1", then "1b", "1c", ... (the convention for additional
+ *   constant nodes), then "1_27", ...
+ * - `'name'`: `base` itself, then base_2, base_3, ... (dataset and column names)
+ */
+export function uniqueNodeLabel(nodes: { label: string }[], style: 'variable' | 'constant' | 'name', base = ''): string {
+  const taken = new Set(nodes.map((n) => n.label))
+  const first = style === 'variable' ? 'V1' : style === 'constant' ? '1' : base
+  if (!taken.has(first)) return first
+  for (let i = 2; ; i++) {
+    const candidate =
+      style === 'variable' ? `V${i}`
+      : style === 'constant' ? (i <= 26 ? `1${String.fromCharCode(96 + i)}` : `1_${i}`)
+      : `${base}_${i}`
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
+/**
+ * Why `label` cannot be given to the node `nodeId`, or null if it can: labels
+ * must be non-empty and not used by any other node.
+ */
+export function nodeLabelError(nodes: { id: string; label: string }[], nodeId: string, label: string): string | null {
+  if (label === '') return 'A node needs a label.'
+  if (nodes.some((n) => n.id !== nodeId && n.label === label)) return `A node named "${label}" already exists.`
+  return null
+}
 
 /** A new node at a user-chosen position. */
 export function makeNode(fields: { label: string; type: Node['type']; x: number; y: number; displayName?: string }): Node {

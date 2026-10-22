@@ -109,6 +109,7 @@ JSON so serialized models stay portable and backend-agnostic.
 | `plotGraphModel(graphModel, ...)` | Render interactive graph widget (auto-detects editability) |
 | `plot(graphModel)` / `plot(mxModel)` | S3 plot dispatch; delegates to `plotGraphModel()` |
 | `setLocation(graphModel, nodeId, x, y)` | Programmatically set node positions (vectorized, R recycling rules) |
+| `setVisualization(graphModel, viewport=, activeLayer=, offLayerVisibility=)` | Set or clear the saved editor view (`visualization`); `NA` = unchanged, `FALSE` = clear |
 | `exportImage(graphModel, file, ...)` | Write a diagram to SVG/PNG/PDF headlessly (needs `chromote`; PNG/PDF need `rsvg`) |
 
 ### Schema ↔ OpenMx Conversion
@@ -166,12 +167,40 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
 ### Complete
 - R package: `GraphModel` S4 class, schema validation, schema → OpenMx
   conversion, `mxRun()`, `exportSchema()`, `loadGraphModel()`, `plotGraphModel()`,
-  `plot.GraphModel()`, `plot.MxModel()`, `setLocation()`, `exportImage()`,
+  `plot.GraphModel()`, `plot.MxModel()`, `setLocation()`, `setVisualization()`,
+  `exportImage()`,
   460+ testthat tests
 - Web frontend: adapter pattern, dual-build, htmlwidgets binding, bidirectional
   Shiny messaging (model load/save, fit requests, save-to-env, fit-status updates)
 - Web frontend: auto-layout algorithm (RAMPath) with a toolbar button, SVG
   renderer, SVG/PNG export buttons
+- Web frontend: in-memory undo/redo (`src/hooks/useHistory.ts`; Cmd/Ctrl+Z,
+  Cmd/Ctrl+Shift+Z, Ctrl+Y) and keyboard shortcuts scoped to the editor
+  instance in use (`src/hooks/useEditorKeyboard.ts`): Escape, V/C/P/T tools,
+  arrow-key nudge, Delete/Backspace, Cmd/Ctrl+L
+- Undo history across R round trips (`src/utils/editHistory.ts`): R's
+  `update_model` messages carry `kind` (`load` starts a new history, `data` is
+  an undo step, `fit` keeps the history); undo/redo carry fit results
+  (`provenance`) forward. In `drawSEM()` and the addin the history goes to R on
+  Done and is kept in `GraphModel@metadata$editHistory` (never in the schema),
+  and comes back when the model is reopened
+- Web frontend: zoom/pan (`src/utils/viewport.ts`), the same controls in every
+  context: mouse wheel zooms about the cursor; trackpad two-finger scroll pans
+  (mouse vs trackpad is a best-effort guess, `isTrackpadWheel()`); pinch and
+  Cmd/Ctrl+wheel zoom; right-drag on the background, middle-drag and
+  Space+drag pan (right-drag from a node still draws a path; left-drag on the
+  background is reserved for marquee selection). The one exception: the
+  embedded widget (`plotGraphModel()`, Quarto/RMarkdown) leaves the plain wheel
+  and two-finger scroll to the page and briefly shows a "Ctrl + scroll to zoom"
+  (⌘ on macOS) hint. A "Show All" toolbar button (Shift+1) fits the view to
+  the model
+- Saved view: the viewport and layer state are stored in
+  `models[k].visualization` (`viewport`, `activeLayer`, `offLayerVisibility`).
+  Applied on load in every context (else the view fits the model). Zoom/pan/
+  layer changes are not undo steps and are not synced per edit; the live view
+  is written only by the standalone Save and by the RStudio addin's Done (as a
+  `setVisualization()` call, when the view changed). `drawSEM()` never writes
+  the view back to R; image export ignores it. R: `setVisualization()`
 - Headless image export: `exportImage()` (R) via `window.drawSEMExportSVG` (widget)
 
 ### Specced, not yet implemented

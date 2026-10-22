@@ -146,3 +146,36 @@ test_that("summary() of a GraphModel reports OpenMx's AIC and BIC", {
   expect_equal(out$informationCriteria$AIC,
                unname(summary(fitted@lastBuiltModel)$informationCriteria["AIC:", "par"]))
 })
+
+test_that("as.GraphModel() on a fitted MxModel records the fit", {
+  mx <- as.MxModel(fitQuietly(fittableModel()))
+  gm <- suppressWarnings(as.GraphModel(mx))
+  res <- getFitResults(gm)
+  expect_true(is.list(res))
+  expect_true(res$converged)
+  expect_equal(unlist(res$parameterEstimates), mx$output$estimate)
+  expect_equal(res$backendOutput$tool, "OpenMx")
+  # recorded with OpenMx's fit time, not the conversion time
+  expect_equal(res$timestamp, format(summary(mx)$timestamp, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
+})
+
+test_that("an unfitted MxModel converts with no fit record", {
+  gm <- suppressWarnings(as.GraphModel(as.MxModel(fittableModel())))
+  expect_null(getFitResults(gm))
+})
+
+test_that("drawSEM's server starts with the model's fit status", {
+  skip_if_not_installed("shiny")
+  mod <- function(id, initialGM) shiny::moduleServer(id, function(input, output, session)
+    .drawSEM_server(input, output, session, initialGM = initialGM))
+  statusOf <- function(gm) {
+    out <- NULL
+    shiny::testServer(mod, args = list(initialGM = gm), out <<- session$returned$fitStatus())
+    out
+  }
+  fitted <- fitQuietly(fittableModel())
+  expect_equal(statusOf(fittableModel()), "unfitted")
+  expect_equal(statusOf(fitted), "converged")
+  expect_equal(statusOf(suppressWarnings(as.GraphModel(as.MxModel(fitted)))), "converged")
+  expect_equal(statusOf(changePath(fitted, "x", "y", 1, value = 0.9)), "stale")
+})

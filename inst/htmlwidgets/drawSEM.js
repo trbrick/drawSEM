@@ -50,6 +50,9 @@ HTMLWidgets.widget({
           data: data.data,
           // 'layout' = layout-only editing (visual changes only); absent/'full' = normal
           editMode: data.editMode,
+          // Serialized undo history R kept in GraphModel@metadata$editHistory
+          // (the Shiny app / addin only); never part of the schema.
+          editHistory: data.editHistory,
           timestamp: Date.now()
         };
         

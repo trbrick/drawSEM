@@ -216,6 +216,25 @@ describe('WidgetAdapter', () => {
     })
   })
 
+  describe('done()', () => {
+    it('sends done_request without a view by default', () => {
+      createWidgetAdapter().done!()
+      const [name, value, opts] = mockShiny.setInputValue.mock.calls[0]
+      expect(name).toBe('done_request')
+      expect(Object.keys(value as object)).toEqual(['timestamp'])
+      expect(opts).toEqual({ priority: 'event' })
+    })
+
+    it('includes the visualization (by model id) when given', () => {
+      const visualization = { model1: { viewport: { x: 1, y: 2, width: 3, height: 4 }, activeLayer: 'all' as const, offLayerVisibility: 'invisible' as const } }
+      createWidgetAdapter().done!({ visualization })
+      const [name, value] = mockShiny.setInputValue.mock.calls[0]
+      expect(name).toBe('done_request')
+      expect((value as any).visualization).toEqual(visualization)
+      expect(typeof (value as any).timestamp).toBe('number')
+    })
+  })
+
   describe('export()', () => {
     it('should send export_request via setInputValue', async () => {
       const exporter = createWidgetAdapter()
