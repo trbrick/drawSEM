@@ -417,7 +417,9 @@ export function getPathParameterConfig(
   if (path.optimization) {
     return {
       prior: path.optimization.prior ?? typeDefault.prior,
-      bounds: path.optimization.bounds ?? typeDefault.bounds,
+      // An explicit null means unbounded and overrides the type default;
+      // only an absent key falls back.
+      bounds: path.optimization.bounds !== undefined ? path.optimization.bounds : typeDefault.bounds,
       start: path.optimization.start ?? typeDefault.start,
     }
   }
