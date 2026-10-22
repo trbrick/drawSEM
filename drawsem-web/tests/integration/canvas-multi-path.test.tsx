@@ -423,8 +423,8 @@ describe('group actions in the multi-selection popup', () => {
     expect(means.map((p: any) => p.to)).toEqual(['X1', 'X2', 'X3'])
     expect(means[0]).toMatchObject({ numberOfArrows: 1, freeParameter: true, parameterType: 'mean' })
     expect(info()).toContain('Added constant "1" and 3 mean paths.')
-    // the new paths join the selection
-    expect(summary()).toBe('3 nodes, 3 paths selected')
+    // the new constant and paths join the selection
+    expect(summary()).toBe('4 nodes, 3 paths selected')
 
     // again: nothing to add
     fireEvent.click(screen.getByRole('button', { name: /Add means/ }))
@@ -447,6 +447,8 @@ describe('group actions in the multi-selection popup', () => {
     await waitFor(() => expect(pathKeys(ctx)).toEqual([...ORIGINAL, '1->F', '1->X3']))
     expect(lastModel(ctx.onModelChange).nodes).toHaveLength(6)
     expect(info()).toContain('Added 2 mean paths from "1".')
+    // an existing constant is not added to the selection, its new paths are
+    expect(summary()).toBe('2 nodes, 2 paths selected')
   })
 
   it('Correlate all: a free covariance between every pair of selected variables; one undo step', async () => {

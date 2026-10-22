@@ -1097,9 +1097,9 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const selectedStructuralPaths = selectedPathsList.filter((p) => !isDatasetPath(p, nodes))
   const selectedDataPathCount = selectedPathsList.length - selectedStructuralPaths.length
 
-  // Paths added from the multi-selection popup join the selection
-  function selectAddedPaths(added: readonly Path[]) {
-    setSelection((s) => unionSelections(s, { nodeIds: [], pathIds: added.map((p) => p.id) }))
+  // Paths (and a constant) added from the multi-selection popup join the selection
+  function selectAdded(added: readonly Path[], node?: Node | null) {
+    setSelection((s) => unionSelections(s, { nodeIds: node ? [node.id] : [], pathIds: added.map((p) => p.id) }))
   }
 
   // "Add means": a free mean path from a constant to every selected variable without one
@@ -1113,7 +1113,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     }
     if (plan.added.length > 0) {
       setPaths((ps) => [...ps, ...plan.added])
-      selectAddedPaths(plan.added)
+      selectAdded(plan.added, plan.newConstant)
     }
     const constantLabel = plan.constantId ? (plan.newConstant ?? nodes.find((n) => n.id === plan.constantId))?.label ?? null : null
     showInfo(addMeansMessage(plan, constantLabel))
@@ -1125,7 +1125,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const plan = planCorrelateAll(nodes, paths, selection.nodeIds)
     if (plan.added.length > 0) {
       setPaths((ps) => [...ps, ...plan.added])
-      selectAddedPaths(plan.added)
+      selectAdded(plan.added)
     }
     showInfo(correlateAllMessage(plan))
   }

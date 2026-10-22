@@ -210,7 +210,7 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   layout-only mode, group actions (one undo step each): Add means (free
   `mean` paths from the selected constant, else "1", else a new constant below
   the selection), Correlate all (free `covariance` paths between selected
-  variables; the paths either adds join the selection), free/fixed, parameter name and value for all selected structural
+  variables; the paths either adds, and a constant Add means creates, join the selection), free/fixed, parameter name and value for all selected structural
   paths, and the manifest/latent lock for all selected variables ("mixed" when
   they differ), and Duplicate
 - Web frontend: copy, cut, paste and duplicate of the selection
