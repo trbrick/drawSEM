@@ -252,6 +252,67 @@ test_that("round trip through OpenMx restores a cross-variable covariance hint r
   expect_equal(cov_path$visual, list(curvature = 0.75))
 })
 
+# Build an MxModel from a hintRoundTripSchema() extended with `extra_path`,
+# then rewrite the escrowed copy of that path in drawSemHints with from/to
+# swapped relative to the order the live model reconstructs it in. Unlike
+# the round-trip test above, this guarantees the hint and live orders really
+# do differ, independent of OpenMx's S-matrix walk order.
+reversedHintModel <- function(extra_path) {
+  set.seed(1)
+  df <- data.frame(x = rnorm(50), y = rnorm(50))
+  schema <- hintRoundTripSchema(dataset_label = "surveyData")
+  schema$models$m1$paths[[length(schema$models$m1$paths) + 1]] <- extra_path
+  om <- as.MxModel(as.GraphModel(schema, data = list(surveyData = df)))
+
+  isExtra <- function(p) {
+    isTRUE(p$numberOfArrows == extra_path$numberOfArrows) &&
+      setequal(c(p$from, p$to), c(extra_path$from, extra_path$to))
+  }
+  live <- Find(isExtra, as.GraphModel(dropDrawSemHints(om))$schema$models$m1$paths)
+  hints <- om@options$drawSemHints
+  i <- Position(isExtra, hints@model$paths)
+  hints@model$paths[[i]]$from <- live$to
+  hints@model$paths[[i]]$to <- live$from
+  om@options$drawSemHints <- hints
+  list(om = om, live = live)
+}
+
+test_that("a 2-arrow hint restores visual/description/tags when the live from/to order is reversed", {
+  r <- reversedHintModel(list(
+    from = "x", to = "y", numberOfArrows = 2, freeParameter = TRUE, value = 0.3,
+    visual = list(curvature = 0.75), description = "xy covariance", tags = list("cov")
+  ))
+  paths2 <- as.GraphModel(r$om)$schema$models$m1$paths
+  cov_path <- Find(function(p) {
+    isTRUE(p$numberOfArrows == 2) && identical(p$from, r$live$from) && identical(p$to, r$live$to)
+  }, paths2)
+
+  expect_false(is.null(cov_path))
+  expect_equal(cov_path$visual, list(curvature = 0.75))
+  expect_equal(cov_path$description, "xy covariance")
+  expect_equal(cov_path$tags, list("cov"))
+})
+
+test_that("a 1-arrow hint does not match a live path with the reverse direction", {
+  r <- reversedHintModel(list(
+    from = "x", to = "y", numberOfArrows = 1, freeParameter = TRUE, value = 0.4,
+    visual = list(curvature = 0.75), description = "x on y", tags = list("reg")
+  ))
+  paths2 <- as.GraphModel(r$om)$schema$models$m1$paths
+  live_path <- Find(function(p) {
+    isTRUE(p$numberOfArrows == 1) && identical(p$from, "x") && identical(p$to, "y")
+  }, paths2)
+
+  expect_false(is.null(live_path))
+  expect_null(live_path$visual)
+  expect_null(live_path$description)
+  expect_null(live_path$tags)
+  # The reversed hint path is never reinstated as a path of its own.
+  expect_null(Find(function(p) {
+    isTRUE(p$numberOfArrows == 1) && identical(p$from, "y") && identical(p$to, "x")
+  }, paths2))
+})
+
 test_that("round trip through OpenMx attributes each mean path to its own constant", {
   set.seed(1)
   df <- data.frame(x = rnorm(50), y = rnorm(50))

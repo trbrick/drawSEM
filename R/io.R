@@ -1150,11 +1150,14 @@ setMethod(
       # endpoints before keying so a hint escrowed as (A,B) still matches a
       # live path reconstructed as (B,A). numberOfArrows == 1 (directed) and
       # type == "data" paths keep order-sensitive keys, since direction (or
-      # absence of numberOfArrows entirely) is meaningful there.
+      # absence of numberOfArrows entirely) is meaningful there. Fields are
+      # joined with an explicit separator (U+241F, as in .pathKey() in
+      # R/codegen.R) so labels cannot collide by concatenation (e.g. "A" +
+      # "B1" vs. "AB" + "1").
       pathKey <- function(p) {
         arrows <- p$numberOfArrows %||% NA
         endpoints <- if (isTRUE(arrows == 2)) sort(c(p$from, p$to)) else c(p$from, p$to)
-        paste(c(endpoints, arrows), collapse = "")
+        paste(c(endpoints, arrows), collapse = "\u241f")
       }
       hint_paths_by_key <- setNames(hint_paths, vapply(hint_paths, pathKey, character(1)))
       paths <- lapply(paths, function(path) {
