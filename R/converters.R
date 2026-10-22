@@ -31,6 +31,10 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
                            onUnsupported = c("stop", "ignore")) {
   onUnsupported <- match.arg(onUnsupported)
 
+  # Every fit path comes through here, including schemas that never passed
+  # through importSchema() (drawSEM(initialModel) only warns on invalid input).
+  schema <- validateSchema(schema, verbose = FALSE)
+
   # Determine which model to convert
   if (is.null(model_id)) {
     # Default to first model if not specified

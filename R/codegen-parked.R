@@ -46,7 +46,6 @@ NULL
 
 .canonSchema <- function(gm) {
   s <- .fillSchemaDefaults(gm@schema)
-  s$graph <- NULL   # derived by setLocation(); not part of the edit
   s$models <- lapply(s$models, function(m) {
     nodes <- lapply(m$nodes %||% list(), .roundVisual)
     names(nodes) <- vapply(nodes, function(n) as.character(n$label), character(1))

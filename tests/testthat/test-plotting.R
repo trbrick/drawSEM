@@ -1,6 +1,15 @@
 # Tests for Tasks 15-16: R Plotting Integration
 # Comprehensive test suite for plotGraphModel(), setLocation(), and S3 plot methods
 
+# Positioned nodes of the first model, as data.frame(nodeId, x, y).
+nodePositions <- function(gm) {
+  rows <- lapply(gm@schema$models[[1]]$nodes, function(n) {
+    if (is.null(n$visual$x) || is.null(n$visual$y)) return(NULL)
+    data.frame(nodeId = n$label, x = n$visual$x, y = n$visual$y, stringsAsFactors = FALSE)
+  })
+  do.call(rbind, Filter(Negate(is.null), rows))
+}
+
 # Load the package functions
 library(drawSEM)
 
@@ -120,8 +129,6 @@ describe("plotGraphModel()", {
   describe("Layout parameter behavior", {
     test_that("layout='auto' computes if positions missing", {
       gm <- create_test_graphmodel()
-      # Remove positions if they exist
-      gm@schema$graph$positions <- NULL
       
       w <- plotGraphModel(gm, layout = "auto")
       
@@ -152,7 +159,6 @@ describe("plotGraphModel()", {
     
     test_that("layout='provided' errors if positions missing", {
       gm <- create_test_graphmodel()
-      gm@schema$graph$positions <- NULL
       
       expect_error(
         plotGraphModel(gm, layout = "provided"),
@@ -174,7 +180,7 @@ describe("plotGraphModel()", {
       gm <- create_test_graphmodel()
       gm <- setLocation(gm, c("X", "Y", "Z"), c(10, 20, 30), c(1, 2, 3))
       
-      old_positions <- gm@schema$graph$positions
+      old_positions <- nodePositions(gm)
       
       w <- plotGraphModel(gm, forceLayout = TRUE)
       
@@ -325,8 +331,8 @@ describe("setLocation()", {
       gm <- create_test_graphmodel()
       gm <- setLocation(gm, "X", 100, 200)
       
-      expect_true(!is.null(gm@schema$graph$positions))
-      pos <- gm@schema$graph$positions
+      pos <- nodePositions(gm)
+      expect_true(!is.null(pos))
       expect_true("X" %in% pos$nodeId)
       expect_equal(pos[pos$nodeId == "X", "x"], 100)
       expect_equal(pos[pos$nodeId == "X", "y"], 200)
@@ -336,7 +342,7 @@ describe("setLocation()", {
       gm <- create_test_graphmodel()
       gm <- setLocation(gm, c("X", "Y"), c(10, 20), c(1, 2))
       
-      pos <- gm@schema$graph$positions
+      pos <- nodePositions(gm)
       expect_equal(nrow(pos), 2)
       expect_equal(pos[pos$nodeId == "X", "x"], 10)
       expect_equal(pos[pos$nodeId == "Y", "x"], 20)
@@ -348,7 +354,7 @@ describe("setLocation()", {
       gm <- create_test_graphmodel()
       gm <- setLocation(gm, c("X", "Y"), 10, c(1, 5))
       
-      pos <- gm@schema$graph$positions
+      pos <- nodePositions(gm)
       # x should be recycled: both X and Y get x=10
       expect_equal(pos[pos$nodeId == "X", "x"], 10)
       expect_equal(pos[pos$nodeId == "Y", "x"], 10)
@@ -361,7 +367,7 @@ describe("setLocation()", {
       gm <- create_test_graphmodel()
       gm <- setLocation(gm, c("X", "Y", "Z"), c(10, 20, 30), 5)
       
-      pos <- gm@schema$graph$positions
+      pos <- nodePositions(gm)
       # y should be recycled to all nodes
       expect_equal(pos[pos$nodeId == "X", "y"], 5)
       expect_equal(pos[pos$nodeId == "Y", "y"], 5)
@@ -373,7 +379,7 @@ describe("setLocation()", {
       gm@schema$models[[1]]$nodes[[4]] <- list(id = "W", label = "W", type = "variable", tags = list("manifest"))
       gm <- setLocation(gm, c("X", "Y", "Z", "W"), 10, c(1, 2))
       
-      pos <- gm@schema$graph$positions
+      pos <- nodePositions(gm)
       expect_equal(pos[pos$nodeId == "X", "y"], 1)
       expect_equal(pos[pos$nodeId == "Y", "y"], 2)
       expect_equal(pos[pos$nodeId == "Z", "y"], 1)
@@ -438,7 +444,7 @@ describe("setLocation()", {
       result <- setLocation(gm, "X", 10, 20)
       
       expect_s4_class(result, "GraphModel")
-      expect_true(!is.null(result@schema$graph$positions))
+      expect_equal(nodePositions(result)$x, 10)
     })
   })
 })
@@ -566,7 +572,7 @@ describe("Integration tests", {
     w_force <- plotGraphModel(gm, forceLayout = TRUE)
     
     # Saved positions
-    pos_saved <- gm@schema$graph$positions
+    pos_saved <- nodePositions(gm)
     pos_auto <- w_auto$x$positions
     pos_force <- w_force$x$positions
     

@@ -40,8 +40,13 @@ normalizeSchemaVersion <- function(schema) {
 #' @return Invisibly returns TRUE if valid. Throws error if invalid.
 #'
 #' @details
-#' Checks required top-level fields: `schemaVersion`, `models`.
-#' Does not validate against the formal JSON schema (that's done in TypeScript).
+#' Checks required top-level fields: `schemaVersion`, `models`. Rejects a
+#' `schemaVersion` other than the one the shipped graph.schema.json declares,
+#' and top-level keys that schema does not declare, so a document written for
+#' another schema version or carrying content this package does not understand
+#' is refused rather than read as if it were plain core. Does not validate
+#' below the top level against the formal JSON schema (that's done in
+#' TypeScript).
 #'
 #' @keywords internal
 validateSchemaStructure <- function(schema, verbose = TRUE) {
@@ -72,7 +77,32 @@ validateSchemaStructure <- function(schema, verbose = TRUE) {
   }
 
   schema <- normalizeSchemaVersion(schema)
-  
+
+  contract <- .shippedSchema()
+  expected_version <- contract$properties$schemaVersion$const
+  if (!is.null(expected_version) &&
+      !identical(schema$schemaVersion, as.integer(expected_version))) {
+    stop(
+      sprintf(
+        "Unsupported schemaVersion %s: this version of drawSEM reads schemaVersion %s",
+        paste(format(schema$schemaVersion), collapse = ", "), expected_version
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (isFALSE(contract$additionalProperties)) {
+    unknown <- setdiff(names(schema), names(contract$properties))
+    if (length(unknown) > 0) {
+      stop(
+        "Schema has unrecognized top-level field(s): ",
+        paste(unknown, collapse = ", "),
+        ". It may have been written by a newer or experimental version of drawSEM.",
+        call. = FALSE
+      )
+    }
+  }
+
   # Check models is non-empty list
   if (!is.list(schema$models) || length(schema$models) == 0) {
     stop("schema$models must be a non-empty list", call. = FALSE)

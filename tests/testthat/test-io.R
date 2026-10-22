@@ -417,3 +417,23 @@ test_that("as.MxModel caches built model in GraphModel", {
   # This is expected behavior in R
   expect_true(is(mx_model, "MxModel"))
 })
+
+test_that("as.GraphModel drops the legacy top-level graph positions cache", {
+  # Older setLocation() wrote schema$graph$positions; files saved with it load.
+  schema <- list(
+    schemaVersion = 0,
+    graph = list(positions = list(list(nodeId = "x", x = 1, y = 2))),
+    models = list(m = list(
+      nodes = list(list(label = "x", type = "variable", visual = list(x = 1, y = 2))),
+      paths = list()
+    ))
+  )
+
+  g <- as.GraphModel(schema)
+  expect_null(g@schema$graph)
+})
+
+test_that("setLocation does not write outside the schema", {
+  g <- setLocation(GraphModel() |> addVariable("x"), "x", 10, 20)
+  expect_named(g@schema, c("schemaVersion", "models"))
+})
