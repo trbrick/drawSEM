@@ -554,14 +554,19 @@ generateData <- function(
     status_code
   )
   
-  # Extract parameter estimates and SEs
+  # Extract parameter estimates and SEs, under drawSEM's names for the
+  # parameters (OpenMx's names map back; see .openMxNames())
+  om_names <- .openMxNames(graphModel@schema$models[[model_id]], model_id)
   estimates <- fit_result$output$estimate
+  names(estimates) <- .mxNameBack(names(estimates), om_names$labels)
   # OpenMx stores SEs as a one-column matrix with parameter names as row names;
   # align them to the estimates by name (NA where OpenMx has none).
   se_matrix <- fit_result$output$standardErrors
   standard_errors <- setNames(rep(NA_real_, length(estimates)), names(estimates))
   if (!is.null(se_matrix) && length(se_matrix) > 0) {
-    se_values <- setNames(as.numeric(se_matrix), rownames(se_matrix) %||% names(estimates))
+    se_names <- rownames(se_matrix)
+    se_names <- if (is.null(se_names)) names(estimates) else .mxNameBack(se_names, om_names$labels)
+    se_values <- setNames(as.numeric(se_matrix), se_names)
     shared <- intersect(names(estimates), names(se_values))
     standard_errors[shared] <- se_values[shared]
   }
@@ -587,27 +592,26 @@ generateData <- function(
     degrees_of_freedom <- summary_obj$degreesOfFreedom
   }
   
-  # 1. Write fitted estimates into the named free parameters' values
-  # (so the schema shows them for inspection and export). Done before the
-  # structure hash is taken, so the fit records the model as it is returned;
-  # hashing first left every fit with a named free parameter stale at once.
+  # 1. Write fitted estimates into the free parameters' values (so the
+  # schema shows them for inspection and export). Each free path's parameter
+  # is named as schemaToOpenMx() named it (.mxParamLabels(): its parameter
+  # name, else its label). Done before the structure hash is taken, so the
+  # fit records the model as it is returned; hashing first left every fit
+  # with a named free parameter stale at once.
   result_model <- graphModel
   model <- result_model@schema$models[[model_id]]
   if (converged && length(estimates) > 0) {
-    model$paths <- lapply(model$paths, function(path) {
-      # If this path has a freeParameter label, look up its fitted estimate
-      if (!is.null(path$freeParameter) && is.character(path$freeParameter)) {
-        param_name <- path$freeParameter
-        if (param_name %in% names(estimates)) {
-          path$value <- as.numeric(estimates[[param_name]])
-        }
-      } else if (isTRUE(path$freeParameter)) {
-        # For anonymous free parameters (freeParameter = true),
-        # the Backend names them; we'd need the OpenMx parameter table to match.
-        # For now, skip these (they're not commonly used).
+    param_labels <- .mxParamLabels(model$paths %||% list())
+    model$paths <- Map(function(path, param_name) {
+      is_free <- isTRUE(path$freeParameter) ||
+        (is.character(path$freeParameter) && nzchar(path$freeParameter))
+      if (is_free && !is.na(param_name) && param_name %in% names(estimates)) {
+        path$value <- as.numeric(estimates[[param_name]])
       }
+      # An anonymous free path with no label has no name OpenMx reports it
+      # under (it is named by matrix cell): its value is not written back.
       path
-    })
+    }, model$paths %||% list(), param_labels)
   }
   result_model@schema$models[[model_id]] <- model
 

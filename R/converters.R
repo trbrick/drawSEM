@@ -90,8 +90,13 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   fit_function <- opt$fitFunction %||% "ML"
   missingness_strategy <- opt$missingness %||% "FIML"
   
+  # OpenMx-legal names for the model's labels (see .openMxNames()); mapped
+  # back wherever OpenMx names are read.
+  om_names <- .openMxNames(model, model_id)
+
   # Phase 1: Build mxData ===============================================
-  mxdata <- buildMxData(model, data, missingness = missingness_strategy)
+  mxdata <- buildMxData(model, data, missingness = missingness_strategy,
+                        variableNames = om_names$variables)
 
   # The schema's missingness field is a hint. FIML is OpenMx's default for raw
   # data and listwise is applied in buildMxData(); pairwise has no raw-data
@@ -161,10 +166,10 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
     }
 
     path_args <- list(
-      from = pspec$from,
-      to = pspec$to,
+      from = if (identical(pspec$from, "one")) "one" else .mxNameTo(pspec$from, om_names$variables),
+      to = .mxNameTo(pspec$to, om_names$variables),
       arrows = pspec$arrows,
-      labels = pspec$labels,
+      labels = .mxNameTo(pspec$labels, om_names$labels),
       values = pspec$values,
       free = pspec$free
     )
@@ -182,10 +187,10 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   
   # Phase 4: Build mxModel ==============================================
   model_args <- list(
-    name = model_label,
+    name = .mxNameTo(model_label, om_names$model),
     type = "RAM",
-    manifestVars = as.character(manifest_var_labels),
-    latentVars = as.character(latent_var_labels),
+    manifestVars = .mxNameTo(as.character(manifest_var_labels), om_names$variables),
+    latentVars = .mxNameTo(as.character(latent_var_labels), om_names$variables),
     mxdata
   )
   
@@ -233,11 +238,14 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
 #' @param missingness The model's `optimization.missingness`. `"listwise"`
 #'   drops every row with a missing value in the mapped columns
 #'   (`stats::na.omit()`); anything else leaves the rows for FIML.
+#' @param variableNames Optional drawSEM -> OpenMx variable name map (see
+#'   `.openMxNames()`); the columns, named after their variables, take the
+#'   OpenMx names.
 #'
 #' @return An mxData object (for single dataset) or list of mxData objects
 #'
 #' @keywords internal
-buildMxData <- function(model, data, missingness = "FIML") {
+buildMxData <- function(model, data, missingness = "FIML", variableNames = NULL) {
   # Find dataset nodes
   dataset_nodes <- Filter(function(n) n$type == "dataset", model$nodes)
   
@@ -412,6 +420,8 @@ buildMxData <- function(model, data, missingness = "FIML") {
       )
     }
   }
+  # Columns are named after their variables, in OpenMx's names for them
+  if (!is.null(variableNames)) colnames(df) <- .mxNameTo(colnames(df), variableNames)
 
   # Create mxData
   OpenMx::mxData(df, type = "raw")

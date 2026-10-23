@@ -140,6 +140,17 @@ give them different labels or use `NA` (no label, no constraint).
 Conversely, to impose an equality constraint between two parameters, just give
 them the same label — no `mxConstraint()` is needed.
 
+**Legal names.** OpenMx rejects names and labels containing
+`+ - ! ~ ? : * / ^ % < > = & | $ . [ ] ,`, names that read as numbers, the
+reserved names (`data`, `one`, `fitfunction`, ...), and labels equal to a RAM
+matrix name (`A`, `S`, `F`, `M`). drawSEM labels may contain any of these (the
+editor generates `x->y` and `C_{x,y}`), so `schemaToOpenMx()` gives every
+variable, label and model name a readable legal OpenMx name (`x_to_y`,
+`C_{x_y}`; see `.openMxNames()` in `R/utilities.R`), and the fit write-back and
+`as.GraphModel()` map OpenMx's names back. The map is recomputed from the
+drawSEM model (or the `drawSemHints` fragment on an MxModel), never stored.
+Never pass a drawSEM label to OpenMx directly.
+
 ---
 
 ## 5. `mxRun()` Returns a New Object

@@ -825,6 +825,16 @@ setMethod(
     hint_nodes <- if (!is.null(hints)) hints@model$nodes %||% list() else list()
     hint_paths <- if (!is.null(hints)) hints@model$paths %||% list() else list()
 
+    # OpenMx names back to drawSEM's: schemaToOpenMx() made each name legal
+    # (see .openMxNames()), and the hint fragment is the drawSEM model it did
+    # that for, so recomputing the map from it inverts it exactly. Names it
+    # does not know (a plain OpenMx model, or something added on the OpenMx
+    # side) are already legal and are kept.
+    om_names <- if (!is.null(hints)) .openMxNames(hints@model, model_name) else NULL
+    drawSemVariable <- function(name) {
+      if (is.null(om_names)) name else .mxNameBack(name, om_names$variables)
+    }
+
     hint_dataset_node <- Find(function(n) isTRUE(n$type == "dataset"), hint_nodes)
     dataset_label <- hint_dataset_node$label %||% "data"
 
@@ -840,7 +850,7 @@ setMethod(
       if (length(hint_constant_labels) == 0) return("1")
       match <- Find(function(p) {
         !is.null(p$from) && !is.null(p$to) && !isTRUE(p$type == "data") &&
-          p$from %in% hint_constant_labels && identical(p$to, var_name)
+          p$from %in% hint_constant_labels && identical(p$to, drawSemVariable(var_name))
       }, hint_paths)
       if (!is.null(match)) as.character(match$from) else "1"
     }
@@ -1108,6 +1118,31 @@ setMethod(
       }
     }
     paths <- c(paths, m_paths)
+
+    # Everything below is in drawSEM's names (see om_names above)
+    if (!is.null(om_names)) {
+      model_name <- .mxNameBack(model_name, om_names$model)
+      manifest_vars <- drawSemVariable(manifest_vars)
+      latent_vars <- drawSemVariable(latent_vars)
+      variable_back <- function(label) {
+        if (is.null(label) || label %in% c(constant_labels, dataset_label)) label
+        else drawSemVariable(label)
+      }
+      nodes <- lapply(nodes, function(n) {
+        if (identical(n$type, "variable")) n$label <- drawSemVariable(n$label)
+        n
+      })
+      paths <- lapply(paths, function(p) {
+        p$from <- variable_back(p$from)
+        p$to <- variable_back(p$to)
+        # A data path's label is its column, named as in the live data: kept.
+        if (!isTRUE(p$type == "data")) {
+          if (is.character(p$label)) p$label <- .mxNameBack(p$label, om_names$labels)
+          if (is.character(p$freeParameter)) p$freeParameter <- .mxNameBack(p$freeParameter, om_names$labels)
+        }
+        p
+      })
+    }
     
     # Extract fit function type
     fit_func <- x$fitfunction
@@ -1159,13 +1194,27 @@ setMethod(
         endpoints <- if (isTRUE(arrows == 2)) sort(c(p$from, p$to)) else c(p$from, p$to)
         paste(c(endpoints, arrows), collapse = "\u241f")
       }
-      hint_paths_by_key <- setNames(hint_paths, vapply(hint_paths, pathKey, character(1)))
+      hint_keys <- vapply(hint_paths, pathKey, character(1))
+      hint_param_labels <- .mxParamLabels(hint_paths)
       paths <- lapply(paths, function(path) {
-        hp <- hint_paths_by_key[[pathKey(path)]]
-        if (!is.null(hp)) {
-          if (!is.null(hp$visual)) path$visual <- hp$visual
-          if (!is.null(hp$description)) path$description <- hp$description
-          if (!is.null(hp$tags)) path$tags <- hp$tags
+        k <- match(pathKey(path), hint_keys)
+        if (is.na(k)) return(path)
+        hp <- hint_paths[[k]]
+        if (!is.null(hp$visual)) path$visual <- hp$visual
+        if (!is.null(hp$description)) path$description <- hp$description
+        if (!is.null(hp$tags)) path$tags <- hp$tags
+        # OpenMx holds one label per parameter, so a path comes back with its
+        # parameter name in both label and freeParameter. While that is still
+        # the name schemaToOpenMx() gave it, restore how the path named itself:
+        # its own label (or none), and a free path's freeParameter (TRUE or
+        # its name). A label changed on the OpenMx side is kept as it is.
+        if (!isTRUE(path$type == "data")) {
+          live_label <- if (is.character(path$label) && !is.na(path$label)) path$label else NA_character_
+          if (identical(live_label, hint_param_labels[[k]])) {
+            path$label <- hp$label
+            hint_free <- isTRUE(hp$freeParameter) || (is.character(hp$freeParameter) && nzchar(hp$freeParameter))
+            if (!is.null(path$freeParameter) && hint_free) path$freeParameter <- hp$freeParameter
+          }
         }
         path
       })
