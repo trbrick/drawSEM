@@ -427,3 +427,66 @@ test_that("paths sharing only a display label are estimated separately in OpenMx
   expect_true(all(c("var", "var_2") %in% names(est)))
   expect_gt(abs(est[["var"]] - est[["var_2"]]), 1)   # sd 1 vs sd 3: clearly unequal
 })
+
+# ---- optimization$missingness ----------------------------------------------
+# FIML (the default) keeps every row; listwise drops rows with a missing value
+# in a mapped column; pairwise is not applied by the OpenMx backend and warns.
+
+missingnessSchema <- function(missingness = NULL, withData = TRUE, allMissing = FALSE) {
+  set.seed(7)
+  d <- data.frame(x = rnorm(50), y = rnorm(50), z = rnorm(50))
+  d$x[1:3] <- NA
+  d$z[10] <- NA # unmapped column: must not drop a row
+  if (allMissing) d$y[4:50] <- NA
+  gm <- GraphModel() |> addVariable("x") |> addVariable("y")
+  if (withData) gm <- gm |> addData("data", d) |> connectData("data", c("x", "y"))
+  gm <- gm |>
+    addPath("x", "x", 2, freeParameter = TRUE, value = 1) |>
+    addPath("y", "y", 2, freeParameter = TRUE, value = 1)
+  if (!is.null(missingness)) {
+    gm@schema$models[[1]]$optimization <- list(missingness = missingness)
+  }
+  list(schema = gm@schema, data = gm@data)
+}
+
+test_that("pairwise missingness with raw data warns that FIML is used", {
+  skip_if_not_installed("OpenMx")
+  s <- missingnessSchema("pairwise")
+  expect_warning(
+    om <- schemaToOpenMx(s$schema, s$data),
+    "missingness 'pairwise' is not applied.*FIML"
+  )
+  expect_equal(nrow(om$data$observed), 50)
+})
+
+test_that("FIML or absent missingness keeps every row without warning", {
+  skip_if_not_installed("OpenMx")
+  for (m in list(NULL, "FIML")) {
+    s <- missingnessSchema(m)
+    expect_no_warning(om <- schemaToOpenMx(s$schema, s$data))
+    expect_equal(nrow(om$data$observed), 50)
+  }
+})
+
+test_that("listwise missingness drops rows missing a mapped column only", {
+  skip_if_not_installed("OpenMx")
+  s <- missingnessSchema("listwise")
+  expect_no_warning(om <- schemaToOpenMx(s$schema, s$data))
+  obs <- om$data$observed
+  expect_equal(nrow(obs), 47)
+  expect_false(anyNA(obs))
+})
+
+test_that("listwise missingness that removes every row is an error", {
+  skip_if_not_installed("OpenMx")
+  s <- missingnessSchema("listwise", allMissing = TRUE)
+  expect_error(schemaToOpenMx(s$schema, s$data), "removed all 50 rows")
+})
+
+test_that("non-FIML missingness on a model without data does not warn", {
+  skip_if_not_installed("OpenMx")
+  for (m in c("listwise", "pairwise")) {
+    s <- missingnessSchema(m, withData = FALSE)
+    expect_no_warning(schemaToOpenMx(s$schema, s$data))
+  }
+})

@@ -574,9 +574,11 @@ exportSchema <- function(graph_obj, filepath, pretty = TRUE, embedData = TRUE) {
 
   # Write to file
   # Use auto_unbox=TRUE to serialize length-1 vectors as scalars (not arrays)
-  # This ensures value, label, and other scalar fields comply with the schema
+  # This ensures value, label, and other scalar fields comply with the schema.
+  # null = "null" keeps explicit nulls (e.g. `bounds: null`) as JSON null rather
+  # than {}.
   tryCatch(
-    jsonlite::write_json(output, filepath, pretty = pretty, auto_unbox = TRUE),
+    jsonlite::write_json(output, filepath, pretty = pretty, auto_unbox = TRUE, null = "null"),
     error = function(e) {
       stop(
         "Failed to write JSON: ",
@@ -708,25 +710,22 @@ inferParameterTypeFromStructure <- function(from_label, to_label, num_arrows, ma
 
 #' Extract Optimization Hints from MxMatrix
 #'
-#' Extract starting values and bounds from OpenMx matrix specification.
+#' Extract bounds from OpenMx matrix specification. The matrix value is not
+#' written as `optimization$start`: it is already the path's `value`, and a
+#' copied start would override any later change to `value` (start wins in the
+#' cascade, see buildPathList()).
 #'
 #' @param matrix MxMatrix object
 #' @param row_idx Matrix row index
 #' @param col_idx Matrix column index
 #'
-#' @return List with start, bounds (or NULL if defaults)
+#' @return List with bounds (or NULL if none)
 #'
 #' @keywords internal
 #' @noRd
 extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
   opt_list <- list()
-  
-  # Extract starting value
-  start_val <- as.numeric(matrix$values[row_idx, col_idx])
-  if (!is.na(start_val)) {
-    opt_list$start <- start_val
-  }
-  
+
   # Extract bounds if available
   lbound <- as.numeric(matrix$lbound[row_idx, col_idx])
   ubound <- as.numeric(matrix$ubound[row_idx, col_idx])
@@ -756,7 +755,8 @@ extractOptimizationFromMatrix <- function(matrix, row_idx, col_idx) {
 #' - Asymmetric (A) and symmetric (S) matrix paths become graph edges
 #' - Current parameter values and free/fixed status are preserved
 #' - Parameter types inferred from path structure (loading, regression, etc.)
-#' - Optimization hints (start values, bounds) extracted at path level
+#' - Bounds extracted at path level (values become each path's `value`, not a
+#'   separate `optimization.start`)
 #' - Data from the model is linked by reference
 #' - Fit function type is extracted (ML, WLS, etc.)
 #' - Unsupported features (constraints, algebras, thresholds) are warned about
@@ -1150,11 +1150,14 @@ setMethod(
       # endpoints before keying so a hint escrowed as (A,B) still matches a
       # live path reconstructed as (B,A). numberOfArrows == 1 (directed) and
       # type == "data" paths keep order-sensitive keys, since direction (or
-      # absence of numberOfArrows entirely) is meaningful there.
+      # absence of numberOfArrows entirely) is meaningful there. Fields are
+      # joined with an explicit separator (U+241F, as in .pathKey() in
+      # R/codegen.R) so labels cannot collide by concatenation (e.g. "A" +
+      # "B1" vs. "AB" + "1").
       pathKey <- function(p) {
         arrows <- p$numberOfArrows %||% NA
         endpoints <- if (isTRUE(arrows == 2)) sort(c(p$from, p$to)) else c(p$from, p$to)
-        paste(c(endpoints, arrows), collapse = "")
+        paste(c(endpoints, arrows), collapse = "\u241f")
       }
       hint_paths_by_key <- setNames(hint_paths, vapply(hint_paths, pathKey, character(1)))
       paths <- lapply(paths, function(path) {

@@ -134,7 +134,7 @@
                 "tags": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                  "description": "Optional list of tags for classification/metadata."
                 },
                 "visual": {
                   "type": "object",
@@ -402,7 +402,7 @@
                 "tags": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "Optional list of tags for classification/metadata. Backwards-compatible with single `tag` string."
+                  "description": "Optional list of tags for classification/metadata."
                 },
                 "visual": {
                   "type": "object",

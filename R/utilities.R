@@ -517,11 +517,22 @@ storeOptimizationMetadata <- function(paths) {
 #' @param constantNodeLabels Character vector of every constant node label in the
 #'   model (see [getConstantNodeLabels()]). May be `NULL` or `character(0)` when
 #'   the model has no constant nodes.
+#' @param parameterTypes The model's `optimization$parameterTypes` (named list of
+#'   per-type defaults `{prior, bounds, start}`), or `NULL`.
+#'
+#' @details
+#' Bounds and starting values follow the schema's cascade: a path's own
+#' `optimization` value wins over its `parameterType`'s default (see
+#' `.resolvePathBounds()` and `.resolvePathStart()`). Priors are never applied
+#' (OpenMx is frequentist). A `parameterType` not defined in `parameterTypes`
+#' contributes no defaults (no warning: imported and editor-built models
+#' routinely carry type names without definitions).
 #'
 #' @return A list of path specifications, ready for mxPath()
 #'
 #' @keywords internal
-buildPathList <- function(paths, constantNodeLabels = character(0)) {
+buildPathList <- function(paths, constantNodeLabels = character(0),
+                          parameterTypes = NULL) {
   constantNodeLabels <- as.character(constantNodeLabels %||% character(0))
   paths_list <- list()
   param_labels <- .mxParamLabels(paths)
@@ -552,11 +563,18 @@ buildPathList <- function(paths, constantNodeLabels = character(0)) {
     # Parameter label for mxPath (see .mxParamLabels())
     param_name <- param_labels[[i]]
     
-    # Extract starting value
-    start_value <- if (!is.null(path$value)) path$value else NA
-    
     # Determine free/fixed: freeParameter = TRUE or non-empty string means free; absent means fixed
     is_free <- isTRUE(path$freeParameter) || (is.character(path$freeParameter) && nzchar(path$freeParameter))
+
+    type_defaults <- .pathTypeDefaults(path, parameterTypes)
+
+    # Starting value. For a free path the cascade is path optimization$start >
+    # parameterType start > path$value. A fixed path's value is model content,
+    # not a starting value, so `start` never overrides it.
+    start_value <- if (is_free) .resolvePathStart(path, type_defaults) else NULL
+    if (is.null(start_value)) {
+      start_value <- if (!is.null(path$value)) path$value else NA
+    }
     
     # If free parameter with no/null value, use default 0.1
     if (is_free && (is.na(start_value) || is.null(start_value))) {
@@ -577,15 +595,73 @@ buildPathList <- function(paths, constantNodeLabels = character(0)) {
       free = is_free
     )
     
-    # Add bounds if present
-    if (!is.null(path$optimization) && !is.null(path$optimization$bounds)) {
-      path_spec$bounds <- path$optimization$bounds
+    # Add bounds if present (per-path bounds, else the parameterType default)
+    bounds <- .resolvePathBounds(path, type_defaults)
+    if (!is.null(bounds)) {
+      path_spec$bounds <- bounds
     }
     
     paths_list[[length(paths_list) + 1]] <- path_spec
   }
   
   paths_list
+}
+
+#' Parameter-type defaults for a path
+#'
+#' Looks up `path$parameterType` in the model's `parameterTypes`. Returns `NULL`
+#' when the path has no type or the type is not defined.
+#'
+#' @keywords internal
+#' @noRd
+.pathTypeDefaults <- function(path, parameterTypes) {
+  type <- path$parameterType
+  if (is.null(parameterTypes) || !is.character(type) || length(type) != 1 ||
+      is.na(type) || !nzchar(type) || !(type %in% names(parameterTypes))) {
+    return(NULL)
+  }
+  defaults <- parameterTypes[[type]]
+  if (is.list(defaults)) defaults else NULL
+}
+
+#' Resolve a path's bounds through the parameterType cascade
+#'
+#' The `[lower, upper]` pair is the unit of the cascade: a per-path
+#' `optimization$bounds` array replaces the type's array wholesale (it is not
+#' merged element by element). Within the chosen pair, a `null`/`NA` element
+#' means unbounded on that side. An explicit per-path `bounds: null` makes the
+#' path unbounded, overriding the type's bounds; only an absent `bounds` key
+#' falls through to the type default (developer decision 2026-10-22). Schemas
+#' are read with `simplifyVector = FALSE`, so an explicit null is a present key
+#' with a NULL value.
+#'
+#' @return The chosen bounds (list or vector of length 2), or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+.resolvePathBounds <- function(path, type_defaults) {
+  opt <- path$optimization
+  if (is.list(opt) && "bounds" %in% names(opt)) return(opt$bounds)
+  type_defaults$bounds
+}
+
+#' Resolve a free path's starting value through the parameterType cascade
+#'
+#' Path `optimization$start` wins over the parameterType's `start`. At either
+#' level only a finite number counts as set; `"auto"`, `null`/`NA` or any other
+#' string means "not set at this level" and falls through. Returns `NULL` when
+#' neither level sets a number (the caller then uses `path$value`).
+#'
+#' @keywords internal
+#' @noRd
+.resolvePathStart <- function(path, type_defaults) {
+  numeric_start <- function(x) {
+    if (is.list(x) && length(x) == 1) x <- x[[1]]
+    if (is.numeric(x) && length(x) == 1 && is.finite(x)) as.numeric(x) else NULL
+  }
+  path_start <- if (is.list(path$optimization)) numeric_start(path$optimization$start) else NULL
+  if (!is.null(path_start)) return(path_start)
+  numeric_start(type_defaults$start)
 }
 
 #' Get Constant Node Labels

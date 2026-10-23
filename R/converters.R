@@ -91,8 +91,27 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   missingness_strategy <- opt$missingness %||% "FIML"
   
   # Phase 1: Build mxData ===============================================
-  mxdata <- buildMxData(model, data)
-  
+  mxdata <- buildMxData(model, data, missingness = missingness_strategy)
+
+  # The schema's missingness field is a hint. FIML is OpenMx's default for raw
+  # data and listwise is applied in buildMxData(); pairwise has no raw-data
+  # equivalent, so say so rather than ignoring it silently. Without data there
+  # is nothing to handle, and only raw data has missingness (summary data would
+  # make it moot).
+  if (identical(missingness_strategy, "pairwise") &&
+      !is.null(mxdata) && identical(mxdata$type, "raw")) {
+    warning(
+      sprintf(
+        paste0(
+          "Model '%s': missingness '%s' is not applied by the OpenMx backend; ",
+          "raw data is fit with FIML instead."
+        ),
+        model_label, missingness_strategy
+      ),
+      call. = FALSE
+    )
+  }
+
   # Phase 2: Identify manifest and latent variables =====================
   manifest_vars <- inferManifestVariables(model$nodes, model$paths)
   latent_vars <- inferLatentVariables(model$nodes, manifest_vars)
@@ -121,7 +140,8 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
   
   # Phase 3: Build mxPath list ==========================================
   constant_labels <- getConstantNodeLabels(model$nodes)
-  paths_to_create <- buildPathList(model$paths, constant_labels)
+  paths_to_create <- buildPathList(model$paths, constant_labels,
+                                   parameterTypes = model$optimization$parameterTypes)
 
   normalize_bound <- function(x) {
     if (is.null(x) || length(x) == 0 || is.na(x)) {
@@ -210,11 +230,14 @@ schemaToOpenMx <- function(schema, data, model_id = NULL, optimize = TRUE,
 #'
 #' @param model The model list from schema
 #' @param data A named list of data.frames
+#' @param missingness The model's `optimization.missingness`. `"listwise"`
+#'   drops every row with a missing value in the mapped columns
+#'   (`stats::na.omit()`); anything else leaves the rows for FIML.
 #'
 #' @return An mxData object (for single dataset) or list of mxData objects
 #'
 #' @keywords internal
-buildMxData <- function(model, data) {
+buildMxData <- function(model, data, missingness = "FIML") {
   # Find dataset nodes
   dataset_nodes <- Filter(function(n) n$type == "dataset", model$nodes)
   
@@ -374,6 +397,22 @@ buildMxData <- function(model, data) {
     colnames(df) <- var_names
   }
   
+  # Listwise deletion over the mapped columns only; unmapped columns are
+  # already gone, so they cannot drop rows.
+  if (identical(missingness, "listwise")) {
+    n_before <- nrow(df)
+    df <- stats::na.omit(df)
+    if (nrow(df) == 0) {
+      stop(
+        sprintf(
+          "Listwise deletion removed all %d rows: every row has a missing value.",
+          n_before
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
   # Create mxData
   OpenMx::mxData(df, type = "raw")
 }

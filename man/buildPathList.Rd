@@ -4,7 +4,7 @@
 \alias{buildPathList}
 \title{Build Path List for mxModel}
 \usage{
-buildPathList(paths, constantNodeLabels = character(0))
+buildPathList(paths, constantNodeLabels = character(0), parameterTypes = NULL)
 }
 \arguments{
 \item{paths}{List of path specifications}
@@ -12,11 +12,22 @@ buildPathList(paths, constantNodeLabels = character(0))
 \item{constantNodeLabels}{Character vector of every constant node label in the
 model (see \code{\link[=getConstantNodeLabels]{getConstantNodeLabels()}}). May be \code{NULL} or \code{character(0)} when
 the model has no constant nodes.}
+
+\item{parameterTypes}{The model's \code{optimization$parameterTypes} (named list of
+per-type defaults \verb{\{prior, bounds, start\}}), or \code{NULL}.}
 }
 \value{
 A list of path specifications, ready for mxPath()
 }
 \description{
 Converts schema paths to a list of mxPath specifications.
+}
+\details{
+Bounds and starting values follow the schema's cascade: a path's own
+\code{optimization} value wins over its \code{parameterType}'s default (see
+\code{.resolvePathBounds()} and \code{.resolvePathStart()}). Priors are never applied
+(OpenMx is frequentist). A \code{parameterType} not defined in \code{parameterTypes}
+contributes no defaults (no warning: imported and editor-built models
+routinely carry type names without definitions).
 }
 \keyword{internal}

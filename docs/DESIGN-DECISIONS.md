@@ -169,7 +169,11 @@ warning; it is explicitly **not persisted** and plays no part in round-tripping.
   are set at the `parameterType` level (in `optimization.parameterTypes`) and
   can be overridden per-path in the path's own `optimization` field. Per-path
   values always win.
-- Path starting values are stored directly on the path as `value`.
+- Path starting values are stored directly on the path as `value`. For a
+  fixed path, `value` is the fixed value. For a free path, the starting value
+  is the path's own `optimization.start`, else its parameter type's
+  `optimization.parameterTypes[type].start`, else the path's `value` (decided
+  2026-10-22).
 - **`start` is an advisory computational hint, not portable statistical
   meaning.** It influences the optimization path, not the estimand; a backend
   may ignore or recompute it. Bounds, priors, and starting values are each
@@ -181,7 +185,16 @@ warning; it is explicitly **not persisted** and plays no part in round-tripping.
 - The OpenMx converter **does not apply priors** (OpenMx is frequentist);
   they are stored for future use by blavaan and other Bayesian backends. This is
   safe only while priors are weakly informative; see Open Question 9.
-- Bounds are stored but not currently passed to `mxPath` in v0.1.
+- Bounds are passed to `mxPath` (as `lbound`/`ubound`), cascading from
+  `optimization.parameterTypes[type].bounds`, with the path's own
+  `optimization.bounds` overriding. The `[lower, upper]` pair is replaced
+  whole, and `null` for either element means unbounded on that side. An
+  explicit `bounds: null` on a path makes it unbounded, overriding the type's
+  bounds; only an absent `bounds` key falls back to the type (decided
+  2026-10-22).
+- Importing an MxModel writes each matrix value as the path's `value` only,
+  never as `optimization.start`, so a later change to `value` is not
+  overridden by a copied start.
 
 ### Node Metadata in Schema
 

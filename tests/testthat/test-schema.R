@@ -24,18 +24,17 @@ test_that("validateSchema rejects missing required fields", {
 })
 
 test_that("loadSchema reads JSON from file", {
-  fixture_path <- system.file(
-    "extdata/graph.example.json",
-    package = "drawSEM"
-  )
-  
-  skip_if_not(file.exists(fixture_path), 
-              message = "Example schema not found")
-  
+  gm <- GraphModel() |> addVariable("x") |>
+    addPath("x", "x", 2, freeParameter = TRUE, value = 1)
+  fixture_path <- tempfile(fileext = ".json")
+  on.exit(unlink(fixture_path))
+  exportSchema(gm, fixture_path)
+
   schema <- loadSchema(fixture_path)
-  
+
   expect_s4_class(schema, "GraphModel")
   expect_true("models" %in% names(schema@schema))
+  expect_equal(nodes(schema)[[1]]$label, "x")
 })
 
 test_that("saveSchema writes valid JSON", {

@@ -245,7 +245,7 @@ test_that("as.GraphModel emits named freeParameter strings for labelled MxRAMMod
   expect_setequal(res_fp, c("e1", "e2", "e3"))
 })
 
-test_that("as.GraphModel captures start values and bounds from MxModel paths", {
+test_that("as.GraphModel captures values (not as start) and bounds from MxModel paths", {
   skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
 
   data <- data.frame(x1 = rnorm(100), x2 = rnorm(100))
@@ -267,12 +267,14 @@ test_that("as.GraphModel captures start values and bounds from MxModel paths", {
   x1_var <- Filter(function(p) p$from == "x1" && p$to == "x1" && p$numberOfArrows == 2, paths)[[1]]
   x2_var <- Filter(function(p) p$from == "x2" && p$to == "x2" && p$numberOfArrows == 2, paths)[[1]]
 
-  expect_equal(x1_var$optimization$start, 0.3)
+  # Matrix values become the path's value, never optimization$start
+  expect_equal(x1_var$value, 0.3)
+  expect_null(x1_var$optimization$start)
   expect_equal(x1_var$optimization$bounds[[1]], 0)
   expect_equal(x1_var$optimization$bounds[[2]], 1)
 
-  expect_equal(x2_var$optimization$start, 1.1)
-  expect_true(is.null(x2_var$optimization$bounds))
+  expect_equal(x2_var$value, 1.1)
+  expect_null(x2_var$optimization)
 })
 
 test_that("as.MxModel applies path optimization bounds to mxPath", {
