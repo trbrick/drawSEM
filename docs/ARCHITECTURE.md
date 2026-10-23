@@ -208,8 +208,8 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   a release on the hovered node would add
 - Web frontend: the popup for a multi-selection shows a summary and, outside
   layout-only mode, group actions (one undo step each): Add means (free
-  `mean` paths from the selected constant, else "1", else a new constant below
-  the selection), Correlate all (free `covariance` paths between selected
+  `mean` paths labelled `M_{x}`, from the selected constant, else "1", else a new constant below
+  the selection), Correlate all (free `covariance` paths labelled `C_{x,y}` between selected
   variables; the paths either adds, and a constant Add means creates, join the selection), free/fixed, parameter name and value for all selected structural
   paths, and the manifest/latent lock for all selected variables ("mixed" when
   they differ), and Duplicate
@@ -264,6 +264,33 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   dataset's columns are known (its data is loaded), a data path mapping a
   column the dataset lacks is flagged in its row and its cable label is drawn
   as a warning (not in image export)
+- Web frontend: path labels on the canvas (`pathDisplayText()`,
+  `pathShownName()`, `isUnnamedFreePath()` in `src/utils/helpers.ts`). A
+  path's name is its parameter name (`freeParameter` string), else its
+  `label`, the order R uses for OpenMx parameter labels (`.mxParamLabels()`);
+  an absent `freeParameter` is fixed. Default mode shows the name ("label
+  (parameter name)" when a path has both and they differ); an unnamed free
+  path its value; an unnamed fixed path nothing at 1, else its
+  value; a data path its column. Values mode shows the value, both mode
+  "name=value". A free path with neither name nor label is drawn dashed, its
+  value written "≈value" instead of "=value", and its inspector notes it. The
+  editor's generated free paths are labelled (never named) so they are not
+  unnamed: a new variable's or drawn self-loop's variance `V_{x}`, a drawn
+  one-headed path `x->y`, a drawn path from a constant or Add means `M_{x}`,
+  a drawn covariance or Correlate all `C_{x,y}`, each made unique against the model's labels and
+  parameter names (`_2`, `_3`, ...); a paste, a node rename
+  (`followGeneratedLabels()`) or a direction change (`followDirectionLabel()`)
+  renames those still matching their nodes. A drawn covariance is free,
+  labelled `C_{x,y}`; R's `addPath()` makes the same defaults. Labels may use characters OpenMx forbids (`->`, `,`): R maps
+  every name to a legal one when building the MxModel (`.openMxNames()` in
+  `R/utilities.R`) and back when reading it. Two structural paths shown under the same name without both
+  having it as their parameter name (`pathNameClashes()`) are flagged: only a
+  shared parameter name is an equality constraint, and R suffixes a repeated
+  label (`_2`) for OpenMx. The inspector warns, both canvas labels are drawn
+  as warnings, and committing such a label inline shows a notice. Image
+  export (`svgRenderer.ts`) has its own label rules.
+  Idea, not adopted: "≙" (U+2259, ESTIMATES) for estimated values instead of
+  "≈"; set aside because readers are unlikely to recognize it.
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
   `update_model` messages carry `kind` (`load` starts a new history, `data` is
   an undo step, `fit` keeps the history); undo/redo carry fit results

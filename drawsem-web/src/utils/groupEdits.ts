@@ -5,7 +5,7 @@
  * the result in one state update (one undo step).
  */
 import { convertToUnicode } from './converters'
-import { makeDataPath, makeNode, makePath, uniqueNodeLabel } from './helpers'
+import { defaultCovarianceLabel, defaultDirectedLabel, defaultMeanLabel, makeDataPath, makeNode, makePath, makeVariancePath, uniqueNodeLabel, uniquePathLabel } from './helpers'
 import type { Node, Path } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -69,9 +69,12 @@ export function pathIssue(nodes: readonly Node[], paths: readonly Path[], src: s
 /**
  * The path a drag from src to dst creates: a data path from a dataset (the
  * target's label as the column name, linked to it); a free error variance for a two-headed
- * self-path; otherwise an unlabelled path with no value (schema defaults).
+ * self-path, labelled like a new variable's (V_{x}, unique against `paths`);
+ * a free mean from a constant, labelled like Add means' (M_{x}); a free
+ * one-headed path, labelled x->y; a free covariance, labelled like Correlate
+ * all's (C_{x,y}). R's addPath() makes the same paths.
  */
-export function newDraggedPath(nodes: readonly Node[], src: string, dst: string, twoSided: boolean): Path {
+export function newDraggedPath(nodes: readonly Node[], src: string, dst: string, twoSided: boolean, paths: readonly Path[] = []): Path {
   const srcNode = nodes.find((n) => n.id === src)
   const dstNode = nodes.find((n) => n.id === dst)
   if (srcNode?.type === 'dataset') {
@@ -79,11 +82,27 @@ export function newDraggedPath(nodes: readonly Node[], src: string, dst: string,
     const path = makeDataPath(src, dst, dstNode?.label, convertToUnicode(dstNode?.label ?? ''))
     return dstNode ? { ...path, mappingLinked: true } : path
   }
+  if (src === dst && twoSided) return makeVariancePath(src, srcNode?.label ?? src, paths)
+  if (srcNode && dstNode) {
+    const fromConstant = !twoSided && srcNode.type === 'constant'
+    const base = twoSided ? defaultCovarianceLabel(srcNode.label, dstNode.label)
+      : fromConstant ? defaultMeanLabel(dstNode.label)
+      : defaultDirectedLabel(srcNode.label, dstNode.label)
+    const label = uniquePathLabel(paths, base)
+    return makePath({
+      from: src,
+      to: dst,
+      twoSided,
+      label,
+      freeParameter: true,
+      parameterType: twoSided ? 'covariance' : fromConstant ? 'mean' : undefined,
+      displayName: convertToUnicode(label),
+    })
+  }
   return makePath({
     from: src,
     to: dst,
     twoSided,
-    ...(src === dst && twoSided ? { freeParameter: true, parameterType: 'errorVariance' } : {}),
     displayName: convertToUnicode(srcNode?.label ?? src) + (twoSided ? ' ↔ ' : ' → ') + convertToUnicode(dstNode?.label ?? dst),
   })
 }
@@ -162,7 +181,7 @@ export function planDraggedPaths(nodes: readonly Node[], paths: readonly Path[],
   for (const [from, to] of pairs) {
     const issue = pathIssue(nodes, [...paths, ...added], from, to, twoSided)
     if (issue) skipped.push({ from, to, issue })
-    else added.push(newDraggedPath(nodes, from, to, twoSided))
+    else added.push(newDraggedPath(nodes, from, to, twoSided, [...paths, ...added]))
   }
   return { added, skipped }
 }
@@ -276,16 +295,19 @@ export function planAddMeans(
     constant = newConstant
   }
   const c = constant
-  const added = needing.map((v) =>
-    makePath({
+  const added: Path[] = []
+  for (const v of needing) {
+    const label = uniquePathLabel([...paths, ...added], defaultMeanLabel(v.label))
+    added.push(makePath({
       from: c.id,
       to: v.id,
       twoSided: false,
+      label,
       freeParameter: true,
       parameterType: 'mean',
-      displayName: `${convertToUnicode(c.label)} → ${convertToUnicode(v.label)}`,
-    })
-  )
+      displayName: convertToUnicode(label),
+    }))
+  }
   return { newConstant, constantId: c.id, added, skipped }
 }
 
@@ -326,13 +348,15 @@ export function planCorrelateAll(nodes: readonly Node[], paths: readonly Path[],
       skipped.push(`${na.label}↔${nb.label}`)
       continue
     }
+    const label = uniquePathLabel([...paths, ...added], defaultCovarianceLabel(na.label, nb.label))
     added.push(makePath({
       from: a,
       to: b,
       twoSided: true,
+      label,
       freeParameter: true,
       parameterType: 'covariance',
-      displayName: `${convertToUnicode(na.label)} ↔ ${convertToUnicode(nb.label)}`,
+      displayName: convertToUnicode(label),
     }))
   }
   return { added, skipped }

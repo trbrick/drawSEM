@@ -4,7 +4,7 @@ import {
   planAddMeans, addMeansMessage, planCorrelateAll, correlateAllMessage, sharedValue, MIXED,
   addedSkippedMessage, NEW_CONSTANT_GAP,
 } from '../../src/utils/groupEdits'
-import { withFreeParameter, formatPathValue } from '../../src/utils/helpers'
+import { withFreeParameter, formatPathValue, uniquePathLabel } from '../../src/utils/helpers'
 import type { Node, Path } from '../../src/utils/helpers'
 import { isMacPlatform, isSecondaryPress, isToggleModifier } from '../../src/utils/platform'
 
@@ -75,9 +75,15 @@ describe('planDraggedPaths and its message', () => {
   })
   it('a two-headed self path is a free error variance', () => {
     const p = newDraggedPath(NODES, 'a', 'a', true)
-    expect(p).toMatchObject({ freeParameter: true, parameterType: 'errorVariance', twoSided: true })
-    expect(newDraggedPath(NODES, 'a', 'b', false)).toMatchObject({ displayName: 'a → b' })
-    expect(newDraggedPath(NODES, 'a', 'b', false).freeParameter).toBeUndefined()
+    expect(p).toMatchObject({ freeParameter: true, parameterType: 'errorVariance', twoSided: true, label: 'V_{a}' })
+    // a drawn covariance is free and labelled like Correlate all's
+    expect(newDraggedPath(NODES, 'a', 'b', true)).toMatchObject({ freeParameter: true, label: 'C_{a,b}', parameterType: 'covariance' })
+  })
+  it('a one-headed path is free and labelled from->to, or M_{to} from a constant', () => {
+    expect(newDraggedPath(NODES, 'a', 'b', false)).toMatchObject({ freeParameter: true, label: 'a->b', displayName: 'a->b' })
+    expect(newDraggedPath(NODES, 'k', 'b', false)).toMatchObject({ freeParameter: true, label: 'M_{b}', parameterType: 'mean' })
+    const taken = [{ id: 'x', from: 'a', to: 'b', twoSided: false, label: 'a->b' }]
+    expect(newDraggedPath(NODES, 'a', 'b', false, taken).label).toBe('a->b_2')
   })
   it('shortens long lists', () => {
     const items = ['1', '2', '3', '4', '5'].map((i) => ({ reason: 'r', item: i }))
@@ -92,7 +98,7 @@ describe('planAddMeans', () => {
     const plan = planAddMeans([node('a'), node('b')], [], ['a', 'b'], box)
     expect(plan.newConstant).toMatchObject({ label: '1', type: 'constant', x: 0, y: 50 + NEW_CONSTANT_GAP })
     expect(plan.added.map((p) => [p.from, p.to])).toEqual([[plan.newConstant!.id, 'a'], [plan.newConstant!.id, 'b']])
-    expect(plan.added[0]).toMatchObject({ twoSided: false, freeParameter: true, parameterType: 'mean' })
+    expect(plan.added[0]).toMatchObject({ twoSided: false, freeParameter: true, parameterType: 'mean', label: 'M_{a}' })
     expect(addMeansMessage(plan, '1')).toBe('Added constant "1" and 2 mean paths.')
   })
   it('uses the node labelled "1", and skips variables that already have a mean', () => {
@@ -123,7 +129,7 @@ describe('planCorrelateAll', () => {
   it('adds a covariance for every pair of selected variables without one', () => {
     const plan = planCorrelateAll(NODES, [path('b', 'a', true)], ['a', 'b', 'c', 'k'])
     expect(plan.added.map((p) => [p.from, p.to])).toEqual([['a', 'c'], ['b', 'c']])
-    expect(plan.added[0]).toMatchObject({ twoSided: true, freeParameter: true, parameterType: 'covariance' })
+    expect(plan.added[0]).toMatchObject({ twoSided: true, freeParameter: true, parameterType: 'covariance', label: 'C_{a,c}' })
     expect(correlateAllMessage(plan)).toBe('Added 2 covariances; skipped 1 (already correlated: a↔b).')
   })
 })
@@ -173,5 +179,26 @@ describe('platform rules', () => {
     expect(isToggleModifier(ctrl, true)).toBe(false)
     expect(isToggleModifier({ ...ctrl, ctrlKey: false, metaKey: true }, true)).toBe(true)
     expect(isToggleModifier({ ...ctrl, ctrlKey: false, shiftKey: true }, true)).toBe(true)
+  })
+})
+
+describe('generated path labels', () => {
+  it('are unique against existing labels and parameter names (base, base_2, ...)', () => {
+    expect(uniquePathLabel([], 'M_{a}')).toBe('M_{a}')
+    expect(uniquePathLabel([{ label: 'M_{a}' }, { freeParameter: 'M_{a}_2' }], 'M_{a}')).toBe('M_{a}_3')
+  })
+  it('a mean label already in use is suffixed', () => {
+    const plan = planAddMeans([node('a'), node('k', 'constant')], [path('x', 'y', false, { label: 'M_{a}' })], ['a', 'k'], null)
+    expect(plan.added[0].label).toBe('M_{a}_2')
+  })
+  it('a drawn self-loop is labelled like a new variable\'s variance, unique against the model', () => {
+    const plan = planDraggedPaths(NODES, [path('x', 'y', true, { freeParameter: 'V_{a}' })], [['a', 'a']], true)
+    expect(plan.added[0].label).toBe('V_{a}_2')
+  })
+  it('drawn paths are free and labelled, unique within one drag', () => {
+    const plan = planDraggedPaths(NODES, [], [['a', 'b'], ['b', 'c']], true)
+    expect(plan.added.map((p) => [p.label, p.freeParameter])).toEqual([['C_{a,b}', true], ['C_{b,c}', true]])
+    const fan = planDraggedPaths([...NODES, { ...NODES[1], id: 'b2' }], [], [['a', 'b'], ['a', 'b2']], false)
+    expect(fan.added.map((p) => p.label)).toEqual(['a->b', 'a->b_2'])
   })
 })
