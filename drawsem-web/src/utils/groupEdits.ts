@@ -5,7 +5,7 @@
  * the result in one state update (one undo step).
  */
 import { convertToUnicode } from './converters'
-import { defaultCovarianceLabel, defaultMeanLabel, makeDataPath, makeNode, makePath, makeVariancePath, uniqueNodeLabel, uniquePathLabel } from './helpers'
+import { defaultCovarianceLabel, defaultDirectedLabel, defaultMeanLabel, makeDataPath, makeNode, makePath, makeVariancePath, uniqueNodeLabel, uniquePathLabel } from './helpers'
 import type { Node, Path } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,9 @@ export function pathIssue(nodes: readonly Node[], paths: readonly Path[], src: s
  * The path a drag from src to dst creates: a data path from a dataset (the
  * target's label as the column name, linked to it); a free error variance for a two-headed
  * self-path, labelled like a new variable's (V_{x}, unique against `paths`);
- * otherwise an unlabelled (fixed) path with no value (schema defaults).
+ * a free mean from a constant, labelled like Add means' (M_{x}); a free
+ * one-headed path, labelled x->y; otherwise (a covariance) an unlabelled
+ * fixed path with no value (schema defaults).
  */
 export function newDraggedPath(nodes: readonly Node[], src: string, dst: string, twoSided: boolean, paths: readonly Path[] = []): Path {
   const srcNode = nodes.find((n) => n.id === src)
@@ -81,6 +83,19 @@ export function newDraggedPath(nodes: readonly Node[], src: string, dst: string,
     return dstNode ? { ...path, mappingLinked: true } : path
   }
   if (src === dst && twoSided) return makeVariancePath(src, srcNode?.label ?? src, paths)
+  if (!twoSided && srcNode && dstNode) {
+    const fromConstant = srcNode.type === 'constant'
+    const label = uniquePathLabel(paths, fromConstant ? defaultMeanLabel(dstNode.label) : defaultDirectedLabel(srcNode.label, dstNode.label))
+    return makePath({
+      from: src,
+      to: dst,
+      twoSided: false,
+      label,
+      freeParameter: true,
+      parameterType: fromConstant ? 'mean' : undefined,
+      displayName: convertToUnicode(label),
+    })
+  }
   return makePath({
     from: src,
     to: dst,

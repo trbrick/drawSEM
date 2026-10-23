@@ -307,6 +307,11 @@ export function defaultMeanLabel(nodeLabel: string): string {
   return `M_{${nodeLabel}}`
 }
 
+/** Default label for a new one-headed path between variables: <from label>-><to label>. */
+export function defaultDirectedLabel(fromLabel: string, toLabel: string): string {
+  return `${fromLabel}->${toLabel}`
+}
+
 /** Default label for a generated covariance: C_{<label a>,<label b>}. */
 export function defaultCovarianceLabel(aLabel: string, bLabel: string): string {
   return `C_{${aLabel},${bLabel}}`
@@ -327,10 +332,10 @@ export function uniquePathLabel(paths: readonly { label?: string | null; freePar
 }
 
 /**
- * The label the editor generates for `path` (V_{x}, M_{x} or C_{x,y}), given
- * a node id -> label lookup, or null when it generates none: a self-loop gets
- * V_{x}, a one-headed path from a constant M_{x}, a two-headed path between
- * two nodes C_{x,y}.
+ * The label the editor generates for `path` (V_{x}, M_{x}, x->y or C_{x,y}),
+ * given a node id -> label lookup, or null when it generates none: a
+ * self-loop gets V_{x}, a one-headed path from a constant M_{x}, another
+ * one-headed path x->y, a two-headed path between two nodes C_{x,y}.
  */
 export function generatedPathLabel(path: Path, labelOf: (id: string) => string | undefined, isConstant: (id: string) => boolean): string | null {
   if (path.type === 'data') return null
@@ -340,7 +345,24 @@ export function generatedPathLabel(path: Path, labelOf: (id: string) => string |
   if (path.from === path.to && path.twoSided) return defaultVarianceLabel(to)
   if (!path.twoSided && isConstant(path.from)) return defaultMeanLabel(to)
   if (path.twoSided) return defaultCovarianceLabel(from, to)
-  return null
+  return defaultDirectedLabel(from, to)
+}
+
+/**
+ * `after`, a direction change of `before` (see setPathDirection), with its
+ * label following: a label that was the generated one for `before` (x->y,
+ * C_{x,y}) becomes the generated one for `after`, made unique against the
+ * other `paths`. Other labels are the user's and are kept.
+ */
+export function followDirectionLabel(before: Path, after: Path, nodes: readonly { id: string; label: string; type: string }[], paths: readonly Path[]): Path {
+  if (!before.label) return after
+  const labelOf = (id: string) => nodes.find((n) => n.id === id)?.label
+  const isConstant = (id: string) => nodes.find((n) => n.id === id)?.type === 'constant'
+  if (before.label !== generatedPathLabel(before, labelOf, isConstant)) return after
+  const next = generatedPathLabel(after, labelOf, isConstant)
+  if (!next || next === before.label) return after
+  const label = uniquePathLabel(paths.filter((p) => p.id !== before.id), next)
+  return { ...after, label, displayName: convertToUnicode(label) }
 }
 
 /**
@@ -509,9 +531,9 @@ export function nameClashMessage(name: string, count: number): string {
 
 /**
  * A free structural path with neither a parameter name (`freeParameter`
- * string) nor a label: nothing identifies its estimate in the output (R names
- * an anonymous free parameter after the path's label). The canvas draws it
- * dashed, marks its value with "≈", and the inspector warns about it.
+ * string) nor a label: with nothing written on it, it is hard to tell apart
+ * from a fixed path at a glance. The canvas draws it dashed, marks its value
+ * with "≈", and the inspector notes it.
  */
 export function isUnnamedFreePath(path: Path): boolean {
   if (path.type === 'data') return false
@@ -529,8 +551,9 @@ export function isUnnamedFreePath(path: Path): boolean {
  * - 'labels': the name, else the displayName; 'values': the value; 'both':
  *   "name=value" (just the value when unnamed).
  * - 'default': a named path (and a data path, whose label is its column)
- *   shows its name; an unnamed free path its value; an unnamed fixed path
- *   nothing at unity (1, 1.0, ...), else its value.
+ *   shows its name, as "label (parameter name)" when it has both and they
+ *   differ; an unnamed free path its value; an unnamed fixed path nothing at
+ *   unity (1, 1.0, ...), else its value.
  */
 export function pathDisplayText(path: Path, mode: PathLabelMode): string | null {
   const value = path.value ?? 1.0
@@ -548,6 +571,9 @@ export function pathDisplayText(path: Path, mode: PathLabelMode): string | null 
     case 'neither':
       return null
     case 'default':
+      if (label && path.label && hasParameterName(path) && path.freeParameter !== path.label) {
+        return `${path.displayName || path.label} (${label})`
+      }
       if (label) return label
       if (path.type === 'data') return null
       if (isFree) return shownValue

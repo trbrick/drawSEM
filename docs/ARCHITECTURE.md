@@ -268,16 +268,22 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   `pathShownName()`, `isUnnamedFreePath()` in `src/utils/helpers.ts`). A
   path's name is its parameter name (`freeParameter` string), else its
   `label`, the order R uses for OpenMx parameter labels (`.mxParamLabels()`);
-  an absent `freeParameter` is fixed. Default mode shows the name; an
-  unnamed free path its value; an unnamed fixed path nothing at 1, else its
+  an absent `freeParameter` is fixed. Default mode shows the name ("label
+  (parameter name)" when a path has both and they differ); an unnamed free
+  path its value; an unnamed fixed path nothing at 1, else its
   value; a data path its column. Values mode shows the value, both mode
   "name=value". A free path with neither name nor label is drawn dashed, its
-  value written "≈value" instead of "=value", and its inspector warns. The
+  value written "≈value" instead of "=value", and its inspector notes it. The
   editor's generated free paths are labelled (never named) so they are not
-  unnamed: a new variable's or drawn self-loop's variance `V_{x}`, Add means
-  `M_{x}`, Correlate all `C_{x,y}`, each made unique against the model's
-  labels and parameter names (`_2`, `_3`, ...); a paste or a node rename
-  (`followGeneratedLabels()`) renames those still matching their nodes. Two structural paths shown under the same name without both
+  unnamed: a new variable's or drawn self-loop's variance `V_{x}`, a drawn
+  one-headed path `x->y`, a drawn path from a constant or Add means `M_{x}`,
+  Correlate all `C_{x,y}`, each made unique against the model's labels and
+  parameter names (`_2`, `_3`, ...); a paste, a node rename
+  (`followGeneratedLabels()`) or a direction change (`followDirectionLabel()`)
+  renames those still matching their nodes. A drawn covariance is fixed and
+  unlabelled. Labels may use characters OpenMx forbids (`->`, `,`): R maps
+  every name to a legal one when building the MxModel (`.openMxNames()` in
+  `R/utilities.R`) and back when reading it. Two structural paths shown under the same name without both
   having it as their parameter name (`pathNameClashes()`) are flagged: only a
   shared parameter name is an equality constraint, and R suffixes a repeated
   label (`_2`) for OpenMx. The inspector warns, both canvas labels are drawn

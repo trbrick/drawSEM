@@ -76,8 +76,15 @@ describe('planDraggedPaths and its message', () => {
   it('a two-headed self path is a free error variance', () => {
     const p = newDraggedPath(NODES, 'a', 'a', true)
     expect(p).toMatchObject({ freeParameter: true, parameterType: 'errorVariance', twoSided: true, label: 'V_{a}' })
-    expect(newDraggedPath(NODES, 'a', 'b', false)).toMatchObject({ displayName: 'a → b' })
-    expect(newDraggedPath(NODES, 'a', 'b', false).freeParameter).toBeUndefined()
+    // a drawn covariance stays fixed and unlabelled
+    expect(newDraggedPath(NODES, 'a', 'b', true)).toMatchObject({ displayName: 'a ↔ b' })
+    expect(newDraggedPath(NODES, 'a', 'b', true).freeParameter).toBeUndefined()
+  })
+  it('a one-headed path is free and labelled from->to, or M_{to} from a constant', () => {
+    expect(newDraggedPath(NODES, 'a', 'b', false)).toMatchObject({ freeParameter: true, label: 'a->b', displayName: 'a->b' })
+    expect(newDraggedPath(NODES, 'k', 'b', false)).toMatchObject({ freeParameter: true, label: 'M_{b}', parameterType: 'mean' })
+    const taken = [{ id: 'x', from: 'a', to: 'b', twoSided: false, label: 'a->b' }]
+    expect(newDraggedPath(NODES, 'a', 'b', false, taken).label).toBe('a->b_2')
   })
   it('shortens long lists', () => {
     const items = ['1', '2', '3', '4', '5'].map((i) => ({ reason: 'r', item: i }))

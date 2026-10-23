@@ -245,16 +245,17 @@ describe('planPaste', () => {
     expect(variance.displayName).toBe(convertToUnicode('V_{x1_2}'))
   })
 
-  it('generated mean and covariance labels follow the pasted nodes', () => {
+  it('generated mean, covariance and directed labels follow the pasted nodes', () => {
     const { nodes } = model()
     const paths: Path[] = [
       path('1', 'x1', { freeParameter: true, label: 'M_{x1}' }),
       path('x1', 'x2', { twoSided: true, freeParameter: true, label: 'C_{x1,x2}' }),
+      path('x1', 'x2', { freeParameter: true, label: 'x1->x2' }),
     ]
-    const f = copySelection(nodes, paths, sel(['x1', 'x2', '1'], ['1-x1-1', 'x1-x2-2']))!
+    const f = copySelection(nodes, paths, sel(['x1', 'x2', '1'], ['1-x1-1', 'x1-x2-2', 'x1-x2-1']))!
     const plan = planPaste(nodes, paths, f, pasteOffset(f, 1))!
     const labels = plan.paths.map((p) => p.label).sort()
-    expect(labels).toEqual(['C_{x1_2,x2_2}', 'M_{x1_2}'])
+    expect(labels).toEqual(['C_{x1_2,x2_2}', 'M_{x1_2}', 'x1_2->x2_2'])
   })
 
   it('keeps parameter names that are free in the target (e.g. another window)', () => {

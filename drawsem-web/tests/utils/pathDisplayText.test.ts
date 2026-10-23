@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, followGeneratedLabels } from '../../src/utils/helpers'
+import { pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, followGeneratedLabels, followDirectionLabel, setPathDirection, cyclePathDirection } from '../../src/utils/helpers'
 import type { Path } from '../../src/utils/helpers'
 
 const path = (over: Partial<Path> = {}): Path => ({ id: 'p', from: 'F', to: 'x', twoSided: false, ...over })
@@ -29,10 +29,15 @@ describe('pathDisplayText, default mode', () => {
 
   it('shows the parameter name first, else the label (the order OpenMx names parameters)', () => {
     expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b1' }), 'default')).toBe('b1')
-    expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b_1', label: 'lam', displayName: 'lam' }), 'default')).toBe('b₁')
+    expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b_1', label: 'lam', displayName: 'lam' }), 'labels')).toBe('b₁')
     expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b1', label: 'lam' }), 'both')).toBe('b1=0.30')
     expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b1', label: 'lam' }), 'labels')).toBe('b1')
     expect(pathDisplayText(path({ value: 0.3, freeParameter: true, label: 'lam', displayName: 'lam' }), 'default')).toBe('lam')
+  })
+
+  it('shows "label (parameter name)" when a path has both and they differ', () => {
+    expect(pathDisplayText(path({ value: 0.3, freeParameter: 'b_1', label: '\\lambda', displayName: 'λ' }), 'default')).toBe('λ (b₁)')
+    expect(pathDisplayText(path({ value: 0.3, freeParameter: 'lam', label: 'lam', displayName: 'lam' }), 'default')).toBe('lam')
   })
 
   it('shows the label of any labeled path, free or fixed, whatever its value', () => {
@@ -141,5 +146,33 @@ describe('followGeneratedLabels', () => {
       p('o', { from: 'n2', to: 'n2', twoSided: true, label: 'x', freeParameter: 'V_{z}' }),
     ]
     expect(followGeneratedLabels(ps, nodes, 'n1', 'z')[0].label).toBe('V_{z}_2')
+  })
+  it('renames x->y', () => {
+    const ps = [p('d', { to: 'n2', label: 'x->y', freeParameter: true }), p('e', { from: 'n2', label: 'y->x' })]
+    expect(followGeneratedLabels(ps, nodes, 'n1', 'z').map((q) => q.label)).toEqual(['z->y', 'y->z'])
+  })
+})
+
+describe('followDirectionLabel', () => {
+  const nodes = [
+    { id: 'n1', label: 'x', type: 'variable' },
+    { id: 'n2', label: 'y', type: 'variable' },
+  ]
+  const d: Path = { id: 'd', from: 'n1', to: 'n2', twoSided: false, label: 'x->y', freeParameter: true }
+  const turn = (p: Path, dir: 'twoSided' | 'forward' | 'reversed', ps: Path[] = [p]) => followDirectionLabel(p, setPathDirection(p, dir), nodes, ps)
+
+  it('a generated label follows the direction: x->y, y->x, C_{x,y}', () => {
+    expect(turn(d, 'reversed')).toMatchObject({ from: 'n2', to: 'n1', label: 'y->x', displayName: 'y->x' })
+    expect(turn(d, 'twoSided').label).toBe('C_{x,y}')
+    const c = turn(d, 'twoSided')
+    expect(turn(c, 'forward').label).toBe('x->y')
+    // the double-click cycle too
+    expect(followDirectionLabel(d, cyclePathDirection(d), nodes, [d]).label).toBe('y->x')
+  })
+
+  it("keeps the user's labels, and keeps generated ones unique", () => {
+    expect(turn({ ...d, label: 'b1' }, 'reversed').label).toBe('b1')
+    const other: Path = { id: 'o', from: 'n2', to: 'n1', twoSided: false, label: 'y->x' }
+    expect(turn(d, 'reversed', [d, other]).label).toBe('y->x_2')
   })
 })

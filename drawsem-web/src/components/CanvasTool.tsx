@@ -11,7 +11,7 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, followGeneratedLabels, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, followGeneratedLabels, followDirectionLabel, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
 import type { Node, Path, PathLabelMode } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
@@ -1317,7 +1317,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     // Disallow cycling when sourced from a dataset or constant node
     const fromNode = nodes.find((n) => n.id === p.from)
     if (fromNode?.type === 'dataset' || fromNode?.type === 'constant') return
-    setPaths((ps) => ps.map((x) => (x.id === pathId ? withAutoDisplayName(cyclePathDirection(x)) : x)))
+    setPaths((ps) => ps.map((x) => (x.id === pathId ? withAutoDisplayName(followDirectionLabel(x, cyclePathDirection(x), nodes, ps)) : x)))
   }
 
   // ---- Undo/redo and keyboard shortcuts ----
@@ -3638,7 +3638,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                           onChange={(e) => {
                             const val = e.target.value
                             if (val !== 'twoSided' && val !== 'forward' && val !== 'reversed') return
-                            setPaths((ps) => ps.map((p) => (p.id === selectedPath.id ? withAutoDisplayName(setPathDirection(p, val)) : p)))
+                            setPaths((ps) => ps.map((p) => (p.id === selectedPath.id ? withAutoDisplayName(followDirectionLabel(p, setPathDirection(p, val), nodes, ps)) : p)))
                           }}
                           className={`px-2 py-1 border rounded text-xs bg-white ${!canCycle ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
@@ -3961,8 +3961,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   })()}
                   {isUnnamedFreePath(selectedPath) && (
                     <div className="text-amber-700" data-testid="unnamed-free-warning">
-                      Free parameter with no label or name: its estimate can't be told apart in the output.
-                      Give it a label or a parameter name.
+                      Free parameter with no label or name: on the canvas it can be hard to tell apart from a
+                      fixed path. A label or parameter name would make it easier to spot.
                     </div>
                   )}
                   {selectedPath.from === selectedPath.to && (() => {
