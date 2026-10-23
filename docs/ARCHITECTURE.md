@@ -277,11 +277,11 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   editor's generated free paths are labelled (never named) so they are not
   unnamed: a new variable's or drawn self-loop's variance `V_{x}`, a drawn
   one-headed path `x->y`, a drawn path from a constant or Add means `M_{x}`,
-  Correlate all `C_{x,y}`, each made unique against the model's labels and
+  a drawn covariance or Correlate all `C_{x,y}`, each made unique against the model's labels and
   parameter names (`_2`, `_3`, ...); a paste, a node rename
   (`followGeneratedLabels()`) or a direction change (`followDirectionLabel()`)
-  renames those still matching their nodes. A drawn covariance is fixed and
-  unlabelled. Labels may use characters OpenMx forbids (`->`, `,`): R maps
+  renames those still matching their nodes. A drawn covariance is free,
+  labelled `C_{x,y}`; R's `addPath()` makes the same defaults. Labels may use characters OpenMx forbids (`->`, `,`): R maps
   every name to a legal one when building the MxModel (`.openMxNames()` in
   `R/utilities.R`) and back when reading it. Two structural paths shown under the same name without both
   having it as their parameter name (`pathNameClashes()`) are flagged: only a

@@ -51,6 +51,10 @@ produce the same path (e.g. \code{A -> B} and \code{B -> A} both converted to on
 \verb{A <-> B}); if the converted path already exists in the model (e.g.
 converting \code{A -> B} to two-headed when \verb{A <-> B} is already there); or if
 it is a data connection.
+
+Other fields are kept. A label that is still the one \code{\link[=addPath]{addPath()}} (or the
+editor) generated for the path -- \code{x->y}, \verb{C_\{x,y\}} -- follows the
+conversion: \code{x->y} becomes \verb{C_\{x,y\}} and back.
 }
 \examples{
 gm <- GraphModel() |>

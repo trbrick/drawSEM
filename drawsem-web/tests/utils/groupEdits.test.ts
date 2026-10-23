@@ -76,9 +76,8 @@ describe('planDraggedPaths and its message', () => {
   it('a two-headed self path is a free error variance', () => {
     const p = newDraggedPath(NODES, 'a', 'a', true)
     expect(p).toMatchObject({ freeParameter: true, parameterType: 'errorVariance', twoSided: true, label: 'V_{a}' })
-    // a drawn covariance stays fixed and unlabelled
-    expect(newDraggedPath(NODES, 'a', 'b', true)).toMatchObject({ displayName: 'a ↔ b' })
-    expect(newDraggedPath(NODES, 'a', 'b', true).freeParameter).toBeUndefined()
+    // a drawn covariance is free and labelled like Correlate all's
+    expect(newDraggedPath(NODES, 'a', 'b', true)).toMatchObject({ freeParameter: true, label: 'C_{a,b}', parameterType: 'covariance' })
   })
   it('a one-headed path is free and labelled from->to, or M_{to} from a constant', () => {
     expect(newDraggedPath(NODES, 'a', 'b', false)).toMatchObject({ freeParameter: true, label: 'a->b', displayName: 'a->b' })
@@ -196,8 +195,10 @@ describe('generated path labels', () => {
     const plan = planDraggedPaths(NODES, [path('x', 'y', true, { freeParameter: 'V_{a}' })], [['a', 'a']], true)
     expect(plan.added[0].label).toBe('V_{a}_2')
   })
-  it('a drawn one-headed or covariance path stays unlabelled and fixed', () => {
+  it('drawn paths are free and labelled, unique within one drag', () => {
     const plan = planDraggedPaths(NODES, [], [['a', 'b'], ['b', 'c']], true)
-    expect(plan.added.every((p) => p.label === undefined && p.freeParameter === undefined)).toBe(true)
+    expect(plan.added.map((p) => [p.label, p.freeParameter])).toEqual([['C_{a,b}', true], ['C_{b,c}', true]])
+    const fan = planDraggedPaths([...NODES, { ...NODES[1], id: 'b2' }], [], [['a', 'b'], ['a', 'b2']], false)
+    expect(fan.added.map((p) => p.label)).toEqual(['a->b', 'a->b_2'])
   })
 })
