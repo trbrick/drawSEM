@@ -309,6 +309,57 @@ function buildSelfLoopPoints(
   return finalPts
 }
 
+/** The control point of a two-headed path's quadratic curve between `start` and `end`. */
+function twoHeadedControlPoint(start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number } {
+  const ddx = end.x - start.x
+  const ddy = end.y - start.y
+  const distMid = Math.hypot(ddx, ddy) || 1
+  const curve = 40
+  return {
+    x: (start.x + end.x) / 2 - (ddy / distMid) * curve,
+    y: (start.y + end.y) / 2 + (ddx / distMid) * curve,
+  }
+}
+
+/**
+ * Points along the drawn path, for the image's bounds: self-loops and
+ * two-headed curves reach well beyond their end points.
+ */
+function pathExtentPoints(
+  path: Path,
+  fromPos: { x: number; y: number },
+  toPos: { x: number; y: number },
+  fromNode: Node,
+  toNode: Node,
+  ctx: ModelContext
+): Array<{ x: number; y: number }> {
+  const steps = 16
+  const ts = Array.from({ length: steps + 1 }, (_, i) => i / steps)
+  if (path.from === path.to) {
+    const side = ctx.loopSides?.get(path) ?? effectiveSchemaLoopSide(path, ctx.allNodes, ctx.allPaths)
+    const [P0, P1, P2, P3] = buildSelfLoopPoints(fromNode, fromPos, side, ctx)
+    return ts.map((t) => {
+      const mt = 1 - t
+      const a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, d = t * t * t
+      return { x: a * P0.x + b * P1.x + c * P2.x + d * P3.x, y: a * P0.y + b * P1.y + c * P2.y + d * P3.y }
+    })
+  }
+  const start = getBoundaryPoint(fromNode, fromPos, toPos, ctx)
+  const end = getBoundaryPoint(toNode, toPos, fromPos, ctx)
+  if (path.numberOfArrows !== 2) return [start, end]
+  const CP = twoHeadedControlPoint(start, end)
+  return ts.map((t) => {
+    const mt = 1 - t
+    return { x: mt * mt * start.x + 2 * mt * t * CP.x + t * t * end.x, y: mt * mt * start.y + 2 * mt * t * CP.y + t * t * end.y }
+  })
+}
+
+/** The box a centred monospace label covers (characters are about 0.6em wide). */
+function textBox(text: string, centre: { x: number; y: number }, fontSize: number): BoundingBox {
+  const width = text.length * fontSize * 0.6
+  return { x: centre.x - width / 2, y: centre.y - fontSize / 2, width, height: fontSize }
+}
+
 /**
  * Generate path data string (SVG d attribute)
  * Adapts logic from CanvasTool.pathD()
@@ -344,19 +395,8 @@ function pathD(
 
   if (path.numberOfArrows === 2) {
     // two-sided: use quadratic curve
-    const mx = (start.x + end.x) / 2
-    const my = (start.y + end.y) / 2
-    const ddx = end.x - start.x
-    const ddy = end.y - start.y
-    const distMid = Math.hypot(ddx, ddy) || 1
-    const normX = -(ddy / distMid)
-    const normY = ddx / distMid
-    const curve = 40
-    const cx = mx + normX * curve
-    const cy = my + normY * curve
-
     const P0 = { x: start.x, y: start.y }
-    const CP = { x: cx, y: cy }
+    const CP = twoHeadedControlPoint(start, end)
     const P1 = { x: end.x, y: end.y }
 
     let tan0 = { x: 2 * (CP.x - P0.x), y: 2 * (CP.y - P0.y) }
@@ -422,19 +462,9 @@ function getPathLabelPos(
   const endOut = { x: end.x + ux * markerOffset, y: end.y + uy * markerOffset }
 
   if (path.numberOfArrows === 2) {
-    // two-sided: use quadratic curve midpoint
-    const mx = (start.x + end.x) / 2
-    const my = (start.y + end.y) / 2
-    const ddx = end.x - start.x
-    const ddy = end.y - start.y
-    const distMid = Math.hypot(ddx, ddy) || 1
-    const normX = -(ddy / distMid)
-    const normY = ddx / distMid
-    const curve = 40
-    const cx = mx + normX * curve
-    const cy = my + normY * curve
-
-    return { x: cx, y: cy - 10 }
+    // two-sided: label at the curve's control point
+    const CP = twoHeadedControlPoint(start, end)
+    return { x: CP.x, y: CP.y - 10 }
   }
 
   // straight line: use midpoint
@@ -481,19 +511,8 @@ function renderPath(
   return `<path d="${d}" stroke="${DISPLAY_COLORS.stroke}" stroke-width="${PATH_STROKE_WIDTH}" fill="none" marker-end="${markerEnd}" marker-start="${markerStart}" />`
 }
 
-/**
- * Render path label (if applicable)
- */
-function renderPathLabel(
-  path: Path,
-  fromPos: { x: number; y: number },
-  toPos: { x: number; y: number },
-  fromNode: Node,
-  toNode: Node,
-  format: SvgExportOptions['pathLabelFormat'],
-  ctx: ModelContext,
-  labelPosOverride?: { x: number; y: number }
-): string | null {
+/** The text written on a path in this label format, or null for none. */
+function pathLabelText(path: Path, format: SvgExportOptions['pathLabelFormat']): string | null {
   if (!format || format === 'neither' || format === null) return null
 
   let labelText = ''
@@ -516,6 +535,23 @@ function renderPathLabel(
     }
   }
 
+  return labelText || null
+}
+
+/**
+ * Render path label (if applicable)
+ */
+function renderPathLabel(
+  path: Path,
+  fromPos: { x: number; y: number },
+  toPos: { x: number; y: number },
+  fromNode: Node,
+  toNode: Node,
+  format: SvgExportOptions['pathLabelFormat'],
+  ctx: ModelContext,
+  labelPosOverride?: { x: number; y: number }
+): string | null {
+  const labelText = pathLabelText(path, format)
   if (!labelText) return null
 
   const labelPos = labelPosOverride ?? getPathLabelPos(path, fromPos, toPos, fromNode, toNode, ctx)
@@ -597,43 +633,6 @@ export function modelToSVG(
     (p) => visibleNodeLabels.has(p.from) && visibleNodeLabels.has(p.to)
   )
 
-  // Calculate bounding box
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity
-
-  visibleNodes.forEach((n) => {
-    const pos = positions[n.label]
-    if (!pos) return
-    const bounds = getNodeBounds(n, pos, ctx)
-    minX = Math.min(minX, bounds.x)
-    minY = Math.min(minY, bounds.y)
-    maxX = Math.max(maxX, bounds.x + bounds.width)
-    maxY = Math.max(maxY, bounds.y + bounds.height)
-  })
-
-  // Default bounds if no nodes
-  if (!isFinite(minX)) {
-    minX = 0
-    minY = 0
-    maxX = 100
-    maxY = 100
-  }
-
-  // Apply padding
-  const viewBox = {
-    x: minX - opts.padding,
-    y: minY - opts.padding,
-    width: maxX - minX + 2 * opts.padding,
-    height: maxY - minY + 2 * opts.padding,
-  }
-
-  // SVG dimensions (maintain aspect ratio, cap at 1200px max width)
-  const aspectRatio = viewBox.width / viewBox.height
-  const svgWidth = Math.min(viewBox.width, 1200)
-  const svgHeight = svgWidth / aspectRatio
-
   // Data paths are drawn as data cables, as on the canvas (see dataCables.ts):
   // one trunk per dataset, then a branch per data path.
   const isDataPath = (p: Path) => p.type === 'data' || nodesByLabel[p.from]?.type === 'dataset'
@@ -652,6 +651,71 @@ export function modelToSVG(
     const trunk = isDataPath(p) ? trunks.get(p.from) : undefined
     return trunk && positions[p.to] ? cableBranch(trunk, positions[p.to], boundaryOf(p.to)) : null
   }
+
+  // Bounding box: nodes, paths (self-loops and curves reach beyond their
+  // nodes; arrowheads add a little), and node and path labels
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
+  const include = (b: BoundingBox) => {
+    minX = Math.min(minX, b.x)
+    minY = Math.min(minY, b.y)
+    maxX = Math.max(maxX, b.x + b.width)
+    maxY = Math.max(maxY, b.y + b.height)
+  }
+  const arrowMargin = 6
+  const labelOffset = 5 // labels are drawn this far below their position
+
+  visibleNodes.forEach((n) => {
+    const pos = positions[n.label]
+    if (!pos) return
+    include(getNodeBounds(n, pos, ctx))
+    include(textBox(n.label, { x: pos.x, y: pos.y + labelOffset }, 14))
+  })
+  visiblePaths.forEach((p) => {
+    const fromNode = nodesByLabel[p.from]
+    const toNode = nodesByLabel[p.to]
+    const fromPos = positions[p.from]
+    const toPos = positions[p.to]
+    if (!fromNode || !toNode || !fromPos || !toPos) return
+    const cable = cableFor(p)
+    if (!cable) {
+      pathExtentPoints(p, fromPos, toPos, fromNode, toNode, ctx).forEach((pt) =>
+        include({ x: pt.x - arrowMargin, y: pt.y - arrowMargin, width: 2 * arrowMargin, height: 2 * arrowMargin })
+      )
+    }
+    const text = pathLabelText(p, opts.pathLabelFormat)
+    const labelPos = text ? cable?.labelPos ?? getPathLabelPos(p, fromPos, toPos, fromNode, toNode, ctx) : null
+    if (text && labelPos) include(textBox(text, { x: labelPos.x, y: labelPos.y + labelOffset }, 12))
+  })
+
+  // Default bounds if no nodes
+  if (!isFinite(minX)) {
+    minX = 0
+    minY = 0
+    maxX = 100
+    maxY = 100
+  }
+
+  // Whole pixels, rounded outwards (curve points are fractional)
+  minX = Math.floor(minX)
+  minY = Math.floor(minY)
+  maxX = Math.ceil(maxX)
+  maxY = Math.ceil(maxY)
+
+  // Apply padding
+  const viewBox = {
+    x: minX - opts.padding,
+    y: minY - opts.padding,
+    width: maxX - minX + 2 * opts.padding,
+    height: maxY - minY + 2 * opts.padding,
+  }
+
+  // SVG dimensions (maintain aspect ratio, cap at 1200px max width)
+  const aspectRatio = viewBox.width / viewBox.height
+  const svgWidth = Math.min(viewBox.width, 1200)
+  const svgHeight = svgWidth / aspectRatio
 
   // Render paths (background layer)
   const trunkElements = Array.from(trunks.values()).map(

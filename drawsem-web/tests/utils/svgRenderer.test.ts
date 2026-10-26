@@ -671,3 +671,78 @@ describe('image export ignores the saved view', () => {
     expect(vb[2]).toBeGreaterThan(600) // spans the whole model, not the 20-unit viewport
   })
 })
+
+describe('image bounds', () => {
+  /** Points along every <path> in the SVG (M/L lines, Q and C curves). */
+  function drawnPoints(svg: string): Array<{ x: number; y: number }> {
+    const out: Array<{ x: number; y: number }> = []
+    for (const [, d] of svg.matchAll(/<path d="([^"]+)"/g)) {
+      const n = d.match(/-?[\d.]+(?:e-?\d+)?/g)!.map(Number)
+      const pt = (i: number) => ({ x: n[2 * i], y: n[2 * i + 1] })
+      const at = (ps: Array<{ x: number; y: number }>, t: number) => {
+        // de Casteljau
+        let q = ps
+        while (q.length > 1) q = q.slice(1).map((p, i) => ({ x: q[i].x + (p.x - q[i].x) * t, y: q[i].y + (p.y - q[i].y) * t }))
+        return q[0]
+      }
+      const ps = Array.from({ length: n.length / 2 }, (_, i) => pt(i))
+      for (let t = 0; t <= 1.0001; t += 0.05) out.push(/[QC]/.test(d) ? at(ps, t) : at([ps[0], ps[ps.length - 1]], t))
+    }
+    return out
+  }
+
+  /** Approximate boxes of every <text> (monospace, 0.6em per character). */
+  function textBoxes(svg: string) {
+    return [...svg.matchAll(/<text x="([^"]+)" y="([^"]+)"[^>]*font-size="(\d+)"[^>]*>([^<]*)</g)].map(([, x, y, size, text]) => {
+      const w = text.length * Number(size) * 0.6
+      return { x0: Number(x) - w / 2, x1: Number(x) + w / 2, y0: Number(y) - Number(size) / 2, y1: Number(y) + Number(size) / 2 }
+    })
+  }
+
+  function expectInside(svg: string) {
+    const [vx, vy, vw, vh] = /viewBox="([^"]+)"/.exec(svg)![1].split(' ').map(Number)
+    for (const p of drawnPoints(svg)) {
+      expect(p.x).toBeGreaterThanOrEqual(vx)
+      expect(p.x).toBeLessThanOrEqual(vx + vw)
+      expect(p.y).toBeGreaterThanOrEqual(vy)
+      expect(p.y).toBeLessThanOrEqual(vy + vh)
+    }
+    for (const b of textBoxes(svg)) {
+      expect(b.x0).toBeGreaterThanOrEqual(vx)
+      expect(b.x1).toBeLessThanOrEqual(vx + vw)
+      expect(b.y0).toBeGreaterThanOrEqual(vy)
+      expect(b.y1).toBeLessThanOrEqual(vy + vh)
+    }
+  }
+
+  it('include self-loops, curves and labels, not just the nodes', () => {
+    const schema: GraphSchema = {
+      schemaVersion: 0,
+      models: {
+        m: {
+          nodes: [
+            { label: 'F', type: 'variable', visual: { x: 0, y: 0 } },
+            { label: 'x1', type: 'variable', visual: { x: -75, y: 150 } },
+            { label: 'a_rather_long_variable_name', type: 'variable', visual: { x: 75, y: 150 } },
+          ],
+          paths: [
+            { from: 'F', to: 'F', numberOfArrows: 2, label: 'F<->F' },
+            { from: 'x1', to: 'x1', numberOfArrows: 2, label: 'x1<->x1' },
+            { from: 'F', to: 'x1', numberOfArrows: 1, label: 'F->x1', value: 1 },
+            { from: 'F', to: 'a_rather_long_variable_name', numberOfArrows: 1, label: 'a very long path label indeed' },
+            { from: 'x1', to: 'a_rather_long_variable_name', numberOfArrows: 2, label: 'cov' },
+          ],
+        },
+      },
+    }
+    for (const pathLabelFormat of ['labels', 'both'] as const) {
+      expectInside(modelToSVG(schema, 'm', { pathLabelFormat }))
+    }
+    // every loop side
+    for (const loopSide of ['top', 'right', 'bottom', 'left'] as const) {
+      const s: GraphSchema = JSON.parse(JSON.stringify(schema))
+      s.models.m.paths[0].visual = { loopSide }
+      expectInside(modelToSVG(s, 'm', { pathLabelFormat: 'labels' }))
+    }
+  })
+})
