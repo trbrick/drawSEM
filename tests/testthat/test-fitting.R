@@ -657,3 +657,12 @@ test_that("generateData() errors on a recognized-but-unimplemented backend", {
 
   expect_error(generateData(g, backend = "blavaan"), "not yet implemented")
 })
+
+test_that("hashStructure() does not depend on key order (the editor's differs from R's)", {
+  gm <- GraphModel() |> addVariable("A") |> addVariable("B") |>
+    addPath("A", "B", 1, freeParameter = TRUE, value = 1)
+  reordered <- gm
+  reordered@schema$models[[1]]$paths <- lapply(gm@schema$models[[1]]$paths, function(p) p[rev(names(p))])
+  reordered@schema$models[[1]]$nodes <- lapply(gm@schema$models[[1]]$nodes, function(n) n[rev(names(n))])
+  expect_identical(hashStructure(reordered), hashStructure(gm))
+})

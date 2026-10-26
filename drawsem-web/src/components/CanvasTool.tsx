@@ -603,16 +603,27 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // Column information from R for file-based datasets it holds data for (shiny
   // only): fills each matching dataset node's column panel. Applied to every
   // model, since this callback outlives renders (no current-model closure).
+  // Unchanged summaries leave the models as they are: R sends them in reply to
+  // signalReady(), which runs on every models change, so a new models array
+  // here would set the two off sending each other messages without end.
   React.useEffect(() => {
     adapterOptional?.onDatasetSummaries?.((summaries) => {
       // Derived display data from R, not an undo step
-      history.silently(() => setModels((ms) => ms.map((m) => ({
-        ...m,
-        nodes: m.nodes.map((n) => {
-          const s = n.type === 'dataset' ? summaries[n.label] : undefined
-          return s ? { ...n, dataset: { fileName: s.fileName, headers: s.headers, columns: s.columns } } : n
-        }),
-      }))))
+      history.silently(() => setModels((ms) => {
+        let changed = false
+        const out = ms.map((m) => {
+          const nodes = m.nodes.map((n) => {
+            const s = n.type === 'dataset' ? summaries[n.label] : undefined
+            if (!s) return n
+            const dataset = { fileName: s.fileName, headers: s.headers, columns: s.columns }
+            if (JSON.stringify(n.dataset) === JSON.stringify(dataset)) return n
+            changed = true
+            return { ...n, dataset }
+          })
+          return nodes.some((n, i) => n !== m.nodes[i]) ? { ...m, nodes } : m
+        })
+        return changed ? out : ms
+      }))
     })
   }, [adapterOptional])
 
