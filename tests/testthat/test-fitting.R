@@ -657,3 +657,41 @@ test_that("generateData() errors on a recognized-but-unimplemented backend", {
 
   expect_error(generateData(g, backend = "blavaan"), "not yet implemented")
 })
+
+test_that("hashStructure() does not depend on key order (the editor's differs from R's)", {
+  gm <- GraphModel() |> addVariable("A") |> addVariable("B") |>
+    addPath("A", "B", 1, freeParameter = TRUE, value = 1)
+  reordered <- gm
+  reordered@schema$models[[1]]$paths <- lapply(gm@schema$models[[1]]$paths, function(p) p[rev(names(p))])
+  reordered@schema$models[[1]]$nodes <- lapply(gm@schema$models[[1]]$nodes, function(n) n[rev(names(n))])
+  expect_identical(hashStructure(reordered), hashStructure(gm))
+})
+
+test_that("hashStructure() treats NULL and NA fields as absent", {
+  gm <- GraphModel() |> addVariable("A") |> addVariable("B") |>
+    addPath("A", "B", 1, freeParameter = TRUE, value = 1)
+  with_null <- gm
+  with_null@schema$models[[1]]$paths[[1]]["description"] <- list(NULL)
+  with_na <- gm
+  with_na@schema$models[[1]]$paths[[1]]$prior <- NA
+  expect_identical(hashStructure(with_null), hashStructure(gm))
+  expect_identical(hashStructure(with_na), hashStructure(gm))
+})
+
+test_that("a model imported from a fitted MxModel stays current through the widget", {
+  skip_if_not_installed("OpenMx")
+  set.seed(4)
+  d <- data.frame(x = rnorm(50)); d$y <- 0.5 * d$x + rnorm(50)
+  mx <- OpenMx::mxModel("m", type = "RAM", manifestVars = c("x", "y"),
+    OpenMx::mxPath("x", "y", labels = "b"),
+    OpenMx::mxPath(c("x", "y"), arrows = 2, labels = c("vx", "vy")),
+    OpenMx::mxPath("one", c("x", "y"), labels = c("mx", "my")),
+    OpenMx::mxData(d, type = "raw"))
+  gm <- as.GraphModel(suppressMessages(OpenMx::mxRun(mx, silent = TRUE)))
+  # htmlwidgets and Shiny send NA as null; Shiny reads the echo back without
+  # simplifying, so null fields arrive as NULL.
+  json <- jsonlite::toJSON(gm@schema, auto_unbox = TRUE, null = "null", na = "null", digits = I(16))
+  echo <- as.GraphModel(jsonlite::fromJSON(json, simplifyVector = FALSE))
+  expect_identical(hashStructure(echo), hashStructure(gm))
+  expect_false(identical(suppressWarnings(getFitResults(echo)), NA))
+})
