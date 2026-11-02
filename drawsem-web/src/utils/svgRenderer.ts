@@ -5,6 +5,11 @@
  */
 
 import { GraphSchema, Node, Path, Model, getModel, getNodesByLabel } from '../core/types'
+import type { ActiveLayer, OffLayerVisibility } from '../core/types'
+import { convertToUnicode } from './converters'
+import { pathDisplayText } from './helpers'
+import type { Path as RuntimePath, PathLabelMode } from './helpers'
+import { DISPLAY_OPACITY, isNodeInLayer, isPathInLayer } from './layers'
 import {
   LATENT_RADIUS,
   MANIFEST_DEFAULT_W,
@@ -36,8 +41,12 @@ export interface SvgExportOptions {
   showDatasetNodes?: boolean
   /** Show constant nodes (default: true) */
   showConstantNodes?: boolean
-  /** Path label format: 'labels', 'values', 'both', 'neither', or null */
-  pathLabelFormat?: 'labels' | 'values' | 'both' | 'neither' | null
+  /** Path label mode, as in the canvas's Path Labels menu (null: none) */
+  pathLabelFormat?: PathLabelMode | null
+  /** The layer drawn (default: 'all') */
+  activeLayer?: ActiveLayer
+  /** Off-layer elements: 'invisible' leaves them out, 'transparent' fades them (default: 'invisible') */
+  offLayerVisibility?: OffLayerVisibility
   /** Background color (default: 'white') */
   backgroundColor?: string
 }
@@ -67,6 +76,8 @@ function normalizeOptions(options?: SvgExportOptions): Required<SvgExportOptions
     showConstantNodes: options?.showConstantNodes ?? true,
     pathLabelFormat: options?.pathLabelFormat ?? 'neither',
     backgroundColor: options?.backgroundColor ?? 'white',
+    activeLayer: options?.activeLayer ?? 'all',
+    offLayerVisibility: options?.offLayerVisibility ?? 'invisible',
   }
 }
 
@@ -513,29 +524,14 @@ function renderPath(
 
 /** The text written on a path in this label format, or null for none. */
 function pathLabelText(path: Path, format: SvgExportOptions['pathLabelFormat']): string | null {
-  if (!format || format === 'neither' || format === null) return null
-
-  let labelText = ''
-  if (format === 'labels' || format === 'both') {
-    if (path.label) {
-      labelText = path.label
-    } else {
-      return null // no label to display
-    }
-  }
-
-  if (format === 'values' || format === 'both') {
-    if (path.value !== null && path.value !== undefined) {
-      const valueStr = typeof path.value === 'number' ? path.value.toFixed(2) : String(path.value)
-      if (labelText) {
-        labelText += ` (${valueStr})`
-      } else {
-        labelText = valueStr
-      }
-    }
-  }
-
-  return labelText || null
+  if (!format) return null
+  // The canvas's rules (pathDisplayText) on the editor's form of the path,
+  // whose displayName is made as on load (runtimeConverter)
+  const arrow = (path.numberOfArrows ?? 1) >= 2 ? ' ↔ ' : ' → '
+  const displayName = path.label
+    ? convertToUnicode(path.label)
+    : convertToUnicode(path.from) + arrow + convertToUnicode(path.to)
+  return pathDisplayText({ ...path, displayName } as unknown as RuntimePath, format)
 }
 
 /**
@@ -620,8 +616,18 @@ export function modelToSVG(
   )
   ctx.loopSides = new Map(loopPaths.map((p, i) => [p, resolved.get(String(i))!]))
 
+  // Layer membership, as on the canvas. Off-layer elements are left out, or
+  // drawn faded when offLayerVisibility is 'transparent'.
+  const isManifest = (n: Node) => n.type === 'variable' && getVariableRenderType(n, model.nodes, model.paths) === 'manifest'
+  const nodeInLayer = (n: Node) => isNodeInLayer(n, opts.activeLayer, isManifest)
+  const pathInLayer = (p: Path) => isPathInLayer(p, nodesByLabel[p.from], nodesByLabel[p.to], opts.activeLayer, isManifest)
+  const showOffLayer = opts.offLayerVisibility === 'transparent'
+  const offLayer = (svg: string, inLayer: boolean) =>
+    inLayer || !svg ? svg : `<g opacity="${DISPLAY_OPACITY.transparent}">${svg}</g>`
+
   // Filter visible nodes
   const visibleNodes = model.nodes.filter((n) => {
+    if (!showOffLayer && !nodeInLayer(n)) return false
     if (n.type === 'dataset') return opts.showDatasetNodes
     if (n.type === 'constant') return opts.showConstantNodes
     return true
@@ -630,7 +636,7 @@ export function modelToSVG(
   // Filter visible paths (exclude paths with hidden endpoints)
   const visibleNodeLabels = new Set(visibleNodes.map((n) => n.label))
   const visiblePaths = model.paths.filter(
-    (p) => visibleNodeLabels.has(p.from) && visibleNodeLabels.has(p.to)
+    (p) => visibleNodeLabels.has(p.from) && visibleNodeLabels.has(p.to) && (showOffLayer || pathInLayer(p))
   )
 
   // Data paths are drawn as data cables, as on the canvas (see dataCables.ts):
@@ -718,9 +724,11 @@ export function modelToSVG(
   const svgHeight = svgWidth / aspectRatio
 
   // Render paths (background layer)
-  const trunkElements = Array.from(trunks.values()).map(
-    (t) => `<path d="${cableTrunkD(t)}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`
-  )
+  // A trunk is on the layer while any of its data paths is
+  const trunkElements = Array.from(trunks.entries()).map(([from, t]) => offLayer(
+    `<path d="${cableTrunkD(t)}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`,
+    visiblePaths.some((p) => p.from === from && isDataPath(p) && pathInLayer(p))
+  ))
   const pathsElements = trunkElements.concat(visiblePaths
     .map((p) => {
       const fromNode = nodesByLabel[p.from]
@@ -730,9 +738,9 @@ export function modelToSVG(
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
       const cable = cableFor(p)
       if (cable) {
-        return `<path d="${cable.d}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`
+        return offLayer(`<path d="${cable.d}" stroke="${CABLE_COLOR}" stroke-width="${CABLE_WIDTH}" stroke-linecap="round" fill="none" />`, pathInLayer(p))
       }
-      return renderPath(p, fromPos, toPos, fromNode, toNode, ctx)
+      return offLayer(renderPath(p, fromPos, toPos, fromNode, toNode, ctx), pathInLayer(p))
     })
     .filter((s) => s))
     .join('\n')
@@ -745,7 +753,8 @@ export function modelToSVG(
       const fromPos = positions[p.from]
       const toPos = positions[p.to]
       if (!fromNode || !toNode || !fromPos || !toPos) return ''
-      return renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat, ctx, cableFor(p)?.labelPos)
+      const label = renderPathLabel(p, fromPos, toPos, fromNode, toNode, opts.pathLabelFormat, ctx, cableFor(p)?.labelPos)
+      return label && offLayer(label, pathInLayer(p))
     })
     .filter((s) => s && s.length > 0)
     .join('\n')
@@ -755,7 +764,7 @@ export function modelToSVG(
     .map((n) => {
       const pos = positions[n.label]
       if (!pos) return ''
-      return renderNode(n, pos, ctx)
+      return offLayer(renderNode(n, pos, ctx), nodeInLayer(n))
     })
     .filter((s) => s)
     .join('\n')
@@ -765,7 +774,7 @@ export function modelToSVG(
     .map((n) => {
       const pos = positions[n.label]
       if (!pos) return ''
-      return renderNodeLabel(n, pos)
+      return offLayer(renderNodeLabel(n, pos), nodeInLayer(n))
     })
     .filter((s) => s)
     .join('\n')

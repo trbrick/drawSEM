@@ -18,6 +18,7 @@ import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coord
 import { computeMD5 } from '../utils/integrity'
 import { GraphSchema } from '../core/types'
 import type { ActiveLayer, OffLayerVisibility } from '../core/types'
+import { DISPLAY_OPACITY, isNodeInLayer as isNodeInLayerOf, isPathInLayer as isPathInLayerOf } from '../utils/layers'
 import { useAdapter, useAdapterOptional } from '../context/AdapterContext'
 import { useSvgExport } from '../hooks/useSvgExport'
 import { restrictModelsToLayoutChanges } from '../utils/layoutGuard'
@@ -49,12 +50,6 @@ const DISPLAY_COLORS = {
   selectedStroke: '#ff0000',
   selectedStrokeWidth: 2.5,
   defaultStrokeWidth: 1.5,
-}
-
-const DISPLAY_OPACITY = {
-  highlighted: 1,
-  transparent: 0.25,
-  invisible: 0,
 }
 
 const DISPLAY_Z_INDEX = {
@@ -424,27 +419,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return DISPLAY_Z_INDEX.background
   }
 
-  const isNodeInLayer = (node: Node): boolean => {
-    if (activeLayer === 'all') return true
-    if (activeLayer === 'sem') return node.type !== 'dataset'
-    if (activeLayer === 'data') return node.type === 'dataset' || getVariableRenderType(node.id) === 'manifest'
-    return false
-  }
+  const isManifestNode = (node: Node): boolean => getVariableRenderType(node.id) === 'manifest'
 
-  const isPathInLayer = (path: Path): boolean => {
-    if (activeLayer === 'all') return true
-    const fromNode = nodes.find(n => n.id === path.from)
-    const toNode = nodes.find(n => n.id === path.to)
-    if (activeLayer === 'sem') {
-      // SEM layer: show paths that don't originate from dataset nodes
-      return fromNode?.type !== 'dataset'
-    }
-    if (activeLayer === 'data') {
-      // Data layer: show paths from datasets to manifest variables
-      return isDatasetPath(path, nodes) && !!toNode && getVariableRenderType(toNode.id) === 'manifest'
-    }
-    return false
-  }
+  const isNodeInLayer = (node: Node): boolean => isNodeInLayerOf(node, activeLayer, isManifestNode)
+
+  const isPathInLayer = (path: Path): boolean => isPathInLayerOf(
+    path, nodes.find(n => n.id === path.from), nodes.find(n => n.id === path.to), activeLayer, isManifestNode)
 
   // Try to dynamically import the example JSON at runtime (non-blocking), validate it,
   // and replace the initial nodes/paths when valid.
@@ -1562,6 +1542,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   // A single-model schema of the current model for image export. Unplaced nodes
   // are drawn where the canvas draws them (nodeX/nodeY), so the image matches
   // the screen. Not a serialization: never sent or saved.
+  // Image export draws what the canvas shows: the current layer (off-layer
+  // elements left out or faded, as on the canvas) and path label mode.
+  function viewExportOptions() {
+    return { activeLayer, offLayerVisibility, pathLabelFormat: pathLabelMode }
+  }
+
   function buildRenderSchema(): GraphSchema | null {
     if (!currentModel) return null
     return modelToSchema({
@@ -1588,7 +1574,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     try {
       const schema = buildRenderSchema()
       if (!schema) return
-      const svgString = exportToSvg(schema)
+      const svgString = exportToSvg(schema, undefined, viewExportOptions())
       downloadSvg(svgString, modelFilename(currentModel?.label, 'svg'))
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -1601,7 +1587,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     try {
       const schema = buildRenderSchema()
       if (!schema) return
-      const svgString = exportToSvg(schema)
+      const svgString = exportToSvg(schema, undefined, viewExportOptions())
       const blob = new Blob([svgString], { type: 'image/svg+xml' })
       const url = URL.createObjectURL(blob)
       const img = new Image()
@@ -1635,7 +1621,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     try {
       const schema = buildRenderSchema()
       if (!schema) return
-      const svgString = exportToSvg(schema)
+      const svgString = exportToSvg(schema, undefined, viewExportOptions())
       adapter.exportImage?.(svgString)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
