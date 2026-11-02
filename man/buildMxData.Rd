@@ -4,7 +4,7 @@
 \alias{buildMxData}
 \title{Build mxData Object}
 \usage{
-buildMxData(model, data, missingness = "FIML")
+buildMxData(model, data, missingness = "FIML", variableNames = NULL)
 }
 \arguments{
 \item{model}{The model list from schema}
@@ -14,6 +14,10 @@ buildMxData(model, data, missingness = "FIML")
 \item{missingness}{The model's \code{optimization.missingness}. \code{"listwise"}
 drops every row with a missing value in the mapped columns
 (\code{stats::na.omit()}); anything else leaves the rows for FIML.}
+
+\item{variableNames}{Optional drawSEM -> OpenMx variable name map (see
+\code{.openMxNames()}); the columns, named after their variables, take the
+OpenMx names.}
 }
 \value{
 An mxData object (for single dataset) or list of mxData objects

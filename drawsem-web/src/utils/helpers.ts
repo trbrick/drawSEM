@@ -302,13 +302,99 @@ export function defaultVarianceLabel(nodeLabel: string): string {
   return `V_{${nodeLabel}}`
 }
 
+/** Default label for a generated mean path from a constant: M_{<variable label>}. */
+export function defaultMeanLabel(nodeLabel: string): string {
+  return `M_{${nodeLabel}}`
+}
+
+/** Default label for a new one-headed path between variables: <from label>-><to label>. */
+export function defaultDirectedLabel(fromLabel: string, toLabel: string): string {
+  return `${fromLabel}->${toLabel}`
+}
+
+/** Default label for a generated covariance: C_{<label a>,<label b>}. */
+export function defaultCovarianceLabel(aLabel: string, bLabel: string): string {
+  return `C_{${aLabel},${bLabel}}`
+}
+
 /**
- * A free error-variance self-loop for a new variable, labelled
- * V_{<variable label>} (see defaultVarianceLabel). Its display name is the
- * unicode form of that label, as when a labelled path is loaded.
+ * `base`, else base_2, base_3, ... : the first not used as a label or a
+ * parameter name (`freeParameter` string) by any of `paths`. OpenMx names a
+ * parameter by its name, else its label, so generated labels avoid both.
  */
-export function makeVariancePath(nodeId: string, nodeLabel: string): Path {
-  const label = defaultVarianceLabel(nodeLabel)
+export function uniquePathLabel(paths: readonly { label?: string | null; freeParameter?: boolean | string }[], base: string): string {
+  const taken = new Set<string>()
+  for (const p of paths) {
+    if (p.label) taken.add(p.label)
+    if (typeof p.freeParameter === 'string' && p.freeParameter) taken.add(p.freeParameter)
+  }
+  return uniqueNodeLabel([...taken].map((label) => ({ label })), 'name', base)
+}
+
+/**
+ * The label the editor generates for `path` (V_{x}, M_{x}, x->y or C_{x,y}),
+ * given a node id -> label lookup, or null when it generates none: a
+ * self-loop gets V_{x}, a one-headed path from a constant M_{x}, another
+ * one-headed path x->y, a two-headed path between two nodes C_{x,y}.
+ */
+export function generatedPathLabel(path: Path, labelOf: (id: string) => string | undefined, isConstant: (id: string) => boolean): string | null {
+  if (path.type === 'data') return null
+  const from = labelOf(path.from)
+  const to = labelOf(path.to)
+  if (from === undefined || to === undefined) return null
+  if (path.from === path.to && path.twoSided) return defaultVarianceLabel(to)
+  if (!path.twoSided && isConstant(path.from)) return defaultMeanLabel(to)
+  if (path.twoSided) return defaultCovarianceLabel(from, to)
+  return defaultDirectedLabel(from, to)
+}
+
+/**
+ * `after`, a direction change of `before` (see setPathDirection), with its
+ * label following: a label that was the generated one for `before` (x->y,
+ * C_{x,y}) becomes the generated one for `after`, made unique against the
+ * other `paths`. Other labels are the user's and are kept.
+ */
+export function followDirectionLabel(before: Path, after: Path, nodes: readonly { id: string; label: string; type: string }[], paths: readonly Path[]): Path {
+  if (!before.label) return after
+  const labelOf = (id: string) => nodes.find((n) => n.id === id)?.label
+  const isConstant = (id: string) => nodes.find((n) => n.id === id)?.type === 'constant'
+  if (before.label !== generatedPathLabel(before, labelOf, isConstant)) return after
+  const next = generatedPathLabel(after, labelOf, isConstant)
+  if (!next || next === before.label) return after
+  const label = uniquePathLabel(paths.filter((p) => p.id !== before.id), next)
+  return { ...after, label, displayName: convertToUnicode(label) }
+}
+
+/**
+ * Paths after the node `nodeId` is renamed to `newLabel`: a path at it whose
+ * label is still the generated V_{x}, M_{x} or C_{x,y} for the old labels
+ * gets the one for the new labels (made unique against the other paths), its
+ * displayName following. Other labels are the user's and are kept.
+ */
+export function followGeneratedLabels(paths: readonly Path[], nodes: readonly { id: string; label: string; type: string }[], nodeId: string, newLabel: string): Path[] {
+  const oldLabel = (id: string) => nodes.find((n) => n.id === id)?.label
+  const newLabelOf = (id: string) => (id === nodeId ? newLabel : oldLabel(id))
+  const isConstant = (id: string) => nodes.find((n) => n.id === id)?.type === 'constant'
+  const out = [...paths]
+  out.forEach((p, i) => {
+    if (!p.label || (p.from !== nodeId && p.to !== nodeId)) return
+    if (p.label !== generatedPathLabel(p, oldLabel, isConstant)) return
+    const next = generatedPathLabel(p, newLabelOf, isConstant)
+    if (!next || next === p.label) return
+    const label = uniquePathLabel(out.filter((_, j) => j !== i), next)
+    out[i] = { ...p, label, displayName: convertToUnicode(label) }
+  })
+  return out
+}
+
+/**
+ * A free error-variance self-loop, labelled V_{<variable label>} (see
+ * defaultVarianceLabel), made unique against `paths` (uniquePathLabel). Its
+ * display name is the unicode form of that label, as when a labelled path is
+ * loaded. Used for a new variable's error variance and a drawn self-loop.
+ */
+export function makeVariancePath(nodeId: string, nodeLabel: string, paths: readonly Path[] = []): Path {
+  const label = uniquePathLabel(paths, defaultVarianceLabel(nodeLabel))
   return makePath({
     from: nodeId,
     to: nodeId,
@@ -385,6 +471,116 @@ export function withFreeParameter(p: Path, value: true | string | undefined): Pa
   const { freeParameter: _old, ...rest } = p
   if (value === undefined) return rest
   return { ...rest, freeParameter: value === '' ? true : value }
+}
+
+export type PathLabelMode = 'labels' | 'values' | 'both' | 'neither' | 'default'
+
+/**
+ * The name shown for a path: its parameter name (`freeParameter` string), else
+ * its label (as displayed), else null. The same order OpenMx uses to name the
+ * parameter (see R's .mxParamLabels()). An unlabeled path's generated
+ * displayName (from its endpoints) is not a name.
+ */
+export function pathShownName(path: Path): string | null {
+  if (typeof path.freeParameter === 'string' && path.freeParameter) return convertToUnicode(path.freeParameter)
+  return path.label ? (path.displayName || path.label) : null
+}
+
+/** A structural path's own name: its parameter name, else its label, else null. */
+function pathRawName(path: Path): string | null {
+  if (path.type === 'data') return null
+  if (typeof path.freeParameter === 'string' && path.freeParameter) return path.freeParameter
+  return path.label || null
+}
+
+const hasParameterName = (p: Path) => typeof p.freeParameter === 'string' && p.freeParameter !== ''
+
+/**
+ * The other structural paths shown under the same name as `path` (parameter
+ * name, else label) without both of them carrying it as a parameter name.
+ * Only a shared parameter name makes an equality constraint; R gives a
+ * repeated label a suffix (_2, ...) for OpenMx, so such paths look
+ * constrained on the canvas but are not.
+ */
+export function pathNameClashes(path: Path, paths: readonly Path[]): Path[] {
+  const name = pathRawName(path)
+  if (!name) return []
+  return paths.filter((q) => q.id !== path.id && pathRawName(q) === name && !(hasParameterName(path) && hasParameterName(q)))
+}
+
+/** Ids of every path with a name clash (pathNameClashes), for the canvas. */
+export function pathIdsWithNameClash(paths: readonly Path[]): Set<string> {
+  const byName = new Map<string, Path[]>()
+  for (const p of paths) {
+    const name = pathRawName(p)
+    if (name) byName.set(name, [...(byName.get(name) ?? []), p])
+  }
+  const out = new Set<string>()
+  for (const group of byName.values()) {
+    if (group.length < 2 || group.every(hasParameterName)) continue
+    for (const p of group) if (pathNameClashes(p, group).length > 0) out.add(p.id)
+  }
+  return out
+}
+
+/** Why a name clash (pathNameClashes) matters. */
+export function nameClashMessage(name: string, count: number): string {
+  const others = count === 1 ? 'Another path is' : `${count} other paths are`
+  return `${others} also named "${name}" but not constrained equal to this one: only a shared parameter name makes an equality constraint. Give them the same parameter name to constrain them, or different labels.`
+}
+
+/**
+ * A free structural path with neither a parameter name (`freeParameter`
+ * string) nor a label: with nothing written on it, it is hard to tell apart
+ * from a fixed path at a glance. The canvas draws it dashed, marks its value
+ * with "≈", and the inspector notes it.
+ */
+export function isUnnamedFreePath(path: Path): boolean {
+  if (path.type === 'data') return false
+  if (path.freeParameter === undefined || path.freeParameter === false) return false
+  if (typeof path.freeParameter === 'string' && path.freeParameter.length > 0) return false
+  return !path.label
+}
+
+/**
+ * The text drawn on a path in the canvas for a label mode (null = nothing).
+ * "Name" is pathShownName(): the parameter name, else the stored label (an
+ * unlabeled path's displayName may be generated from its endpoints, and is
+ * not shown as a name here). An absent `freeParameter` means fixed. Values read "=value", or "≈value" for an
+ * unnamed free path (isUnnamedFreePath).
+ * - 'labels': the name, else the displayName; 'values': the value; 'both':
+ *   "name=value" (just the value when unnamed).
+ * - 'default': a named path (and a data path, whose label is its column)
+ *   shows its name, as "label (parameter name)" when it has both and they
+ *   differ; an unnamed free path its value; an unnamed fixed path nothing at
+ *   unity (1, 1.0, ...), else its value.
+ */
+export function pathDisplayText(path: Path, mode: PathLabelMode): string | null {
+  const value = path.value ?? 1.0
+  const shownValue = `${isUnnamedFreePath(path) ? '≈' : '='}${value.toFixed(2)}`
+  const label = pathShownName(path)
+  const isFree = path.freeParameter !== undefined && path.freeParameter !== false
+
+  switch (mode) {
+    case 'labels':
+      return label ?? (path.displayName || null)
+    case 'values':
+      return shownValue
+    case 'both':
+      return label ? `${label}${shownValue}` : shownValue
+    case 'neither':
+      return null
+    case 'default':
+      if (label && path.label && hasParameterName(path) && path.freeParameter !== path.label) {
+        return `${path.displayName || path.label} (${label})`
+      }
+      if (label) return label
+      if (path.type === 'data') return null
+      if (isFree) return shownValue
+      return value === 1 ? null : shownValue
+    default:
+      return null
+  }
 }
 
 /** A path value as shown in the inspector's Value field ('' when absent). */

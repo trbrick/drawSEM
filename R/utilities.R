@@ -470,6 +470,94 @@ storeOptimizationMetadata <- function(paths) {
   metadata
 }
 
+# ---- OpenMx names -------------------------------------------------------------
+# drawSEM names may use characters OpenMx forbids in names and labels (the
+# editor's generated `F->x1` and `C_{x1,x2}`, or a variable `x.1`).
+# schemaToOpenMx() gives OpenMx a readable legal name for each (`F_to_x1`,
+# `C_{x1_x2}`, `x_1`), and everything that reads OpenMx names back (the fit
+# write-back, as.GraphModel() on an MxModel) maps them back. The map is never
+# stored: it is recomputed from the drawSEM model (the schema, or the
+# drawSemHints fragment escrowed on the MxModel), so it cannot drift. Names
+# OpenMx already accepts map to themselves.
+
+# Characters imxVerifyName()/imxVerifyReference() reject, plus "." (the
+# model-path separator), square brackets and "," (bracket references).
+.MX_ILLEGAL_CHARS <- "[-+!~?:*/^%<>=&|$.,\\[\\]]"
+.MX_RESERVED_NAMES <- c("data", "objective", "likelihood", "fitfunction", "expectation", "compute", "one")
+# A parameter label may not also name an object in the model: the RAM matrices.
+.MX_RESERVED_LABELS <- c(.MX_RESERVED_NAMES, "A", "S", "F", "M")
+
+.mxIsLegalName <- function(x, reserved) {
+  nzchar(x) && !grepl(.MX_ILLEGAL_CHARS, x, perl = TRUE) &&
+    is.na(suppressWarnings(as.numeric(x))) && !(x %in% reserved)
+}
+
+# A readable legal form of an illegal name: arrows become words, any other
+# illegal character "_"; a number gets a "v" prefix, a reserved name a "_" suffix.
+.mxLegalName <- function(x, reserved) {
+  y <- gsub("<->", "_with_", x, fixed = TRUE)
+  y <- gsub("->", "_to_", y, fixed = TRUE)
+  y <- gsub("<-", "_from_", y, fixed = TRUE)
+  y <- gsub(.MX_ILLEGAL_CHARS, "_", y, perl = TRUE)
+  y <- gsub("_{2,}", "_", y)
+  if (!nzchar(y)) y <- "_"
+  if (!is.na(suppressWarnings(as.numeric(y)))) y <- paste0("v", y)
+  if (y %in% reserved) y <- paste0(y, "_")
+  y
+}
+
+# drawSEM name -> OpenMx name for each distinct name in `x` (NA dropped), as a
+# named character vector. Legal names keep their own; the others take their
+# legal form, suffixed _2, _3, ... where that is taken, in order of `x`. One to
+# one, so the map inverts (see .mxNameBack()).
+.mxNameMap <- function(x, reserved) {
+  x <- unique(as.character(x[!is.na(x)]))
+  out <- setNames(x, x)
+  legal <- vapply(x, .mxIsLegalName, logical(1), reserved = reserved)
+  taken <- x[legal]
+  for (name in x[!legal]) {
+    base <- .mxLegalName(name, reserved)
+    candidate <- base
+    k <- 2L
+    while (candidate %in% taken) {
+      candidate <- paste0(base, "_", k)
+      k <- k + 1L
+    }
+    out[[name]] <- candidate
+    taken <- c(taken, candidate)
+  }
+  out
+}
+
+# Map names through `map` (drawSEM -> OpenMx); names not in it, and NA, pass through.
+.mxNameTo <- function(x, map) {
+  out <- as.character(x)
+  hit <- !is.na(out) & out %in% names(map)
+  out[hit] <- unname(map[out[hit]])
+  out
+}
+
+# The inverse: OpenMx names back to drawSEM names.
+.mxNameBack <- function(x, map) {
+  .mxNameTo(x, setNames(names(map), unname(map)))
+}
+
+# The OpenMx names for one schema model: `variables` and `labels` (parameter
+# labels, see .mxParamLabels()) as drawSEM -> OpenMx maps, and `model`, the
+# model name's map.
+.openMxNames <- function(model, model_id = NULL) {
+  nodes <- model$nodes %||% list()
+  variables <- vapply(
+    Filter(function(n) identical(n$type, "variable"), nodes),
+    function(n) as.character(n$label), character(1)
+  )
+  list(
+    variables = .mxNameMap(variables, .MX_RESERVED_NAMES),
+    labels = .mxNameMap(.mxParamLabels(model$paths %||% list()), .MX_RESERVED_LABELS),
+    model = .mxNameMap(model$label %||% model_id %||% "model", .MX_RESERVED_NAMES)
+  )
+}
+
 # OpenMx parameter labels for `paths`, one per path (NA where none).
 # OpenMx constrains every parameter that shares a label to be equal, so only a
 # shared named free parameter (freeParameter = the same string) may share one.

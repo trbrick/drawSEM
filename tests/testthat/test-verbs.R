@@ -935,3 +935,43 @@ test_that("convertPath() single-path errors are unchanged", {
   )
   expect_error(convertPath(gm, "F", "x1", 3), "^numberOfArrows must be 1 or 2$")
 })
+
+test_that("addPath() labels free paths as the editor does; FALSE and names are unlabelled", {
+  gm <- GraphModel() |> addVariable("F") |> addVariable("x1") |> addVariable("x2") |> addConstant() |>
+    addPath("F", c("x1", "x2"), 1) |>
+    addPath(c("x1", "F"), c("x1", "F"), 2) |>
+    addPath("x1", "x2", 2, freeParameter = TRUE) |>
+    addPath("1", "x1", 1) |>
+    addPath("x1", "x2", 1, freeParameter = FALSE) |>
+    addPath("1", "x2", 1, freeParameter = "mu")
+  ps <- paths(gm)
+  lab <- vapply(ps, function(p) p$label %||% NA_character_, character(1))
+  expect_equal(lab, c("F->x1", "F->x2", "V_{x1}", "V_{F}", "C_{x1,x2}", "M_{x1}", NA, NA))
+  expect_equal(vapply(ps, function(p) p$parameterType %||% NA_character_, character(1)),
+               c(NA, NA, "errorVariance", "errorVariance", "covariance", "mean", NA, NA))
+  expect_true(all(vapply(ps[1:6], function(p) isTRUE(p$freeParameter), logical(1))))
+  expect_null(ps[[7]]$freeParameter)
+  expect_equal(ps[[8]]$freeParameter, "mu")
+})
+
+test_that("addPath() makes generated labels unique", {
+  gm <- GraphModel() |> addVariable("a") |> addVariable("b") |>
+    addPath("a", "b", 2, freeParameter = "C_{a,b}") |>
+    addPath("a", "b", 1)
+  gm <- addPath(gm, "b", "a", 1)
+  expect_equal(vapply(paths(gm), function(p) p$label %||% NA_character_, character(1)), c(NA, "a->b", "b->a"))
+  gm2 <- GraphModel() |> addVariable("a") |> addVariable("b") |> addPath("b", "a", 1, freeParameter = "a->b") |>
+    addPath("a", "b", 1)
+  expect_equal(paths(gm2, from = "a")[[1]]$label, "a->b_2")
+})
+
+test_that("convertPath() carries a generated label over to the new arrow count", {
+  gm <- GraphModel() |> addVariable("a") |> addVariable("b") |> addPath("a", "b", 1)
+  gm <- convertPath(gm, "a", "b", 2)
+  expect_equal(paths(gm)[[1]]$label, "C_{a,b}")
+  gm <- convertPath(gm, "b", "a", 1)
+  expect_equal(paths(gm)[[1]]$label, "b->a")
+  own <- GraphModel() |> addVariable("a") |> addVariable("b") |> addPath("a", "b", 1)
+  m <- own@schema$models[[1]]; m$paths[[1]]$label <- "beta"; own@schema$models[[1]] <- m
+  expect_equal(paths(convertPath(own, "a", "b", 2))[[1]]$label, "beta")
+})

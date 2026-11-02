@@ -516,6 +516,40 @@ changeVariable <- function(graphModel, label, manifestLatent = NA, description =
   if (length(x) == 1) rep(x, n) else x
 }
 
+# The label the editor generates for a path it draws (generatedPathLabel()
+# in drawsem-web/src/utils/helpers.ts): V_{x} for a variance, M_{x} for a mean
+# from a constant, x->y for another one-headed path, C_{x,y} for a covariance.
+.generatedPathLabel <- function(from, to, numberOfArrows, constants) {
+  if (identical(from, to) && numberOfArrows == 2) return(sprintf("V_{%s}", to))
+  if (numberOfArrows == 1 && from %in% constants) return(sprintf("M_{%s}", to))
+  if (numberOfArrows == 2) return(sprintf("C_{%s,%s}", from, to))
+  sprintf("%s->%s", from, to)
+}
+
+# The parameterType the editor gives the paths it draws (NULL: none).
+.generatedParameterType <- function(from, to, numberOfArrows, constants) {
+  if (identical(from, to) && numberOfArrows == 2) return("errorVariance")
+  if (numberOfArrows == 1 && from %in% constants) return("mean")
+  if (numberOfArrows == 2) return("covariance")
+  NULL
+}
+
+# `base`, else base_2, base_3, ...: the first not used as a label or a
+# parameter name by any of `paths` (uniquePathLabel() in the editor).
+.uniquePathLabel <- function(paths, base) {
+  taken <- unlist(lapply(paths, function(p) {
+    c(if (is.character(p$label) && nzchar(p$label)) p$label,
+      if (is.character(p$freeParameter) && nzchar(p$freeParameter)) p$freeParameter)
+  }))
+  candidate <- base
+  k <- 2L
+  while (candidate %in% taken) {
+    candidate <- paste0(base, "_", k)
+    k <- k + 1L
+  }
+  candidate
+}
+
 #' Add Structural Paths to a GraphModel
 #'
 #' Adds one or more new paths between nodes. `from` and `to` are vectorized,
@@ -553,9 +587,14 @@ changeVariable <- function(graphModel, label, manifestLatent = NA, description =
 #' @param numberOfArrows Integer, `1` or `2`, applied to every path, or a
 #'   vector with one element per path. `1` = directed path
 #'   (regression/loading/mean); `2` = covariance or variance.
-#' @param freeParameter `NULL`/`FALSE` (fixed, the default), `TRUE` (free,
-#'   anonymous), or a non-empty string (free and named -- implies an
-#'   equality constraint if the same name is reused elsewhere). An empty
+#' @param freeParameter `NULL` (the default) or `TRUE`: free, and labelled
+#'   as the editor labels the paths it draws -- `V_{x}` for a variance,
+#'   `M_{x}` for a mean from a constant, `x->y` for another one-headed path,
+#'   `C_{x,y}` for a covariance (made unique against the model's labels and
+#'   parameter names with `_2`, `_3`, ...), with the matching
+#'   `parameterType` (`"errorVariance"`, `"mean"`, `"covariance"`). `FALSE`:
+#'   fixed, unlabelled. A non-empty string: free and named, unlabelled (the
+#'   name implies an equality constraint if reused elsewhere). An empty
 #'   string is rejected. Either a single value, applied to every path, or
 #'   one value per path: a logical vector, a character vector, or a list
 #'   when mixing the two (e.g. `list(FALSE, TRUE, "b")`). Note that a single
@@ -697,9 +736,21 @@ addPath <- function(graphModel, from, to, numberOfArrows,
   }
   .stopPathProblems(problems, problems, n, "added")
 
+  constants <- names(node_types)[node_types %in% "constant"]
   for (i in seq_len(n)) {
     new_path <- list(from = from[[i]], to = to[[i]], numberOfArrows = arrows[[i]])
-    if (!is.null(fp) && !isFALSE(fp[[i]])) new_path$freeParameter <- fp[[i]]
+    f <- if (is.null(fp)) NULL else fp[[i]]
+    if (is.null(f) || isTRUE(f)) {
+      # free and labelled, as the editor draws it (see .generatedPathLabel())
+      new_path$freeParameter <- TRUE
+      new_path$label <- .uniquePathLabel(
+        first_model$paths, .generatedPathLabel(from[[i]], to[[i]], arrows[[i]], constants)
+      )
+      type <- .generatedParameterType(from[[i]], to[[i]], arrows[[i]], constants)
+      if (!is.null(type)) new_path$parameterType <- type
+    } else if (is.character(f)) {
+      new_path$freeParameter <- f
+    }
     if (!is.null(vals) && !is.na(vals[[i]])) new_path$value <- vals[[i]]
     if (!is.null(tags)) new_path$tags <- tags
     first_model$paths[[length(first_model$paths) + 1]] <- new_path
@@ -973,6 +1024,10 @@ changePath <- function(graphModel, from, to, numberOfArrows = NULL,
 #' converting `A -> B` to two-headed when `A <-> B` is already there); or if
 #' it is a data connection.
 #'
+#' Other fields are kept. A label that is still the one [addPath()] (or the
+#' editor) generated for the path -- `x->y`, `C_{x,y}` -- follows the
+#' conversion: `x->y` becomes `C_{x,y}` and back.
+#'
 #' @param graphModel A `GraphModel` object to modify.
 #' @param from Character vector. Label(s) of the source node(s) -- the
 #'   source of each resulting directed path, when converting to
@@ -1051,12 +1106,24 @@ convertPath <- function(graphModel, from, to, numberOfArrows) {
   # caller's requested from/to explicitly rather than keeping whatever
   # order happened to be stored, so converting to a directed path gets the
   # requested direction regardless.
+  constants <- vapply(
+    Filter(function(nd) identical(nd$type, "constant"), first_model$nodes),
+    function(nd) as.character(nd$label), character(1)
+  )
   for (i in seq_len(n)) {
     idx <- found$idx[[i]]
     path <- first_model$paths[[idx]]
+    # A label still the generated one (x->y, C_{x,y}) follows the new direction
+    generated <- .generatedPathLabel(path$from, path$to, path$numberOfArrows, constants)
+    follows <- is.character(path$label) && identical(path$label, generated)
     path$from <- from[[i]]
     path$to <- to[[i]]
     path$numberOfArrows <- arrows[[i]]
+    if (follows) {
+      path$label <- .uniquePathLabel(
+        first_model$paths[-idx], .generatedPathLabel(path$from, path$to, path$numberOfArrows, constants)
+      )
+    }
     first_model$paths[[idx]] <- path
   }
 

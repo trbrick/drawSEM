@@ -490,3 +490,60 @@ test_that("non-FIML missingness on a model without data does not warn", {
     expect_no_warning(schemaToOpenMx(s$schema, s$data))
   }
 })
+
+test_that(".mxNameMap gives readable legal OpenMx names, one to one", {
+  map <- .mxNameMap(c("F->x1", "x1<->x2", "C_{x1,x2}", "x.1", "x_1", "one", "2", "A", "V_{x1}", "F→x1", "a[1]"),
+                    .MX_RESERVED_LABELS)
+  expect_equal(unname(map), c("F_to_x1", "x1_with_x2", "C_{x1_x2}", "x_1_2", "x_1", "one_", "v2", "A_", "V_{x1}", "F→x1", "a_1_"))
+  # legal names keep their own; the illegal "x.1" gives way to the legal "x_1"
+  expect_equal(.mxNameBack(unname(map), map), names(map))
+  for (n in unname(map)) expect_silent(OpenMx::mxPath("a", "b", labels = n))
+})
+
+test_that("illegal names round-trip through OpenMx and a fit", {
+  skip_if_not_installed("OpenMx")
+  set.seed(7)
+  f <- rnorm(300)
+  d <- data.frame(`x.1` = f + rnorm(300), x2 = .8 * f + rnorm(300), x3 = .6 * f + rnorm(300), x4 = .7 * f + rnorm(300),
+                  check.names = FALSE)
+  gm <- GraphModel() |>
+    addVariable("F") |> addVariable("x.1") |> addVariable("x2") |> addVariable("x3") |> addVariable("x4") |>
+    addConstant() |> addData("data", d) |> connectData("data", c("x.1", "x2", "x3", "x4")) |>
+    addPath("F", c("x.1", "x2", "x3", "x4"), 1, freeParameter = list(FALSE, TRUE, "b,1", TRUE), value = 1) |>
+    addPath(c("F", "x.1", "x2", "x3", "x4"), c("F", "x.1", "x2", "x3", "x4"), 2, freeParameter = TRUE, value = 1) |>
+    addPath("1", c("x.1", "x2", "x3", "x4"), 1, freeParameter = TRUE, value = 0) |>
+    addPath("x2", "x3", 2, freeParameter = TRUE, value = 0.1)
+  m <- gm@schema$models[[1]]
+  label_of <- function(from, to, arrows) {
+    which(vapply(m$paths, function(p) identical(p$from, from) && identical(p$to, to) && isTRUE(p$numberOfArrows == arrows), logical(1)))
+  }
+  m$paths[[label_of("F", "x2", 1)]]$label <- "F->x2"          # anonymous free, labelled
+  m$paths[[label_of("x2", "x3", 2)]]$label <- "C_{x2,x3}"     # covariance, comma
+  m$paths[[label_of("F", "F", 2)]]$label <- "A"               # a RAM matrix name
+  gm@schema$models[[1]] <- m
+
+  mx <- as.MxModel(gm)
+  expect_true("x_1" %in% mx$manifestVars)
+  expect_true(all(c("F_to_x2", "C_{x2_x3}", "A_", "b_1") %in% names(OpenMx::omxGetParameters(mx))))
+
+  fitted <- suppressMessages(runModel(gm))
+  fm <- fitted@schema$models[[1]]
+  est <- getFitResults(fitted)$parameterEstimates
+  expect_true(all(c("F->x2", "C_{x2,x3}", "A", "b,1") %in% names(est)))
+  # estimates are written back to labelled anonymous paths too
+  expect_equal(fm$paths[[label_of("F", "x2", 1)]]$value, est[["F->x2"]])
+
+  back <- as.GraphModel(fitted@lastBuiltModel)@schema$models[[1]]
+  expect_setequal(vapply(back$nodes, function(n) n$label, character(1)), vapply(m$nodes, function(n) n$label, character(1)))
+  find <- function(ps, from, to, arrows) Find(function(p) {
+    isTRUE(p$numberOfArrows == arrows) && (identical(c(p$from, p$to), c(from, to)) ||
+      (arrows == 2 && identical(c(p$from, p$to), c(to, from))))
+  }, ps)
+  p <- find(back$paths, "F", "x2", 1)
+  expect_equal(p$label, "F->x2")
+  expect_true(isTRUE(p$freeParameter))                         # still anonymous, not named "F->x2"
+  expect_equal(find(back$paths, "F", "x3", 1)$freeParameter, "b,1")
+  expect_equal(find(back$paths, "x2", "x3", 2)$label, "C_{x2,x3}")
+  expect_equal(find(back$paths, "F", "F", 2)$label, "A")
+  expect_false(is.null(find(back$paths, "1", "x.1", 1)))       # mean into a renamed variable keeps its constant
+})

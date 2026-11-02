@@ -26,9 +26,14 @@ node is labeled \code{"1"} by convention.}
 vector with one element per path. \code{1} = directed path
 (regression/loading/mean); \code{2} = covariance or variance.}
 
-\item{freeParameter}{\code{NULL}/\code{FALSE} (fixed, the default), \code{TRUE} (free,
-anonymous), or a non-empty string (free and named -- implies an
-equality constraint if the same name is reused elsewhere). An empty
+\item{freeParameter}{\code{NULL} (the default) or \code{TRUE}: free, and labelled
+as the editor labels the paths it draws -- \verb{V_\{x\}} for a variance,
+\verb{M_\{x\}} for a mean from a constant, \code{x->y} for another one-headed path,
+\verb{C_\{x,y\}} for a covariance (made unique against the model's labels and
+parameter names with \verb{_2}, \verb{_3}, ...), with the matching
+\code{parameterType} (\code{"errorVariance"}, \code{"mean"}, \code{"covariance"}). \code{FALSE}:
+fixed, unlabelled. A non-empty string: free and named, unlabelled (the
+name implies an equality constraint if reused elsewhere). An empty
 string is rejected. Either a single value, applied to every path, or
 one value per path: a logical vector, a character vector, or a list
 when mixing the two (e.g. \code{list(FALSE, TRUE, "b")}). Note that a single
