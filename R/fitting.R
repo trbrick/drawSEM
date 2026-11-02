@@ -89,9 +89,22 @@ hashStructure <- function(graphModel, model_id = NULL) {
   )
 
   # Serialize and hash. Keys are sorted here: jsonlite::toJSON() has no
-  # sort_keys, and the editor writes keys in a different order from R.
-  json_str <- jsonlite::toJSON(.sortKeys(relevant_parts), auto_unbox = TRUE)
+  # sort_keys, and the editor writes keys in a different order from R. Missing
+  # fields are dropped: an R `NA` reaches the editor as JSON null and comes
+  # back as NULL, and must hash the same as an absent field.
+  json_str <- jsonlite::toJSON(.sortKeys(.dropMissing(relevant_parts)), auto_unbox = TRUE)
   digest::digest(json_str, algo = "sha256")
+}
+
+# `x` without the NULL and scalar NA fields of its named lists, recursively.
+# Unnamed lists (arrays) keep every element, so positions don't shift.
+.dropMissing <- function(x) {
+  if (!is.list(x)) return(x)
+  if (!is.null(names(x))) {
+    missing <- vapply(x, function(v) is.null(v) || (is.atomic(v) && length(v) == 1 && is.na(v)), logical(1))
+    x <- x[!missing]
+  }
+  lapply(x, .dropMissing)
 }
 
 # `x` with the names of every named list in it sorted, recursively. Unnamed

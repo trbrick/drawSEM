@@ -1048,7 +1048,6 @@ setMethod(
             from = dataset_label,
             to = var,
             type = "data",
-            value = NA_real_,
             label = var
             # numberOfArrows absent on type='data' paths
           )
