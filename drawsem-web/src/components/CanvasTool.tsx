@@ -811,9 +811,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [pathSource, setPathSource] = useState<string | null>(null)
   const [pathLabelMode, setPathLabelMode] = useState<PathLabelMode>('default')
   const [optimizationExpanded, setOptimizationExpanded] = useState<boolean>(false)
-  const [draggedColumnName, setDraggedColumnName] = useState<string | null>(null)
+  // A dataset column being dragged onto the canvas, or hovered, in a column table
+  // (the dataset popup's or the sidebar's Data pane); datasetId is the column's dataset
+  const [draggedColumn, setDraggedColumn] = useState<{ datasetId: string; name: string } | null>(null)
   const [dragPreviewPos, setDragPreviewPos] = useState<{ x: number; y: number } | null>(null)
-  const [hoveredColumnName, setHoveredColumnName] = useState<string | null>(null)
+  const [hoveredColumn, setHoveredColumn] = useState<{ datasetId: string; name: string } | null>(null)
+  // The dataset expanded in the sidebar's Data pane (SEM layer only)
+  const [dataPaneDatasetId, setDataPaneDatasetId] = useState<string | null>(null)
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false)
   const [showSaveMenu, setShowSaveMenu] = useState<boolean>(false)
@@ -2495,9 +2499,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     setMode('select')
   }
 
-  function handleColumnDrop(columnName: string, dropX: number, dropY: number) {
+  function handleColumnDrop(datasetId: string, columnName: string, dropX: number, dropY: number) {
     if (isLayoutOnly) return
-    if (!selectedNode || selectedNode.type !== 'dataset') return
+    const dataset = nodes.find((n) => n.id === datasetId)
+    if (!dataset || dataset.type !== 'dataset') return
 
     // Keep columnName as the simple label for matching/export purposes
     // Store the unicode-converted version as displayName for UI only
@@ -2514,11 +2519,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
     if (targetNode && targetNode.type === 'variable') {
       // Remove any existing database paths to this node
-      setPaths((ps) => ps.filter((p) => !(p.from === selectedNode.id && p.to === targetNode.id)))
+      setPaths((ps) => ps.filter((p) => !(p.from === dataset.id && p.to === targetNode.id)))
 
       // Create new data path from dataset to variable with column name as label;
       // linked to the variable's name when it is the column's (the node keeps its label)
-      const newPath = withMappingLinked(makeDataPath(selectedNode.id, targetNode.id, columnName, displayName), targetNode.label === columnName)
+      const newPath = withMappingLinked(makeDataPath(dataset.id, targetNode.id, columnName, displayName), targetNode.label === columnName)
       setPaths((ps) => [...ps, newPath])
     } else {
       // Create new variable at drop location
@@ -2530,7 +2535,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
       // Create data path from dataset to new variable with column name as label,
       // linked to the variable's name (unless the name had to be suffixed)
-      const newPath = withMappingLinked(makeDataPath(selectedNode.id, newNode.id, columnName, displayName), label === columnName)
+      const newPath = withMappingLinked(makeDataPath(dataset.id, newNode.id, columnName, displayName), label === columnName)
       setPaths((ps) => [...ps, newPath])
 
       // Add variance path automatically (free error variance by default)
@@ -2599,6 +2604,119 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     if (selection.nodeIds.length > 0) parts.push(part(selection.nodeIds.length, 'node'))
     if (selection.pathIds.length > 0) parts.push(part(selection.pathIds.length, 'path'))
     return `${parts.join(', ')} selected`
+  }
+
+  // The dataset inspector's body: file metadata, a no-data warning, and the
+  // column table (drag a row onto the canvas to map it). Shown in the dataset
+  // popup and in the sidebar's Data pane.
+  function renderDatasetDetails(ds: Node) {
+    return (
+      <>
+        {/* Dataset file metadata */}
+        {ds.dataset && (
+          <div className="text-xs space-y-2 mb-3 pb-3 border-b">
+            <div><span className="font-medium">Filename:</span> {ds.dataset.fileName || '--'}</div>
+            {ds.datasetSource && (
+              <>
+                {ds.datasetSource.md5 && <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{ds.datasetSource.md5}</span></div>}
+                {ds.datasetSource.rowCount && <div><span className="font-medium">Row Count:</span> {ds.datasetSource.rowCount}</div>}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Warning when dataset node exists but data hasn't been loaded */}
+        {!ds.dataset?.columns && (
+          <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-[11px] space-y-1 mt-3">
+            <div><strong>⚠ No Data Loaded</strong></div>
+            <div>The CSV data for this dataset has not been imported yet.</div>
+            {ds.datasetSource && (
+              <div>Expected file: <span className="font-mono text-[10px] break-all">{ds.datasetSource.location}</span></div>
+            )}
+            {!isLayoutOnly && (
+              <>
+                <div className="pt-1">
+                  Find the file to connect it here, or use the ⛁ {viewMode === 'shiny' ? 'Load Data' : 'Add Dataset'} button in the toolbar.
+                </div>
+                <button
+                  className="mt-1 px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                  title="Choose the data file for this dataset"
+                  onClick={() => findDataFileFor(ds)}
+                >
+                  Find data file…
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Dataset CSV Data - shown when dataset node is selected */}
+        {ds.dataset && (
+          <div>
+            {!csvCollapsed ? (
+              <div className="overflow-y-auto max-h-[70vh]">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[11px] text-slate-600">
+                      <th className="pb-1">Name</th>
+                      <th className="pb-1">Count</th>
+                      <th className="pb-1">Missing</th>
+                      <th className="pb-1">Numeric</th>
+                      <th className="pb-1">Mean</th>
+                      <th className="pb-1">Std</th>
+                      <th className="pb-1">Min</th>
+                      <th className="pb-1">Max</th>
+                      <th className="pb-1">Distinct</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ds.dataset?.columns || []).map((c: any, i: number) => {
+                      const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
+                      const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
+                      const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
+                      const min = c.min != null ? String(c.min) : '--'
+                      const max = c.max != null ? String(c.max) : '--'
+                      return (
+                        <tr
+                          key={i}
+                          draggable={!isLayoutOnly}
+                          onDragStart={() => { if (!isLayoutOnly) setDraggedColumn({ datasetId: ds.id, name: c.name }) }}
+                          onDragEnd={() => setDraggedColumn(null)}
+                          onMouseEnter={() => setHoveredColumn({ datasetId: ds.id, name: c.name })}
+                          onMouseLeave={() => setHoveredColumn(null)}
+                          className={`odd:bg-white even:bg-slate-50 hover:bg-blue-100 ${isLayoutOnly ? '' : 'cursor-move'}`}
+                        >
+                          <td className="py-1">{c.name}</td>
+                          <td className="py-1">{c.count}</td>
+                          <td className="py-1">{c.missing}</td>
+                          <td className="py-1">{c.numericCount ?? 0}</td>
+                          <td className="py-1">{mean}</td>
+                          <td className="py-1">{std}</td>
+                          <td className="py-1">{min}</td>
+                          <td className="py-1">{max}</td>
+                          <td className="py-1">{distinct}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-2">
+                <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
+                <div className="text-xs text-slate-700 max-h-40 overflow-auto">
+                  <ul className="list-disc pl-5 space-y-1">
+                    {(ds.dataset?.columns || []).map((c: any, i: number) => (
+                      <li key={i}>{c.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    )
   }
 
   // Canvas point the element popup is placed relative to (see getPopupPositionClasses)
@@ -3441,8 +3559,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
       {/* Main content area with sidebar and canvas */}
       <div className="flex flex-1 overflow-hidden">
-        {viewMode !== 'widget' && (
-        <aside className="w-48 border-r p-3 space-y-3 overflow-y-auto flex flex-col">
+        {viewMode !== 'widget' && (() => {
+        // The SEM layer hides dataset nodes, so the sidebar lists them in a Data
+        // pane; expanding one shows the dataset popup's details (widening the sidebar)
+        const paneDatasets = activeLayer === 'sem' ? nodes.filter((n) => n.type === 'dataset') : []
+        const paneDataset = paneDatasets.find((n) => n.id === dataPaneDatasetId)
+        return (
+        <aside className={`${paneDataset ? 'w-[420px] max-w-[50%]' : 'w-48'} border-r p-3 space-y-3 overflow-y-auto flex flex-col`}>
           {/* Layers panel - like a photo editor layers stack */}
           <div className="space-y-2">
             <div className="text-xs font-medium text-slate-700">Layers</div>
@@ -3485,6 +3608,39 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             </div>
           </div>
 
+          {/* Data pane: the datasets the SEM layer hides */}
+          {paneDatasets.length > 0 && (
+            <div className="space-y-2" data-testid="data-pane">
+              <div className="text-xs font-medium text-slate-700">Datasets</div>
+              <div className="space-y-1">
+                {paneDatasets.map((ds) => {
+                  const expanded = ds.id === paneDataset?.id
+                  return (
+                    <div key={ds.id}>
+                      <button
+                        onClick={() => setDataPaneDatasetId(expanded ? null : ds.id)}
+                        aria-expanded={expanded}
+                        title={expanded ? 'Hide this dataset' : 'Show this dataset'}
+                        className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                          expanded
+                            ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
+                            : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {expanded ? '▾' : '▸'} {ds.displayName || ds.label}
+                      </button>
+                      {expanded && (
+                        <div className="pt-2">
+                          {renderDatasetDetails(ds)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Empty space - reserved for future sidebar content */}
           <div className="flex-1"></div>
 
@@ -3508,7 +3664,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           )}
           </div>
       </aside>
-        )}
+        )
+        })()}
 
       <div className="flex-1 p-4 relative overflow-hidden">
         {viewMode !== 'shiny' && !isLayoutOnly && (
@@ -3814,109 +3971,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               )
             })()}
 
-            {/* Dataset file metadata */}
-            {selectedNode && selectedNode.type === 'dataset' && selectedNode.dataset && (
-              <div className="text-xs space-y-2 mb-3 pb-3 border-b">
-                <div><span className="font-medium">Filename:</span> {selectedNode.dataset.fileName || '--'}</div>
-                {selectedNode.datasetSource && (
-                  <>
-                    {selectedNode.datasetSource.md5 && <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{selectedNode.datasetSource.md5}</span></div>}
-                    {selectedNode.datasetSource.rowCount && <div><span className="font-medium">Row Count:</span> {selectedNode.datasetSource.rowCount}</div>}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Warning when dataset node exists but data hasn't been loaded */}
-            {selectedNode && selectedNode.type === 'dataset' && !selectedNode.dataset?.columns && (
-              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-[11px] space-y-1 mt-3">
-                <div><strong>⚠ No Data Loaded</strong></div>
-                <div>The CSV data for this dataset has not been imported yet.</div>
-                {selectedNode.datasetSource && (
-                  <div>Expected file: <span className="font-mono text-[10px] break-all">{selectedNode.datasetSource.location}</span></div>
-                )}
-                {!isLayoutOnly && (
-                  <>
-                    <div className="pt-1">
-                      Find the file to connect it here, or use the ⛁ {viewMode === 'shiny' ? 'Load Data' : 'Add Dataset'} button in the toolbar.
-                    </div>
-                    <button
-                      className="mt-1 px-2 py-1 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
-                      title="Choose the data file for this dataset"
-                      onClick={() => findDataFileFor(selectedNode)}
-                    >
-                      Find data file…
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Dataset CSV Data - shown when dataset node is selected */}
-            {(selectedNode?.type === 'dataset' ? selectedNode?.dataset : null) && (
-              <div>
-                {!csvCollapsed ? (
-                  <div className="overflow-y-auto max-h-[70vh]">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-[11px] text-slate-600">
-                          <th className="pb-1">Name</th>
-                          <th className="pb-1">Count</th>
-                          <th className="pb-1">Missing</th>
-                          <th className="pb-1">Numeric</th>
-                          <th className="pb-1">Mean</th>
-                          <th className="pb-1">Std</th>
-                          <th className="pb-1">Min</th>
-                          <th className="pb-1">Max</th>
-                          <th className="pb-1">Distinct</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(selectedNode?.dataset?.columns || []).map((c: any, i: number) => {
-                          const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
-                          const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
-                          const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
-                          const min = c.min != null ? String(c.min) : '--'
-                          const max = c.max != null ? String(c.max) : '--'
-                          return (
-                            <tr
-                              key={i}
-                              draggable={!isLayoutOnly}
-                              onDragStart={() => { if (!isLayoutOnly) setDraggedColumnName(c.name) }}
-                              onDragEnd={() => setDraggedColumnName(null)}
-                              onMouseEnter={() => setHoveredColumnName(c.name)}
-                              onMouseLeave={() => setHoveredColumnName(null)}
-                              className={`odd:bg-white even:bg-slate-50 hover:bg-blue-100 ${isLayoutOnly ? '' : 'cursor-move'}`}
-                            >
-                              <td className="py-1">{c.name}</td>
-                              <td className="py-1">{c.count}</td>
-                              <td className="py-1">{c.missing}</td>
-                              <td className="py-1">{c.numericCount ?? 0}</td>
-                              <td className="py-1">{mean}</td>
-                              <td className="py-1">{std}</td>
-                              <td className="py-1">{min}</td>
-                              <td className="py-1">{max}</td>
-                              <td className="py-1">{distinct}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="mt-2">
-                    <div className="text-xs text-slate-600 font-medium pb-1">Columns</div>
-                    <div className="text-xs text-slate-700 max-h-40 overflow-auto">
-                      <ul className="list-disc pl-5 space-y-1">
-                        {(selectedNode?.dataset?.columns || []).map((c: any, i: number) => (
-                          <li key={i}>{c.name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Dataset details (shared with the sidebar's Data pane) */}
+            {selectedNode && selectedNode.type === 'dataset' && renderDatasetDetails(selectedNode)}
 
             {/* Selected Non-Dataset Node details */}
             {selectedNode && selectedNode.type !== 'dataset' && (
@@ -4275,7 +4331,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               onDoubleClick={onCanvasDoubleClick}
               onContextMenu={(e) => e.preventDefault()}
           onDragOver={(e) => {
-            if (draggedColumnName && selectedNode?.type === 'dataset') {
+            if (draggedColumn) {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
               // Update preview position as user drags
@@ -4290,11 +4346,11 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             }
           }}
           onDrop={(e) => {
-            if (!draggedColumnName || selectedNode?.type !== 'dataset') return
+            if (!draggedColumn) return
             e.preventDefault()
             const p = clientToSvg(e as any as React.MouseEvent)
-            handleColumnDrop(draggedColumnName, p.x, p.y)
-            setDraggedColumnName(null)
+            handleColumnDrop(draggedColumn.datasetId, draggedColumn.name, p.x, p.y)
+            setDraggedColumn(null)
             setDragPreviewPos(null)
           }}
             >
@@ -4331,7 +4387,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               {/* draw paths with layer-based opacity */}
               {paths.map((p) => {
                   const isSelected = drawnPathIds.has(p.id)
-                  const isMatchingHoveredColumn = hoveredColumnName && selectedNode && p.from === selectedNode.id && p.label === hoveredColumnName
+                  const isMatchingHoveredColumn = hoveredColumn && p.from === hoveredColumn.datasetId && p.label === hoveredColumn.name
                   const inLayer = isPathInLayer(p)
                   const opacity = getElementOpacity(inLayer)
                   const zIndex = getElementZIndex(inLayer)
@@ -4520,7 +4576,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           )}
 
           {/* drag preview - translucent node while dragging a column */}
-          {dragPreviewPos && draggedColumnName && (
+          {dragPreviewPos && draggedColumn && (
             <g transform={`translate(${dragPreviewPos.x - MANIFEST_DEFAULT_W / 2}, ${dragPreviewPos.y - MANIFEST_DEFAULT_H / 2})`} style={{ opacity: 0.4, pointerEvents: 'none' }}>
               <rect
                 width={MANIFEST_DEFAULT_W}
@@ -4536,16 +4592,20 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                 textAnchor="middle"
                 style={{ userSelect: 'none', pointerEvents: 'none' }}
               >
-                {convertToUnicode(draggedColumnName)}
+                {convertToUnicode(draggedColumn.name)}
               </text>
             </g>
           )}
 
-          {/* drag preview path - shows connection while dragging column */}
-          {dragPreviewPos && draggedColumnName && selectedNode?.type === 'dataset' && (
+          {/* drag preview path - shows connection while dragging column (from its
+              dataset, unless that is hidden off-layer) */}
+          {dragPreviewPos && draggedColumn && (() => {
+            const ds = nodes.find((n) => n.id === draggedColumn.datasetId)
+            if (!ds || (!isNodeInLayer(ds) && offLayerVisibility === 'invisible')) return null
+            return (
             <line
-              x1={nodeX(selectedNode)}
-              y1={nodeY(selectedNode)}
+              x1={nodeX(ds)}
+              y1={nodeY(ds)}
               x2={dragPreviewPos.x}
               y2={dragPreviewPos.y}
               stroke="#888"
@@ -4555,13 +4615,14 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               markerEnd="url(#arrow-end)"
               style={{ pointerEvents: 'none' }}
             />
-          )}
+            )
+          })()}
 
           {/* draw nodes */}
           {nodes.map((n) => {
             const isSelected = drawnNodeIds.has(n.id)
-            // Check if this node is connected to a hovered column (via a path from the selected dataset)
-            const isMatchingHoveredColumn = hoveredColumnName && selectedNode && paths.some((p) => p.from === selectedNode.id && p.label === hoveredColumnName && p.to === n.id)
+            // Check if this node is connected to a hovered column (via a path from its dataset)
+            const isMatchingHoveredColumn = hoveredColumn && paths.some((p) => p.from === hoveredColumn.datasetId && p.label === hoveredColumn.name && p.to === n.id)
             const inLayer = isNodeInLayer(n)
             const opacity = getElementOpacity(inLayer)
             const zIndex = getElementZIndex(inLayer)

@@ -7,7 +7,7 @@
  */
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, fireEvent, act, within } from '@testing-library/react'
 import CanvasTool from '../../src/components/CanvasTool'
 import { AdapterContext } from '../../src/context/AdapterContext'
 import type { GraphAdapter, GraphSchema, ModelUpdateKind } from '../../src/core/types'
@@ -344,5 +344,54 @@ describe('duplicate path names', () => {
     fireEvent.change(labelField(ctx), { target: { value: 'e2' } })
     await waitFor(() => expect(screen.queryByTestId('name-clash-warning')).toBeNull())
     expect(ctx.container.querySelectorAll('[data-name-clash="true"]')).toHaveLength(0)
+  })
+})
+
+// The SEM layer hides dataset nodes, so the sidebar's Data pane lists them;
+// expanding one shows the dataset popup's details, column drags and hovers included.
+describe('sidebar Data pane', () => {
+  const pane = () => screen.getByTestId('data-pane')
+  const paneButton = () => within(pane()).getByRole('button', { name: /D$/ })
+  const paneRow = (name: string) => within(pane()).getAllByText(name).map((el) => el.closest('tr')).find(Boolean)!
+
+  it('lists datasets in the SEM layer only; expanding one shows its columns and widens the sidebar', async () => {
+    const ctx = await setup()
+    const aside = ctx.container.querySelector('aside')!
+    expect(paneButton().getAttribute('aria-expanded')).toBe('false')
+    expect(within(pane()).queryByText('Mean')).toBeNull()
+    expect(aside.className).toContain('w-48')
+
+    fireEvent.click(paneButton())
+    expect(paneButton().getAttribute('aria-expanded')).toBe('true')
+    expect(within(pane()).getByText('Mean')).toBeTruthy()
+    expect(paneRow('col_b')).toBeTruthy()
+    expect(aside.className).toContain('w-[420px]')
+
+    fireEvent.click(paneButton())
+    expect(within(pane()).queryByText('Mean')).toBeNull()
+    expect(aside.className).toContain('w-48')
+
+    fireEvent.click(screen.getByText('Complete Graph'))
+    expect(screen.queryByTestId('data-pane')).toBeNull()
+  })
+
+  it('a column dragged from the pane maps a new variable; hovering a row highlights its variable', async () => {
+    const ctx = await setup()
+    fireEvent.click(paneButton())
+    fireEvent.mouseEnter(paneRow('col_b'))
+    const x2Text = nodeGroup(ctx, 'x2').querySelector(':scope > text') as SVGTextElement
+    expect(x2Text.getAttribute('font-weight')).toBe('bold')
+    fireEvent.mouseLeave(paneRow('col_b'))
+    expect(x2Text.getAttribute('font-weight')).toBe('normal')
+
+    const dragEvent = (type: string, x: number, y: number) => {
+      const ev = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperties(ev, { clientX: { value: x }, clientY: { value: y }, dataTransfer: { value: { dropEffect: 'none' } } })
+      return ev
+    }
+    fireEvent.dragStart(paneRow('x2'))
+    fireEvent(ctx.svg, dragEvent('dragover', 300, -200))
+    fireEvent(ctx.svg, dragEvent('drop', 300, -200))
+    await waitFor(() => expect(lastModel(ctx).paths).toContainEqual(expect.objectContaining({ from: 'D', type: 'data', label: 'x2', to: 'x2_2' })))
   })
 })
