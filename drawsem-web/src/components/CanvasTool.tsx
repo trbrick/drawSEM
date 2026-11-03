@@ -2674,8 +2674,10 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       const distinct = c && c.distinct ? (c.distinct.exact ?? c.distinct.approx ?? 0) : 0
                       const mean = typeof c.mean === 'number' ? c.mean.toFixed(3) : '--'
                       const std = typeof c.std === 'number' ? c.std.toFixed(3) : '--'
-                      const min = c.min != null ? String(c.min) : '--'
-                      const max = c.max != null ? String(c.max) : '--'
+                      // Rounded like mean and std; whole numbers as they are
+                      const bound = (v: unknown) => v == null ? '--' : typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(3) : String(v)
+                      const min = bound(c.min)
+                      const max = bound(c.max)
                       return (
                         <tr
                           key={i}

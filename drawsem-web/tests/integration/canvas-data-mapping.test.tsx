@@ -375,6 +375,17 @@ describe('sidebar Data pane', () => {
     expect(screen.queryByTestId('data-pane')).toBeNull()
   })
 
+  it('rounds fractional min and max like mean and std', async () => {
+    const schema = fixture()
+    const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
+    ds.datasetSource.object = [{ x1: -2.2146998871775, x2: 2, col_b: 3 }, { x1: 1.5953, x2: 4, col_b: 5 }]
+    await setup(schema)
+    fireEvent.click(paneButton())
+    const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
+    expect(cells('x1')).toEqual(expect.arrayContaining(['-2.215', '1.595']))
+    expect(cells('x2')).toEqual(expect.arrayContaining(['2', '4']))
+  })
+
   it('a column dragged from the pane maps a new variable; hovering a row highlights its variable', async () => {
     const ctx = await setup()
     fireEvent.click(paneButton())
