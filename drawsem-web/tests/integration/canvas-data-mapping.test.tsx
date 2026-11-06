@@ -190,6 +190,20 @@ describe('the data mapping row', () => {
   })
 })
 
+describe('disconnecting', () => {
+  it('Disconnect in a mapping row removes that data path, as one undo step', async () => {
+    const ctx = await setup()
+    await clickNode(ctx, 'x2')
+    expect(screen.getAllByTestId('data-mapping-row')).toHaveLength(1)
+    fireEvent.click(within(screen.getByTestId('data-mapping-row')).getByRole('button', { name: 'Disconnect' }))
+    await waitFor(() => expect(dataPathTo(ctx, 'x2')).toBeUndefined())
+    expect(screen.queryByTestId('data-mapping-row')).toBeNull()
+    expect(dataPathTo(ctx, 'x1')).toBeTruthy()   // other mappings stay
+    undo(ctx)
+    await waitFor(() => expect(dataPathTo(ctx, 'x2')).toMatchObject({ from: 'D', label: 'col_b' }))
+  })
+})
+
 describe('path labels', () => {
   const pathEl = (ctx: Ctx, from: string, to: string, data = false) => {
     const model = lastModel(ctx)
@@ -353,37 +367,106 @@ describe('sidebar Data pane', () => {
   const pane = () => screen.getByTestId('data-pane')
   const paneButton = () => within(pane()).getByRole('button', { name: /D$/ })
   const paneRow = (name: string) => within(pane()).getAllByText(name).map((el) => el.closest('tr')).find(Boolean)!
+  const columnToggle = (name: string) => within(pane()).getByTitle(new RegExp(`summary of ${name}$`))
+  const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
 
-  it('lists datasets in the SEM layer only; expanding one shows its columns and widens the sidebar', async () => {
+  it('lists datasets in the SEM layer only; expanding one shows its columns without a fixed wider sidebar', async () => {
     const ctx = await setup()
     const aside = ctx.container.querySelector('aside')!
     expect(paneButton().getAttribute('aria-expanded')).toBe('false')
-    expect(within(pane()).queryByText('Mean')).toBeNull()
-    expect(aside.className).toContain('w-48')
+    expect(within(pane()).queryByText('Mapped to')).toBeNull()
+    // sized to its content (only the column table can widen it), never a fixed wider class
+    const width = aside.className
+    expect(width).toContain('w-max')
 
     fireEvent.click(paneButton())
     expect(paneButton().getAttribute('aria-expanded')).toBe('true')
-    expect(within(pane()).getByText('Mean')).toBeTruthy()
+    expect(within(pane()).getByText('Mapped to')).toBeTruthy()
     expect(paneRow('col_b')).toBeTruthy()
-    expect(aside.className).toContain('w-[420px]')
+    expect(aside.className).toBe(width)
 
     fireEvent.click(paneButton())
-    expect(within(pane()).queryByText('Mean')).toBeNull()
-    expect(aside.className).toContain('w-48')
+    expect(within(pane()).queryByText('Mapped to')).toBeNull()
 
     fireEvent.click(screen.getByText('Complete Graph'))
     expect(screen.queryByTestId('data-pane')).toBeNull()
   })
 
-  it('rounds fractional min and max like mean and std', async () => {
+  it('the header gives where the data lives and its size; its status icon shows errors on hover', async () => {
     const schema = fixture()
-    const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
-    ds.datasetSource.object = [{ x1: -2.2146998871775, x2: 2, col_b: 3 }, { x1: 1.5953, x2: 4, col_b: 5 }]
     await setup(schema)
     fireEvent.click(paneButton())
-    const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
-    expect(cells('x1')).toEqual(expect.arrayContaining(['-2.215', '1.595']))
-    expect(cells('x2')).toEqual(expect.arrayContaining(['2', '4']))
+    expect(screen.getByTestId('dataset-header').textContent).toContain('Embedded · 1 row × 3 cols')
+    expect(screen.getByTestId('dataset-header').textContent).not.toContain('MD5')
+    // x3 maps a column D lacks: an error, explained on hover
+    const status = screen.getByTestId('dataset-status')
+    expect(status.getAttribute('aria-label')).toBe('Error')
+    expect(status.getAttribute('title')).toContain('x3 maps column "gone", which this dataset does not have')
+    cleanup()
+
+    // all clear: connected (an MD5 the editor did not check says so on hover)
+    const clean = fixture()
+    clean.models.m.paths = clean.models.m.paths.filter((p: any) => p.label !== 'gone')
+    ;(clean.models.m.nodes.find((n: any) => n.type === 'dataset') as any).datasetSource.md5 = 'abc123'
+    await setup(clean)
+    fireEvent.click(paneButton())
+    const ok = screen.getByTestId('dataset-status')
+    expect(ok.getAttribute('aria-label')).toBe('Connected')
+    expect(ok.getAttribute('title')).toBe('Connected\nMD5 recorded; not checked here')
+  })
+
+  it('"Add all as nodes" adds a mapped variable for each column not on the canvas, as one undo step', async () => {
+    const ctx = await setup()
+    fireEvent.click(paneButton())
+    // D maps x1 and col_b; x2 is not on the canvas (x2 the variable maps col_b)
+    expect(within(pane()).getByText('1 not on the canvas')).toBeTruthy()
+    fireEvent.click(within(pane()).getByRole('button', { name: 'Add all as nodes' }))
+    await waitFor(() => expect(lastModel(ctx).paths).toContainEqual(expect.objectContaining({ from: 'D', type: 'data', label: 'x2', to: 'x2_2' })))
+    expect(lastModel(ctx).paths).toContainEqual(expect.objectContaining({ from: 'x2_2', to: 'x2_2', numberOfArrows: 2, freeParameter: true }))
+    expect(within(pane()).queryByText(/not on the canvas/)).toBeNull()
+    undo(ctx)
+    await waitFor(() => expect(lastModel(ctx).nodes.map((n: any) => n.label)).not.toContain('x2_2'))
+    expect(within(pane()).getByText('1 not on the canvas')).toBeTruthy()
+  })
+
+  it('each row shows its column, the variables mapping it, and its missing count', async () => {
+    const schema = fixture()
+    const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
+    ds.datasetSource.object = [{ x1: 1, x2: 2, col_b: 3 }, { x1: null, x2: 4, col_b: '' }]
+    await setup(schema)
+    fireEvent.click(paneButton())
+    expect(cells('x1')).toEqual(['▸x1', 'x1', '1'])
+    expect(cells('col_b')).toEqual(['▸col_b', 'x2', '1'])
+    expect(cells('x2')).toEqual(['▸x2', '—', '0'])   // D maps col_b, not x2, to x2
+  })
+
+  it('clicking a column name expands its summary; clicking again collapses it', async () => {
+    const schema = fixture()
+    const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
+    ds.datasetSource.object = [
+      { x1: -2.2146998871775, x2: 3, col_b: 'a' }, { x1: 1.5953, x2: 1, col_b: 'b' }, { x1: null, x2: 1, col_b: 5 },
+    ]
+    await setup(schema)
+    fireEvent.click(paneButton())
+    expect(screen.queryByTestId('column-summary')).toBeNull()
+    const summaryText = () => Array.from(screen.getByTestId('column-summary').querySelectorAll('dt, dd')).map((el) => el.textContent)
+
+    fireEvent.click(columnToggle('x1'))
+    expect(columnToggle('x1').getAttribute('aria-expanded')).toBe('true')
+    // at most two decimals; one column in the narrow pane
+    expect(summaryText()).toEqual(['Type', 'Numeric', 'Missing', '1 (33%)', 'Mean (SD)', '-0.31 (2.69)', 'Range', '[-2.21, 1.6]'])
+
+    // one column at a time
+    fireEvent.click(columnToggle('x2'))
+    expect(screen.getAllByTestId('column-summary')).toHaveLength(1)
+    expect(summaryText()).toEqual(['Type', 'Numeric', 'Missing', '0', 'Mean (SD)', '1.67 (1.15)', 'Range', '[1, 3]'])
+
+    // partly numeric columns say so
+    fireEvent.keyDown(columnToggle('col_b'), { key: 'Enter' })
+    expect(summaryText()).toEqual(['Type', 'Mixed (1 of 3 numeric)', 'Missing', '0', 'Mean (SD)', '5', 'Range', '[5, 5]'])
+
+    fireEvent.click(columnToggle('col_b'))
+    expect(screen.queryByTestId('column-summary')).toBeNull()
   })
 
   it('a column dragged from the pane maps a new variable; hovering a row highlights its variable', async () => {

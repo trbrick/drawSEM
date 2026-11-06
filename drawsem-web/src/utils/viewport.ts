@@ -69,6 +69,20 @@ export function clientToViewBox(vb: ViewBox, rect: ScreenRect, clientX: number, 
 }
 
 /**
+ * The viewBox that keeps the drawing exactly where it was on screen (same
+ * scale, same screen position) after the <svg> element moved or resized from
+ * `oldRect` to `newRect`: the canvas area the new element covers under the old
+ * mapping. Its aspect ratio is the element's, so meet adds no letterboxing.
+ * Null when either rect has no size.
+ */
+export function anchoredViewBox(vb: ViewBox, oldRect: ScreenRect, newRect: ScreenRect): ViewBox | null {
+  const s = viewScale(vb, oldRect)
+  if (s === null || !(newRect.width > 0) || !(newRect.height > 0)) return null
+  const topLeft = clientToViewBox(vb, oldRect, newRect.left, newRect.top)!
+  return { x: topLeft.x, y: topLeft.y, width: newRect.width / s, height: newRect.height / s }
+}
+
+/**
  * Scale the viewBox by `factor` about canvas point `center` (factor > 1 zooms
  * out, < 1 zooms in). The point under the cursor stays under the cursor: with
  * xMidYMid meet, uniformly scaling the viewBox about a point leaves that point's

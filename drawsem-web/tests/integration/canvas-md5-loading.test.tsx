@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import CanvasTool from '../../src/components/CanvasTool'
@@ -102,6 +102,10 @@ describe('CanvasTool CSV MD5 loading', () => {
     await waitFor(() => {
       expect(screen.queryByText('Dataset loading errors:')).toBeNull()
     })
+
+    // the dataset details say the file was checked against its MD5
+    fireEvent.click(within(screen.getByTestId('data-pane')).getByRole('button', { name: /sample$/ }))
+    await waitFor(() => expect(screen.getByTestId('dataset-status').getAttribute('title')).toBe('Connected\nThe file matches its recorded MD5'))
   })
 
   it('shows dataset loading error when CSV fetch returns HTTP error', async () => {

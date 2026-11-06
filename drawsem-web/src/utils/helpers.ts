@@ -1,4 +1,5 @@
 import { convertToUnicode } from './converters'
+import type { ColumnSummary } from './columnStats'
 // Helper utilities for node and path operations
 export function uid(prefix = ''): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -25,10 +26,14 @@ export interface Node {
   // Pinned size. Absent = the renderer decides (MANIFEST_DEFAULT_* etc.).
   width?: number
   height?: number
+  // Runtime only: the loaded data's columns and their summaries (utils/columnStats)
   dataset?: {
     fileName: string
     headers: string[]
-    columns: any[]
+    columns: ColumnSummary[]
+    // The file's MD5 was checked against datasetSource.md5 when the editor
+    // loaded it (only the editor's own file loader checks; R does not)
+    md5Checked?: boolean
   }
   bindingMappings?: Record<string, string>
   // Input keys the editor does not own (see OWNED_NODE_KEYS), re-emitted verbatim.

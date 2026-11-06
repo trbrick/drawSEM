@@ -4,6 +4,8 @@
  * Handles bidirectional communication between R (Shiny, Quarto, RMarkdown) and the visual tool widget
  */
 
+import type { ColumnSummary } from '../../utils/columnStats'
+
 import { GraphSchema, GraphAdapter, ExportOptions, ModelUpdateKind, isGraphSchema } from '../../core/types'
 
 /**
@@ -327,7 +329,7 @@ export function createWidgetAdapter(messageTimeout = 30000): GraphAdapter {
       shiny.setInputValue('fit_model_request', { timestamp: Date.now() }, { priority: 'event' })
     },
 
-    onDatasetSummaries(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: any[] }>) => void): void {
+    onDatasetSummaries(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: ColumnSummary[] }>) => void): void {
       shiny.addCustomMessageHandler('dataset_summaries', (data: unknown) => {
         const datasets = (data as any)?.datasets
         // R sends an empty list as [] rather than {}
