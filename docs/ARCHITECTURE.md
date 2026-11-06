@@ -288,7 +288,7 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   shared parameter name is an equality constraint, and R suffixes a repeated
   label (`_2`) for OpenMx. The inspector warns, both canvas labels are drawn
   as warnings, and committing such a label inline shows a notice. Image
-  export (`svgRenderer.ts`) has its own label rules.
+  export (`svgRenderer.ts`) writes the same label text (`pathDisplayText()`).
   Idea, not adopted: "≙" (U+2259, ESTIMATES) for estimated values instead of
   "≈"; set aside because readers are unlikely to recognize it.
 - Undo history across R round trips (`src/utils/editHistory.ts`): R's
@@ -314,7 +314,10 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   layer changes are not undo steps and are not synced per edit; the live view
   is written only by the standalone Save and by the RStudio addin's Done (as a
   `setVisualization()` call, when the view changed). `drawSEM()` never writes
-  the view back to R; image export ignores it. R: `setVisualization()`
+  the view back to R; `exportImage()` ignores it. The editor's image export
+  draws the live layer (off-layer elements left out or faded, per
+  `offLayerVisibility`, by the canvas's rules in `utils/layers.ts`) and Path
+  Labels mode. R: `setVisualization()`
 - Headless image export: `exportImage()` (R) via `window.drawSEMExportSVG` (widget)
 
 ### Specced, not yet implemented
