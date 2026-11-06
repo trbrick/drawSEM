@@ -170,6 +170,8 @@ test_that(".columnSummary handles missing values and text columns", {
   t <- .columnSummary(c("u", "v", "", NA, "u"), "b")
   expect_equal(t$count, 5); expect_equal(t$missing, 2); expect_equal(t$numericCount, 0)
   expect_equal(t$distinct, list(exact = 2)); expect_null(t$mean)
+  na <- .columnSummary(c("2.3", "NA", " NA ", "na"), "c")   # the text "NA" too, like the editor
+  expect_equal(na$missing, 2); expect_equal(na$numericCount, 1)
 })
 
 test_that(".columnSummary counts values like the editor: numeric ascending, else first seen; none past the limit", {

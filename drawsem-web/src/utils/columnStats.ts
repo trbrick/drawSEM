@@ -12,11 +12,18 @@ export const DISTINCT_LIMIT = 10000
 /** Value counts (`levels`) are reported for columns with at most this many distinct values. */
 export const LEVELS_LIMIT = 20
 
+/**
+ * Text that means "no value", as R reads it: `read.csv()`'s default
+ * `na.strings`, and what `jsonToDataFrame()` (R/io.R) treats as NA. Empty
+ * cells are missing too.
+ */
+export const MISSING_TOKENS: ReadonlySet<string> = new Set(['NA'])
+
 export interface ColumnSummary {
   name: string
   /** Rows, missing ones included */
   count: number
-  /** Rows with no value (null, or empty after trimming) */
+  /** Rows with no value: null, empty after trimming, or "NA" (MISSING_TOKENS) */
   missing: number
   /** Values that read as numbers */
   numericCount: number
@@ -54,7 +61,7 @@ export function makeColumnAccumulator(name: string): ColumnAccumulator {
 export function addColumnValue(acc: ColumnAccumulator, raw: unknown): void {
   acc.count += 1
   const v = raw == null ? '' : String(raw).trim()
-  if (v === '') {
+  if (v === '' || MISSING_TOKENS.has(v)) {
     acc.missing += 1
     return
   }

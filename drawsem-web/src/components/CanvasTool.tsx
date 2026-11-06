@@ -16,7 +16,7 @@ import type { Node, Path, PathLabelMode } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
 import { computeMD5 } from '../utils/integrity'
-import { summarizeColumns, makeColumnAccumulator, addColumnValue, finalizeColumn, LEVELS_LIMIT } from '../utils/columnStats'
+import { summarizeColumns, makeColumnAccumulator, addColumnValue, finalizeColumn } from '../utils/columnStats'
 import type { ColumnAccumulator, ColumnSummary } from '../utils/columnStats'
 import { GraphSchema } from '../core/types'
 import type { ActiveLayer, OffLayerVisibility } from '../core/types'
@@ -34,7 +34,7 @@ import { withMappingLinked, withMappingColumn, followLinkedMappings, incomingDat
 import type { Selection, SelectionKind, Bounds, Point } from '../utils/selection'
 import { isMacPlatform, isSecondaryPress, isToggleModifier } from '../utils/platform'
 import { pathIssue, PATH_ISSUE_MESSAGE, dragPathPairs, planDraggedPaths, draggedPathsMessage, planAddMeans, addMeansMessage, planCorrelateAll, correlateAllMessage, sharedValue, MIXED } from '../utils/groupEdits'
-import { parseViewBox, formatViewBox, viewScale, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
+import { parseViewBox, formatViewBox, viewScale, anchoredViewBox, clientToViewBox, zoomViewBox, panViewBox, wheelDeltaPx, wheelZoomFactor, isTrackpadWheel, roundViewBox, viewBoxFromViewport } from '../utils/viewport'
 
 type NodeType = Node['type']
 
@@ -684,7 +684,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
               history.silently(() => setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
-                    ? { ...n, dataset: { fileName, headers, columns } }
+                    ? { ...n, dataset: { fileName, headers, columns, md5Checked: !!node.datasetSource?.md5 } }
                     : n
                 )
               ))
@@ -790,6 +790,30 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   )
 
   const svgRef = useRef<SVGSVGElement | null>(null)
+  // Anchor the drawing when the sidebar changes width: the canvas's left edge
+  // moves, and with a fixed viewBox (xMidYMid meet) the drawing would re-centre
+  // and rescale. Keep its screen scale and position instead. Other resizes (the
+  // window) keep fitting the viewBox as before. The attribute is set directly
+  // as well, so no frame is drawn with the old viewBox.
+  React.useEffect(() => {
+    const svg = svgRef.current
+    if (!svg || typeof ResizeObserver === 'undefined') return
+    let last = svg.getBoundingClientRect()
+    const observer = new ResizeObserver(() => {
+      const rect = svg.getBoundingClientRect()
+      const prev = last
+      last = rect
+      if (Math.abs(rect.left - prev.left) < 0.5) return
+      const vb = parseViewBox(svg.getAttribute('viewBox') ?? '')
+      const next = vb && anchoredViewBox(vb, prev, rect)
+      if (!next) return
+      const attr = formatViewBox(roundViewBox(next))
+      svg.setAttribute('viewBox', attr)
+      setViewBoxAttr(attr)
+    })
+    observer.observe(svg)
+    return () => observer.disconnect()
+  }, [])
   // A node drag moves every node in `origins` (the selected nodes) by the
   // cursor's offset from `start` (canvas coordinates). The object is also the
   // drag's undo key, so a whole drag is one step.
@@ -1271,6 +1295,12 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       if (!linked || !variable) return withMappingLinked(p, false)
       return withMappingLinked(withMappingColumn(p, variable.label, variable.label), true)
     }))
+  }
+
+  /** Disconnect a variable from a dataset: remove the data path (the inspector's Disconnect; R's disconnectData()). */
+  function disconnectData(pathId: string) {
+    if (isLayoutOnly) return
+    setPaths((ps) => ps.filter((p) => p.id !== pathId))
   }
 
   // Cycle a path through: ↔ two-headed → → one-headed (from→to) → ← one-headed (to→from) → ↔
@@ -2501,75 +2531,156 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   }
 
   // One column's summary, expanded under its row in the dataset details. Shows
-  // what the data holds; assumes nothing about how the column is treated.
-  function renderColumnSummary(c: ColumnSummary) {
-    const fmt = (v: number | null) => v == null ? '--' : Number.isInteger(v) ? String(v) : v.toFixed(3)
+  // what the data holds; assumes nothing about how the column is treated. In
+  // the popup the numeric statistics sit in a second column beside Type and
+  // Missing; in the narrow sidebar pane everything is one column.
+  function renderColumnSummary(c: ColumnSummary, wide: boolean) {
+    // At most two decimals, trailing zeros dropped
+    const fmt = (v: number | null) => v == null ? '--' : String(Number(v.toFixed(2)) || 0)
     const present = c.count - c.missing
-    const pct = (k: number, of: number) => of > 0 ? ` (${Math.round((100 * k) / of)}%)` : ''
-    const distinct = 'exact' in c.distinct ? String(c.distinct.exact) : `more than ${c.distinct.atLeast.toLocaleString()}`
-    const stats: [string, string][] = [
-      ['Rows', String(c.count)],
-      ['Missing', `${c.missing}${pct(c.missing, c.count)}`],
-      ['Numeric', `${c.numericCount} of ${present}`],
-      ['Distinct', distinct],
-    ]
-    if (c.numericCount > 0) stats.push(['Mean', fmt(c.mean)], ['SD', fmt(c.std)], ['Min', fmt(c.min)], ['Max', fmt(c.max)])
+    const type = present === 0 ? 'Empty'
+      : c.numericCount === present ? 'Numeric'
+      : c.numericCount === 0 ? 'Text'
+      : `Mixed (${c.numericCount} of ${present} numeric)`
+    const missing = c.missing > 0 && c.count > 0 ? `${c.missing} (${Math.round((100 * c.missing) / c.count)}%)` : String(c.missing)
+    const left: [string, string][] = [['Type', type], ['Missing', missing]]
+    const right: [string, string][] = c.numericCount > 0
+      ? [['Mean (SD)', c.std == null ? fmt(c.mean) : `${fmt(c.mean)} (${fmt(c.std)})`], ['Range', `[${fmt(c.min)}, ${fmt(c.max)}]`]]
+      : []
+    // Wide: Type | Mean (SD), then Missing | Range (row by row)
+    const cells = wide && right.length > 0 ? [left[0], right[0], left[1], right[1]] : [...left, ...right]
     return (
-      <div className="text-[11px] text-slate-700 space-y-2 pt-1" data-testid="column-summary">
-        <dl className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-2 gap-y-0.5">
-          {stats.map(([k, v]) => (
+      <div className="text-[11px] text-slate-700 pt-1" data-testid="column-summary">
+        <dl className={`grid ${wide && right.length > 0 ? 'grid-cols-[auto_1fr_auto_1fr]' : 'grid-cols-[auto_1fr]'} gap-x-3 gap-y-0.5`}>
+          {cells.map(([k, v]) => (
             <React.Fragment key={k}>
               <dt className="text-slate-500">{k}</dt>
               <dd>{v}</dd>
             </React.Fragment>
           ))}
         </dl>
-        {c.levels ? (
-          <table className="text-[11px]">
-            <thead>
-              <tr className="text-left text-slate-500">
-                <th className="pr-3 font-normal">Value</th>
-                <th className="pr-3 font-normal text-right">Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {c.levels.map((l) => (
-                <tr key={l.value}>
-                  <td className="pr-3 font-mono">{l.value}</td>
-                  <td className="pr-3 text-right">{l.count}{pct(l.count, present)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : present > 0 && (
-          <div className="text-slate-500">Value counts are shown for columns with at most {LEVELS_LIMIT} distinct values.</div>
-        )}
       </div>
     )
   }
 
+  // Whether a dataset is connected and clear: its data is loaded, nothing went
+  // wrong loading it, and every column its data paths map exists. The messages
+  // are shown on hovering its status icon.
+  function datasetStatus(ds: Node): { ok: boolean; messages: string[] } {
+    const errors: string[] = []
+    const loadError = datasetErrors.get(ds.id)
+    if (loadError) errors.push(loadError)
+    if (!ds.dataset) {
+      if (!loadError) errors.push(ds.datasetSource?.location ? `No data loaded (expected file: ${ds.datasetSource.location})` : 'No data loaded')
+    } else {
+      for (const p of paths) {
+        if (p.from !== ds.id || !isMissingColumn(p, nodes)) continue
+        const v = nodes.find((n) => n.id === p.to)
+        errors.push(`${v?.label ?? 'A variable'} maps column "${p.label ?? ''}", which this dataset does not have`)
+      }
+    }
+    if (errors.length > 0) return { ok: false, messages: errors }
+    const md5 = ds.datasetSource?.md5
+    return {
+      ok: true,
+      messages: ['Connected', ...(md5 ? [ds.dataset?.md5Checked ? 'The file matches its recorded MD5' : 'MD5 recorded; not checked here']: [])],
+    }
+  }
+
+  // Add a variable for every column of `datasetId` that no data path maps, each
+  // mapping its column (linked, like a column dropped on the canvas) with a free
+  // error variance. They go in a grid (6 per row) below the lowest variable or
+  // constant, centred on them. One undo step.
+  function addUnconnectedColumns(datasetId: string) {
+    if (isLayoutOnly) return
+    const ds = nodes.find((n) => n.id === datasetId)
+    const columns = ds?.dataset?.headers ?? []
+    const mapped = new Set(paths.filter((p) => p.from === datasetId && isDatasetPath(p, nodes)).map((p) => p.label))
+    const unconnected = columns.filter((col) => !mapped.has(col))
+    if (!ds || unconnected.length === 0) return
+
+    const PER_ROW = 6
+    const stepX = MANIFEST_DEFAULT_W + 24
+    const stepY = MANIFEST_DEFAULT_H + 24
+    const placed = nodes.filter((n) => n.type !== 'dataset')
+    const minX = placed.length ? Math.min(...placed.map((n) => nodeX(n))) : 0
+    const maxX = placed.length ? Math.max(...placed.map((n) => nodeX(n))) : 0
+    const bottom = placed.length ? Math.max(...placed.map((n) => nodeY(n) + (n.height ?? MANIFEST_DEFAULT_H) / 2)) : 0
+    const startX = (minX + maxX) / 2 - ((Math.min(unconnected.length, PER_ROW) - 1) / 2) * stepX
+    const startY = bottom + 60 + MANIFEST_DEFAULT_H / 2
+
+    const allNodes = [...nodes]
+    const allPaths = [...paths]
+    const newNodes: Node[] = []
+    const newPaths: Path[] = []
+    unconnected.forEach((col, i) => {
+      const label = uniqueNodeLabel(allNodes, 'name', col)
+      const node = makeNode({
+        label, displayName: convertToUnicode(label), type: 'variable',
+        x: startX + (i % PER_ROW) * stepX, y: startY + Math.floor(i / PER_ROW) * stepY,
+      })
+      const data = withMappingLinked(makeDataPath(datasetId, node.id, col, convertToUnicode(col)), label === col)
+      const variance = makeVariancePath(node.id, node.label, allPaths)
+      allNodes.push(node)
+      allPaths.push(data, variance)
+      newNodes.push(node)
+      newPaths.push(data, variance)
+    })
+    setNodes((ns) => [...ns, ...newNodes])
+    setPaths((ps) => [...ps, ...newPaths])
+  }
+
   // The dataset inspector's body: file metadata, a no-data warning, and the
   // column table (drag a row onto the canvas to map it). Shown in the dataset
-  // popup and in the sidebar's Data pane.
-  function renderDatasetDetails(ds: Node) {
+  // popup and in the sidebar's Data pane (`wide`: the popup).
+  function renderDatasetDetails(ds: Node, wide: boolean) {
     return (
       <>
-        {/* Dataset file metadata */}
-        {ds.dataset && (
-          <div className="text-xs space-y-2 mb-3 pb-3 border-b">
-            <div><span className="font-medium">Filename:</span> {ds.dataset.fileName || '--'}</div>
-            {ds.datasetSource && (
-              <>
-                {ds.datasetSource.md5 && <div><span className="font-medium">MD5:</span> <span className="break-all text-slate-600 font-mono text-[10px]">{ds.datasetSource.md5}</span></div>}
-                {ds.datasetSource.rowCount && <div><span className="font-medium">Row Count:</span> {ds.datasetSource.rowCount}</div>}
-              </>
-            )}
-          </div>
-        )}
+        {/* Dataset summary: name, where the data lives, size, and a status icon
+            (hover it for the error, or for the MD5 check when all is clear) */}
+        {(() => {
+          const rows = ds.dataset ? (ds.dataset.columns[0]?.count ?? ds.datasetSource?.rowCount) : undefined
+          const cols = ds.dataset?.headers.length
+          const where = ds.datasetSource?.type === 'file' ? 'File'
+            : ds.datasetSource?.type === 'embedded' ? 'Embedded'
+            : viewMode === 'shiny' ? 'R session' : 'Editor only (not saved)'
+          const status = datasetStatus(ds)
+          return (
+            <div className="text-xs space-y-0.5 mb-3 pb-3 border-b [contain:inline-size]" data-testid="dataset-header">
+              <div className="flex items-start gap-1.5">
+                <span className="font-medium break-all flex-1">{ds.dataset?.fileName || ds.datasetSource?.location || ds.label}</span>
+                <span
+                  role="img"
+                  data-testid="dataset-status"
+                  aria-label={status.ok ? 'Connected' : 'Error'}
+                  title={status.messages.join('\n')}
+                  className={`shrink-0 cursor-help ${status.ok ? 'text-emerald-600' : 'text-red-600'}`}
+                >
+                  {status.ok ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                      <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9.5" />
+                      <path d="M12 7v6" />
+                      <path d="M12 16.5v.01" />
+                    </svg>
+                  )}
+                </span>
+              </div>
+              <div className="text-slate-600">
+                {where}
+                {cols != null && <> · {rows != null && <>{rows.toLocaleString()} {rows === 1 ? 'row' : 'rows'} × </>}{cols} {cols === 1 ? 'col' : 'cols'}</>}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Warning when dataset node exists but data hasn't been loaded */}
         {!ds.dataset?.columns && (
-          <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-[11px] space-y-1 mt-3">
+          <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-[11px] space-y-1 mt-3 [contain:inline-size]">
             <div><strong>⚠ No Data Loaded</strong></div>
             <div>The CSV data for this dataset has not been imported yet.</div>
             {ds.datasetSource && (
@@ -2652,7 +2763,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         {expanded && (
                           <tr className="bg-sky-50">
                             <td colSpan={3} className="pb-2 pl-4 pr-1">
-                              {renderColumnSummary(c)}
+                              {renderColumnSummary(c, wide)}
                             </td>
                           </tr>
                         )}
@@ -2661,6 +2772,22 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                   })}
                 </tbody>
               </table>
+              {(() => {
+                const unconnected = ds.dataset.columns.filter((c) => !mappedTo.has(c.name)).length
+                if (unconnected === 0 || isLayoutOnly) return null
+                return (
+                  <div className="flex items-center justify-between gap-2 border-t mt-1 pt-2 text-xs [contain:inline-size]">
+                    <span className="text-slate-500">{unconnected} not on the canvas</span>
+                    <button
+                      onClick={() => addUnconnectedColumns(ds.id)}
+                      title="Add a variable for every column not on the canvas, mapped to it, arranged in a grid"
+                      className="shrink-0 px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700"
+                    >
+                      Add all as nodes
+                    </button>
+                  </div>
+                )
+              })()}
             </div>
           )
         })()}
@@ -3510,13 +3637,16 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       <div className="flex flex-1 overflow-hidden">
         {viewMode !== 'widget' && (() => {
         // The SEM layer hides dataset nodes, so the sidebar lists them in a Data
-        // pane; expanding one shows the dataset popup's details (widening the sidebar)
+        // pane; expanding one shows the dataset popup's details. The sidebar is
+        // as wide as its content needs (at least 12rem, at most half the window);
+        // text that can wrap is contained ([contain:inline-size]) so that only
+        // the column table can widen it.
         const paneDatasets = activeLayer === 'sem' ? nodes.filter((n) => n.type === 'dataset') : []
         const paneDataset = paneDatasets.find((n) => n.id === dataPaneDatasetId)
         return (
-        <aside className={`${paneDataset ? 'w-80 max-w-[50%]' : 'w-48'} border-r p-3 space-y-3 overflow-y-auto flex flex-col`}>
+        <aside className="w-max min-w-[12rem] max-w-[50%] border-r p-3 space-y-3 overflow-y-auto flex flex-col">
           {/* Layers panel - like a photo editor layers stack */}
-          <div className="space-y-2">
+          <div className="space-y-2 [contain:inline-size]">
             <div className="text-xs font-medium text-slate-700">Layers</div>
             <div className="space-y-1">
               <button
@@ -3570,7 +3700,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                         onClick={() => setDataPaneDatasetId(expanded ? null : ds.id)}
                         aria-expanded={expanded}
                         title={expanded ? 'Hide this dataset' : 'Show this dataset'}
-                        className={`w-full text-left px-2 py-2 rounded text-xs transition ${
+                        className={`w-full text-left px-2 py-2 rounded text-xs transition break-words [contain:inline-size] ${
                           expanded
                             ? 'bg-sky-100 border border-sky-400 font-medium text-sky-900'
                             : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
@@ -3580,7 +3710,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                       </button>
                       {expanded && (
                         <div className="pt-2">
-                          {renderDatasetDetails(ds)}
+                          {renderDatasetDetails(ds, false)}
                         </div>
                       )}
                     </div>
@@ -3594,7 +3724,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           <div className="flex-1"></div>
 
           {/* Status display at bottom */}
-          <div className="border-t pt-3 space-y-2">
+          <div className="border-t pt-3 space-y-2 [contain:inline-size]">
             <div className="text-xs font-medium text-slate-700">Status</div>
             <div className="text-xs text-slate-600">
               <div>Nodes: {nodes.length}</div>
@@ -3715,6 +3845,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
                               />
                               Same as variable name
                             </label>
+                            <button
+                              onClick={() => disconnectData(dp.id)}
+                              title={`Disconnect this variable from ${dsName} (removes the data path)`}
+                              className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100"
+                            >
+                              Disconnect
+                            </button>
                             </>
                             )}
                           </div>
@@ -3921,7 +4058,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             })()}
 
             {/* Dataset details (shared with the sidebar's Data pane) */}
-            {selectedNode && selectedNode.type === 'dataset' && renderDatasetDetails(selectedNode)}
+            {selectedNode && selectedNode.type === 'dataset' && renderDatasetDetails(selectedNode, true)}
 
             {/* Selected Non-Dataset Node details */}
             {selectedNode && selectedNode.type !== 'dataset' && (

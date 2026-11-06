@@ -187,9 +187,10 @@ NULL
 
 .columnSummary <- function(x, name) {
   # The fields and rules of the editor's ColumnSummary (drawsem-web/src/utils/columnStats.ts):
-  # a value is missing when NA or empty after trimming; numeric when it reads as a number.
+  # a value is missing when NA, empty after trimming, or the text "NA" (MISSING_TOKENS);
+  # numeric when it reads as a number.
   v <- trimws(as.character(x))
-  isMissing <- is.na(v) | v == ""
+  isMissing <- is.na(v) | v == "" | v == "NA"
   present <- v[!isMissing]
   num <- suppressWarnings(as.numeric(present))
   num <- num[!is.na(num)]

@@ -31,6 +31,9 @@ export interface Node {
     fileName: string
     headers: string[]
     columns: ColumnSummary[]
+    // The file's MD5 was checked against datasetSource.md5 when the editor
+    // loaded it (only the editor's own file loader checks; R does not)
+    md5Checked?: boolean
   }
   bindingMappings?: Record<string, string>
   // Input keys the editor does not own (see OWNED_NODE_KEYS), re-emitted verbatim.

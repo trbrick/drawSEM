@@ -8,6 +8,11 @@ describe('column summaries', () => {
     expect(a.std).toBeCloseTo(Math.SQRT2)
   })
 
+  it('count "NA" as missing, as R does (read.csv, jsonToDataFrame), but not other text', () => {
+    const [x] = summarizeColumns([{ x: '2.3' }, { x: 'NA' }, { x: ' NA ' }, { x: 'na' }, { x: '1.8' }], ['x'])
+    expect(x).toMatchObject({ count: 5, missing: 2, numericCount: 2, distinct: { exact: 3 } })
+  })
+
   it('give text columns no numeric statistics, and a single number no SD', () => {
     const [t, one] = summarizeColumns([{ t: 'u', one: 5 }, { t: 'v' }, { t: 'u' }], ['t', 'one'])
     expect(t).toMatchObject({ numericCount: 0, mean: null, std: null, min: null, max: null, distinct: { exact: 2 } })
