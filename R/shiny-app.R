@@ -186,20 +186,36 @@ NULL
 }
 
 .columnSummary <- function(x, name) {
-  present <- x[!is.na(x) & !(is.character(x) & x == "")]
-  num <- suppressWarnings(as.numeric(as.character(present)))
+  # The fields and rules of the editor's ColumnSummary (drawsem-web/src/utils/columnStats.ts):
+  # a value is missing when NA or empty after trimming; numeric when it reads as a number.
+  v <- trimws(as.character(x))
+  isMissing <- is.na(v) | v == ""
+  present <- v[!isMissing]
+  num <- suppressWarnings(as.numeric(present))
   num <- num[!is.na(num)]
-  list(
-    name        = name,
-    distinct    = length(unique(present)),
-    cardinality = length(unique(present)),
-    mean        = if (length(num) > 0) mean(num) else NULL,
-    std         = if (length(num) > 1) stats::sd(num) else NULL,
-    min         = if (length(num) > 0) min(num) else NULL,
-    max         = if (length(num) > 0) max(num) else NULL,
-    count       = length(present)
+  counts <- table(factor(present, levels = unique(present)))
+  out <- list(
+    name         = name,
+    count        = length(v),
+    missing      = sum(isMissing),
+    numericCount = length(num),
+    mean         = if (length(num) > 0) mean(num) else NULL,
+    std          = if (length(num) > 1) stats::sd(num) else NULL,
+    min          = if (length(num) > 0) min(num) else NULL,
+    max          = if (length(num) > 0) max(num) else NULL,
+    distinct     = list(exact = length(counts))
   )
+  if (length(counts) > 0 && length(counts) <= .LEVELS_LIMIT) {
+    values <- names(counts)
+    ord <- if (!anyNA(suppressWarnings(as.numeric(values)))) order(as.numeric(values)) else seq_along(values)
+    out$levels <- unname(lapply(ord, function(i) list(value = values[[i]], count = as.integer(counts[[i]]))))
+  }
+  out
 }
+
+# Value counts are reported for columns with at most this many distinct values
+# (LEVELS_LIMIT in columnStats.ts).
+.LEVELS_LIMIT <- 20
 
 # Default dataset label for a chosen file: its name without the extension.
 .datasetLabelFromFile <- function(fileName) {

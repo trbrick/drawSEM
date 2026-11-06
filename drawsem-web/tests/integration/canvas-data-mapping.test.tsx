@@ -353,37 +353,72 @@ describe('sidebar Data pane', () => {
   const pane = () => screen.getByTestId('data-pane')
   const paneButton = () => within(pane()).getByRole('button', { name: /D$/ })
   const paneRow = (name: string) => within(pane()).getAllByText(name).map((el) => el.closest('tr')).find(Boolean)!
+  const columnToggle = (name: string) => within(pane()).getByTitle(new RegExp(`summary of ${name}$`))
+  const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
 
   it('lists datasets in the SEM layer only; expanding one shows its columns and widens the sidebar', async () => {
     const ctx = await setup()
     const aside = ctx.container.querySelector('aside')!
     expect(paneButton().getAttribute('aria-expanded')).toBe('false')
-    expect(within(pane()).queryByText('Mean')).toBeNull()
+    expect(within(pane()).queryByText('Mapped to')).toBeNull()
     expect(aside.className).toContain('w-48')
 
     fireEvent.click(paneButton())
     expect(paneButton().getAttribute('aria-expanded')).toBe('true')
-    expect(within(pane()).getByText('Mean')).toBeTruthy()
+    expect(within(pane()).getByText('Mapped to')).toBeTruthy()
     expect(paneRow('col_b')).toBeTruthy()
-    expect(aside.className).toContain('w-[420px]')
+    expect(aside.className).toContain('w-80')
 
     fireEvent.click(paneButton())
-    expect(within(pane()).queryByText('Mean')).toBeNull()
+    expect(within(pane()).queryByText('Mapped to')).toBeNull()
     expect(aside.className).toContain('w-48')
 
     fireEvent.click(screen.getByText('Complete Graph'))
     expect(screen.queryByTestId('data-pane')).toBeNull()
   })
 
-  it('rounds fractional min and max like mean and std', async () => {
+  it('each row shows its column, the variables mapping it, and its missing count', async () => {
     const schema = fixture()
     const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
-    ds.datasetSource.object = [{ x1: -2.2146998871775, x2: 2, col_b: 3 }, { x1: 1.5953, x2: 4, col_b: 5 }]
+    ds.datasetSource.object = [{ x1: 1, x2: 2, col_b: 3 }, { x1: null, x2: 4, col_b: '' }]
     await setup(schema)
     fireEvent.click(paneButton())
-    const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
-    expect(cells('x1')).toEqual(expect.arrayContaining(['-2.215', '1.595']))
-    expect(cells('x2')).toEqual(expect.arrayContaining(['2', '4']))
+    expect(cells('x1')).toEqual(['▸x1', 'x1', '1'])
+    expect(cells('col_b')).toEqual(['▸col_b', 'x2', '1'])
+    expect(cells('x2')).toEqual(['▸x2', '—', '0'])   // D maps col_b, not x2, to x2
+  })
+
+  it('clicking a column name expands its summary, with value counts; clicking again collapses it', async () => {
+    const schema = fixture()
+    const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
+    ds.datasetSource.object = [
+      { x1: -2.2146998871775, x2: 3, col_b: 'a' }, { x1: 1.5953, x2: 1, col_b: 'b' }, { x1: null, x2: 1, col_b: 'a' },
+    ]
+    await setup(schema)
+    fireEvent.click(paneButton())
+    expect(screen.queryByTestId('column-summary')).toBeNull()
+
+    fireEvent.click(columnToggle('x1'))
+    expect(columnToggle('x1').getAttribute('aria-expanded')).toBe('true')
+    let summary = screen.getByTestId('column-summary')
+    // fractional min and max are rounded like mean and SD
+    for (const text of ['3', '1 (33%)', '2 of 2', '-2.215', '1.595']) expect(within(summary).getAllByText(text).length).toBeGreaterThan(0)
+
+    // one column at a time; distinct values are counted (numeric ascending)
+    fireEvent.click(columnToggle('x2'))
+    expect(screen.getAllByTestId('column-summary')).toHaveLength(1)
+    summary = screen.getByTestId('column-summary')
+    const levelRows = Array.from(summary.querySelectorAll(':scope tbody tr')).map((tr) => tr.textContent)
+    expect(levelRows).toEqual(['12 (67%)', '31 (33%)'])
+
+    // text columns: value counts in order of appearance, no numeric statistics
+    fireEvent.keyDown(columnToggle('col_b'), { key: 'Enter' })
+    summary = screen.getByTestId('column-summary')
+    expect(Array.from(summary.querySelectorAll(':scope tbody tr')).map((tr) => tr.textContent)).toEqual(['a2 (67%)', 'b1 (33%)'])
+    expect(within(summary).queryByText('Mean')).toBeNull()
+
+    fireEvent.click(columnToggle('col_b'))
+    expect(screen.queryByTestId('column-summary')).toBeNull()
   })
 
   it('a column dragged from the pane maps a new variable; hovering a row highlights its variable', async () => {

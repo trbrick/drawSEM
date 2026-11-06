@@ -4,6 +4,8 @@
  * GraphSchema is the universal interchange format for all operations
  */
 
+import type { ColumnSummary } from '../utils/columnStats'
+
 /**
  * Root graph document - matches graph.schema.json structure
  * This is the universal interchange format for all operations
@@ -276,7 +278,7 @@ export interface GraphAdapter {
    * datasets whose data the host (R) holds, keyed by dataset label. Display
    * only; the editor cannot read data files itself in that environment.
    */
-  onDatasetSummaries?(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: any[] }>) => void): void
+  onDatasetSummaries?(callback: (summaries: Record<string, { fileName: string; headers: string[]; columns: ColumnSummary[] }>) => void): void
 
   /**
    * Optional: Send an SVG string to the host environment for server-side format

@@ -264,6 +264,17 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   dataset's columns are known (its data is loaded), a data path mapping a
   column the dataset lacks is flagged in its row and its cable label is drawn
   as a warning (not in image export)
+- Web frontend: dataset column table (`renderDatasetDetails()` in
+  `CanvasTool.tsx`, summaries in `src/utils/columnStats.ts`), shown in the
+  dataset popup and the sidebar's Data pane. One compact row per column: its
+  name, the variables its data paths map it to, and its missing count; drag a
+  row onto the canvas to map it. Clicking a column's name expands its summary
+  below it (one column at a time): rows, missing, numeric and distinct counts,
+  mean/SD/min/max of the numeric values, and value counts for columns with at
+  most 20 distinct values. Summaries are display only (never serialized) and
+  assume nothing about how a column is treated. Every source produces the same
+  `ColumnSummary` shape: the file and embedded loaders and the browser CSV
+  import in TypeScript, and `.columnSummary()` in `R/shiny-app.R` for Shiny
 - Web frontend: path labels on the canvas (`pathDisplayText()`,
   `pathShownName()`, `isUnnamedFreePath()` in `src/utils/helpers.ts`). A
   path's name is its parameter name (`freeParameter` string), else its

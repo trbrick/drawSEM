@@ -149,7 +149,7 @@ test_that(".datasetSummaries describes file datasets R holds data for, and only 
   expect_equal(s$sample$headers, c("x_1", "x_2", "x_3"))
   col <- s$sample$columns[[1]]
   expect_equal(col$name, "x_1")
-  expect_equal(col$count, 10)
+  expect_equal(col$count, 10); expect_equal(col$missing, 0)
   expect_equal(col$mean, mean(gm@data$sample$x_1))
   expect_equal(col$std, sd(gm@data$sample$x_1))
 
@@ -165,9 +165,20 @@ test_that(".datasetSummaries describes file datasets R holds data for, and only 
 
 test_that(".columnSummary handles missing values and text columns", {
   s <- .columnSummary(c(1, NA, 3), "a")
-  expect_equal(s$count, 2); expect_equal(s$mean, 2); expect_equal(s$min, 1); expect_equal(s$max, 3)
+  expect_equal(s$count, 3); expect_equal(s$missing, 1); expect_equal(s$numericCount, 2)
+  expect_equal(s$mean, 2); expect_equal(s$min, 1); expect_equal(s$max, 3)
   t <- .columnSummary(c("u", "v", "", NA, "u"), "b")
-  expect_equal(t$count, 3); expect_equal(t$distinct, 2); expect_null(t$mean)
+  expect_equal(t$count, 5); expect_equal(t$missing, 2); expect_equal(t$numericCount, 0)
+  expect_equal(t$distinct, list(exact = 2)); expect_null(t$mean)
+})
+
+test_that(".columnSummary counts values like the editor: numeric ascending, else first seen; none past the limit", {
+  s <- .columnSummary(c(3, 1, 2, 1, NA), "likert")
+  expect_equal(s$levels, list(list(value = "1", count = 2L), list(value = "2", count = 1L), list(value = "3", count = 1L)))
+  f <- .columnSummary(factor(c("Low", "High", "Low", "Medium")), "lvl")
+  expect_equal(vapply(f$levels, `[[`, "", "value"), c("Low", "High", "Medium"))
+  expect_null(.columnSummary(1:50, "many")$levels)
+  expect_equal(.columnSummary(1:50, "many")$distinct, list(exact = 50))
 })
 
 # ---- data sources: file connection, embedded, R session ------------------------
