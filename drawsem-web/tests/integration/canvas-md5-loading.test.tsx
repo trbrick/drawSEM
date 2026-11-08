@@ -104,7 +104,6 @@ describe('CanvasTool CSV MD5 loading', () => {
     })
 
     // the dataset details say the file was checked against its MD5
-    fireEvent.click(within(screen.getByTestId('data-pane')).getByRole('button', { name: /sample$/ }))
     await waitFor(() => expect(screen.getByTestId('dataset-status').getAttribute('title')).toBe('Connected\nThe file matches its recorded MD5'))
   })
 

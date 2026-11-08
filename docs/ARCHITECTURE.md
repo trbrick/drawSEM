@@ -267,7 +267,12 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   as a warning (not in image export)
 - Web frontend: dataset column table (`renderDatasetDetails()` in
   `CanvasTool.tsx`, summaries in `src/utils/columnStats.ts`), shown in the
-  dataset popup and the sidebar's Data pane. A header gives the dataset's
+  dataset popup and the sidebar's Data pane. Loading opens a dataset in the
+  Data pane: a model load (initial, JSON import, R `load`) its first, data
+  attached in R or a CSV loaded in the editor that dataset; other R pushes
+  (a fit) leave it as it is. A dataset added in the SEM layer keeps the SEM
+  layer (the pane shows it); in the layers that draw dataset nodes the view is
+  refit to bring the new node into view. A header gives the dataset's
   name, where the data lives and its size ("File · 10 rows × 3 cols"; File,
   Embedded, R session, or Editor only), and a status icon: connected when the
   data is loaded, loaded without error and every mapped column exists, an
@@ -280,7 +285,9 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   numeric values Mean (SD) and Range, at most two decimals; the popup puts
   the numeric statistics in a second column. When some columns are mapped by
   no data path, "Add all as nodes" adds a variable for each (mapped, linked,
-  with a free error variance) in a grid below the diagram, as one undo step.
+  with a free error variance) in one row, as one undo step: appended to the
+  right end of the row with the most manifest variables (the lower on a tie),
+  or, with no manifests, centred in the view (`newRowPositions()`).
   Summaries are display only (never serialized) and assume nothing about how
   a column is treated. Every source produces the same `ColumnSummary` shape:
   the file and embedded loaders and the browser CSV import in TypeScript, and

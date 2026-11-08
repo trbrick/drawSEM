@@ -11,7 +11,7 @@ import { CABLE_COLOR, CABLE_WIDTH, cableTrunk, cableTrunkD, cableBranch } from '
 import type { CableTrunk } from '../utils/dataCables'
 import { nearestLoopSide, resolveLoopSides, LoopSide } from '../utils/loopSide'
 import type { NodeShape } from '../utils/loopSide'
-import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, followGeneratedLabels, followDirectionLabel, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
+import { isDatasetPath, modelFilename, nodeX, nodeY, makeNode, uniqueNodeLabel, nodeLabelError, makePath, makeVariancePath, makeDataPath, setPathDirection, cyclePathDirection, withManifestLatent, withFreeParameter, formatPathValue, newRowPositions, followGeneratedLabels, followDirectionLabel, pathDisplayText, isUnnamedFreePath, pathNameClashes, pathIdsWithNameClash, nameClashMessage } from '../utils/helpers'
 import type { Node, Path, PathLabelMode } from '../utils/helpers'
 import { LATENT_RADIUS, MANIFEST_DEFAULT_W, MANIFEST_DEFAULT_H, DATASET_DEFAULT_W, DATASET_DEFAULT_H, DISPLAY_MARGINS } from '../utils/constants'
 import { computeModelBounds, computeAnchor, DisplayAnchor } from '../utils/coordinateNormalization'
@@ -312,17 +312,17 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     return JSON.stringify(view) !== JSON.stringify(loadedViewRef.current)
   }
 
-  // When a dataset node is added (e.g. data loaded from R), switch to the All
-  // layer so it is visible (the default SEM layer hides dataset nodes), and
-  // refit the view to include it: R places a new dataset at a fixed spot that
-  // a fit of the other nodes can leave off-screen.
+  // When a dataset node is added (e.g. data loaded from R) and its node is
+  // drawn (the Complete Graph or Data layer), refit the view to include it: R
+  // places a new dataset at a fixed spot that a fit of the other nodes can leave
+  // off-screen. The SEM layer stays as it is: it hides dataset nodes, and the
+  // Data pane shows the new dataset instead.
   const datasetIdsKey = nodes.filter((n) => n.type === 'dataset').map((n) => n.id).sort().join(',')
   const prevDatasetIdsRef = useRef<{ modelId: string | null; ids: Set<string> } | null>(null)
   React.useEffect(() => {
     const ids = new Set(datasetIdsKey ? datasetIdsKey.split(',') : [])
     const prev = prevDatasetIdsRef.current
-    if (prev && prev.modelId === currentModelId && [...ids].some((id) => !prev.ids.has(id))) {
-      setActiveLayer('all')
+    if (prev && prev.modelId === currentModelId && [...ids].some((id) => !prev.ids.has(id)) && activeLayerRef.current !== 'sem') {
       fitViewToNodes(nodes, paths, { excludeDataset: false })
     }
     prevDatasetIdsRef.current = { modelId: currentModelId, ids }
@@ -505,6 +505,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
             setCurrentModelId(modelsOut[0].id)
             showLoadedView(modelsOut[0])
           }
+          setDataPaneRequest('first')
         }
       } catch (e) {
         console.error('[JSON Import] Unexpected exception:', e)
@@ -552,6 +553,8 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
           }
 
           if (kind === 'data') history.markChange()
+          if (kind === 'load') setDataPaneRequest('first')
+          else if (kind === 'data') setDataPaneRequest({ before: datasetLabelsRef.current })
           // Mapping links: a new document links data paths named like their
           // variable; a push that keeps the history keeps the links it had.
           if (kind === 'load') loadModels(linkMappingsOnLoad(modelsOut))
@@ -771,6 +774,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   const [expandedColumn, setExpandedColumn] = useState<{ datasetId: string; name: string } | null>(null)
   // The dataset expanded in the sidebar's Data pane (SEM layer only)
   const [dataPaneDatasetId, setDataPaneDatasetId] = useState<string | null>(null)
+  // Loading opens a dataset in the Data pane, resolved once the loaded nodes
+  // have rendered: a model load opens its first dataset ('first'); a CSV found
+  // for a dataset opens it (`id`); attaching data (R, or a CSV loaded here)
+  // opens the dataset named `label`, else one not among `before`, else the
+  // open one, else the first.
+  type DataPaneRequest = 'first' | { id: string } | { before: readonly string[]; label?: string }
+  const [dataPaneRequest, setDataPaneRequest] = useState<DataPaneRequest | null>(null)
+  // Dataset labels as of the last render (for an R data push, whose callback outlives renders)
+  const datasetLabelsRef = useRef<readonly string[]>([])
   const [isLayingOut, setIsLayingOut] = useState<boolean>(false)
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false)
   const [showSaveMenu, setShowSaveMenu] = useState<boolean>(false)
@@ -790,6 +802,21 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
   )
 
   const svgRef = useRef<SVGSVGElement | null>(null)
+  React.useEffect(() => {
+    const datasets = nodes.filter((n) => n.type === 'dataset')
+    datasetLabelsRef.current = datasets.map((n) => n.label)
+    if (!dataPaneRequest) return
+    const req = dataPaneRequest
+    const pick = req === 'first' ? datasets[0]
+      : 'id' in req ? datasets.find((n) => n.id === req.id)
+      : (req.label !== undefined ? datasets.find((n) => n.label === req.label) : undefined)
+        ?? datasets.find((n) => !req.before.includes(n.label))
+        ?? datasets.find((n) => n.id === dataPaneDatasetId)
+        ?? datasets[0]
+    setDataPaneDatasetId(pick?.id ?? null)
+    setDataPaneRequest(null)
+  }, [nodes, dataPaneRequest])
+
   // Anchor the drawing when the sidebar changes width: the canvas's left edge
   // moves, and with a fixed viewBox (xMidYMid meet) the drawing would re-centre
   // and rescale. Keep its screen scale and position instead. Other resizes (the
@@ -1705,6 +1732,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         // apply into runtime state
         setModels(modelsOut)
         history.reset()
+        setDataPaneRequest('first')
         setDocPassthrough(docPassthroughOf(loadedSchema))
         if (modelsOut.length > 0) {
           setCurrentModelId(modelsOut[0].id)
@@ -1777,12 +1805,15 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         csvTargetNodeIdRef.current = null
         if (targetId) {
           setNodes((cur) => cur.map((n) => (n.id === targetId ? { ...n, dataset: meta } : n)))
+          setDataPaneRequest({ id: targetId })
           return
         }
 
         // Add or update an internal-only dataset node representing this CSV (not part of persisted JSON)
         try {
           const baseName = (f.name || 'dataset').replace(/\.csv$/i, '')
+          // Open it in the Data pane: the dataset named baseName, else the new one
+          setDataPaneRequest({ before: datasetLabelsRef.current, label: baseName })
           setNodes((cur) => {
             const existingIndex = cur.findIndex((n) => n.type === 'dataset' && n.label === baseName)
             if (existingIndex >= 0) {
@@ -2589,8 +2620,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
 
   // Add a variable for every column of `datasetId` that no data path maps, each
   // mapping its column (linked, like a column dropped on the canvas) with a free
-  // error variance. They go in a grid (6 per row) below the lowest variable or
-  // constant, centred on them. One undo step.
+  // error variance, in one row (newRowPositions). One undo step.
   function addUnconnectedColumns(datasetId: string) {
     if (isLayoutOnly) return
     const ds = nodes.find((n) => n.id === datasetId)
@@ -2599,15 +2629,13 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
     const unconnected = columns.filter((col) => !mapped.has(col))
     if (!ds || unconnected.length === 0) return
 
-    const PER_ROW = 6
-    const stepX = MANIFEST_DEFAULT_W + 24
-    const stepY = MANIFEST_DEFAULT_H + 24
-    const placed = nodes.filter((n) => n.type !== 'dataset')
-    const minX = placed.length ? Math.min(...placed.map((n) => nodeX(n))) : 0
-    const maxX = placed.length ? Math.max(...placed.map((n) => nodeX(n))) : 0
-    const bottom = placed.length ? Math.max(...placed.map((n) => nodeY(n) + (n.height ?? MANIFEST_DEFAULT_H) / 2)) : 0
-    const startX = (minX + maxX) / 2 - ((Math.min(unconnected.length, PER_ROW) - 1) / 2) * stepX
-    const startY = bottom + 60 + MANIFEST_DEFAULT_H / 2
+    // In one row: appended to the row with the most manifest variables, else
+    // centred in the view
+    const vb = parseViewBox(viewBoxAttr)
+    const center = vb ? { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 } : { x: 0, y: 0 }
+    const others = nodes.filter((n) => n.type !== 'dataset').map((n) => ({ x: nodeX(n), y: nodeY(n) }))
+    const manifests = nodes.filter((n) => n.type === 'variable' && isManifestNode(n)).map((n) => ({ x: nodeX(n), y: nodeY(n) }))
+    const positions = newRowPositions(unconnected.length, manifests, others, center, MANIFEST_DEFAULT_W + 24, MANIFEST_DEFAULT_H / 2)
 
     const allNodes = [...nodes]
     const allPaths = [...paths]
@@ -2617,7 +2645,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
       const label = uniqueNodeLabel(allNodes, 'name', col)
       const node = makeNode({
         label, displayName: convertToUnicode(label), type: 'variable',
-        x: startX + (i % PER_ROW) * stepX, y: startY + Math.floor(i / PER_ROW) * stepY,
+        x: positions[i].x, y: positions[i].y,
       })
       const data = withMappingLinked(makeDataPath(datasetId, node.id, col, convertToUnicode(col)), label === col)
       const variance = makeVariancePath(node.id, node.label, allPaths)
@@ -3767,7 +3795,7 @@ export default function CanvasTool({ initialSchema, onModelChange, viewMode = 'f
         )}
         {/* Floating popup - shows selected item details, positioned to avoid covering the selected object */}
         {viewMode !== 'widget' && (selectedNode || selectedPath || selectionCount > 1) && (
-          <div className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
+          <div data-testid="element-popup" className={`absolute z-50 w-[420px] max-w-[90%] bg-white border rounded shadow-lg p-3 ${getPopupPositionClasses()}`}>
             {/* Header section */}
             <div className="flex items-center justify-between mb-3">
               <div>

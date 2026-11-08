@@ -1,12 +1,13 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup, act } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, act, fireEvent, within } from '@testing-library/react'
 import CanvasTool from '../../src/components/CanvasTool'
 import { AdapterContext } from '../../src/context/AdapterContext'
 import type { GraphAdapter, GraphSchema } from '../../src/core/types'
 
-// The default SEM layer hides dataset nodes, so adding one (e.g. data loaded
-// from R) must switch the view to the All layer.
+// The default SEM layer hides dataset nodes; adding one (e.g. data loaded from
+// R) keeps the layer and opens the dataset in the sidebar's Data pane. Where
+// dataset nodes are drawn, the view is refit to bring a new one into view.
 
 function schema(withDataset: boolean): GraphSchema {
   const nodes: any[] = [
@@ -32,7 +33,7 @@ afterEach(() => {
 })
 
 describe('dataset layer switching', () => {
-  it('switches from the SEM layer to All when a dataset node is added', async () => {
+  it('keeps the SEM layer when a dataset node is added, with it open in the Data pane', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
     let receive: ((s: GraphSchema) => void) | null = null
     const adapter: GraphAdapter = {
@@ -49,7 +50,9 @@ describe('dataset layer switching', () => {
     await waitFor(() => expect(screen.queryByText('Variables, constants & SEM paths')).not.toBeNull())
     expect(receive).not.toBeNull()
     act(() => receive!(schema(true)))
-    await waitFor(() => expect(screen.queryByText('All elements')).not.toBeNull())
+    await waitFor(() => expect(within(screen.getByTestId('data-pane')).getByRole('button', { name: /mydata$/ }).getAttribute('aria-expanded')).toBe('true'))
+    expect(screen.queryByText('Variables, constants & SEM paths')).not.toBeNull()
+    expect(screen.queryByText('All elements')).toBeNull()
   })
 
   it('does not loop when the initial schema is invalid (no model loaded)', async () => {
@@ -77,7 +80,7 @@ describe('dataset layer switching', () => {
     expect(screen.queryByText('All elements')).toBeNull()
   })
 
-  it('brings a newly attached dataset into view (as R places it, away from the other nodes)', async () => {
+  it('in Complete Graph, brings a newly attached dataset into view (as R places it, away from the other nodes)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, text: async () => '' }) as unknown as Response))
     let receive: ((s: GraphSchema) => void) | null = null
     const adapter: GraphAdapter = {
@@ -100,6 +103,7 @@ describe('dataset layer switching', () => {
       </AdapterContext.Provider>
     )
     await waitFor(() => expect(receive).not.toBeNull())
+    fireEvent.click(screen.getByText('Complete Graph'))
     act(() => receive!(attached))
     const canvas = () => container.querySelector('marker#arrow-end')!.closest('svg')!
     await waitFor(() => {

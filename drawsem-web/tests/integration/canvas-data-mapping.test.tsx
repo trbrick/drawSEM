@@ -370,32 +370,50 @@ describe('sidebar Data pane', () => {
   const columnToggle = (name: string) => within(pane()).getByTitle(new RegExp(`summary of ${name}$`))
   const cells = (name: string) => Array.from(paneRow(name).cells).map((td) => td.textContent)
 
-  it('lists datasets in the SEM layer only; expanding one shows its columns without a fixed wider sidebar', async () => {
+  it('lists datasets in the SEM layer only, the first open after a load; toggling one shows or hides its columns', async () => {
     const ctx = await setup()
     const aside = ctx.container.querySelector('aside')!
-    expect(paneButton().getAttribute('aria-expanded')).toBe('false')
-    expect(within(pane()).queryByText('Mapped to')).toBeNull()
     // sized to its content (only the column table can widen it), never a fixed wider class
     const width = aside.className
     expect(width).toContain('w-max')
-
-    fireEvent.click(paneButton())
     expect(paneButton().getAttribute('aria-expanded')).toBe('true')
     expect(within(pane()).getByText('Mapped to')).toBeTruthy()
     expect(paneRow('col_b')).toBeTruthy()
+
+    fireEvent.click(paneButton())
+    expect(paneButton().getAttribute('aria-expanded')).toBe('false')
+    expect(within(pane()).queryByText('Mapped to')).toBeNull()
     expect(aside.className).toBe(width)
 
     fireEvent.click(paneButton())
-    expect(within(pane()).queryByText('Mapped to')).toBeNull()
+    expect(within(pane()).getByText('Mapped to')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Complete Graph'))
     expect(screen.queryByTestId('data-pane')).toBeNull()
   })
 
+  it('R attaching data opens the new dataset; a fit leaves the pane as it is; a load opens the first', async () => {
+    const ctx = await setup()
+    const withE = fixture({ nodes: [{ label: 'E', type: 'dataset', visual: { x: 200, y: 350 }, datasetSource: { type: 'embedded', columnTypes: { e1: 'number' }, object: [{ e1: 1 }] } }] })
+    await ctx.push(withE, 'data')
+    // the SEM layer stays, with the new dataset open in the pane
+    const button = (name: string) => within(pane()).getByRole('button', { name: new RegExp(`${name}$`) })
+    await waitFor(() => expect(button('E').getAttribute('aria-expanded')).toBe('true'))
+    expect(button('D').getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(button('E'))   // closed by hand: a fit keeps it closed
+    await ctx.push(withE, 'fit')
+    await nextTask()
+    expect(button('E').getAttribute('aria-expanded')).toBe('false')
+    expect(button('D').getAttribute('aria-expanded')).toBe('false')
+
+    await ctx.push(withE, 'load')
+    await waitFor(() => expect(button('D').getAttribute('aria-expanded')).toBe('true'))
+  })
+
   it('the header gives where the data lives and its size; its status icon shows errors on hover', async () => {
     const schema = fixture()
     await setup(schema)
-    fireEvent.click(paneButton())
     expect(screen.getByTestId('dataset-header').textContent).toContain('Embedded · 1 row × 3 cols')
     expect(screen.getByTestId('dataset-header').textContent).not.toContain('MD5')
     // x3 maps a column D lacks: an error, explained on hover
@@ -409,7 +427,6 @@ describe('sidebar Data pane', () => {
     clean.models.m.paths = clean.models.m.paths.filter((p: any) => p.label !== 'gone')
     ;(clean.models.m.nodes.find((n: any) => n.type === 'dataset') as any).datasetSource.md5 = 'abc123'
     await setup(clean)
-    fireEvent.click(paneButton())
     const ok = screen.getByTestId('dataset-status')
     expect(ok.getAttribute('aria-label')).toBe('Connected')
     expect(ok.getAttribute('title')).toBe('Connected\nMD5 recorded; not checked here')
@@ -417,12 +434,15 @@ describe('sidebar Data pane', () => {
 
   it('"Add all as nodes" adds a mapped variable for each column not on the canvas, as one undo step', async () => {
     const ctx = await setup()
-    fireEvent.click(paneButton())
     // D maps x1 and col_b; x2 is not on the canvas (x2 the variable maps col_b)
     expect(within(pane()).getByText('1 not on the canvas')).toBeTruthy()
     fireEvent.click(within(pane()).getByRole('button', { name: 'Add all as nodes' }))
     await waitFor(() => expect(lastModel(ctx).paths).toContainEqual(expect.objectContaining({ from: 'D', type: 'data', label: 'x2', to: 'x2_2' })))
     expect(lastModel(ctx).paths).toContainEqual(expect.objectContaining({ from: 'x2_2', to: 'x2_2', numberOfArrows: 2, freeParameter: true }))
+    // appended to the manifests' row (x1, x2, x3 at y 150; x3 rightmost at x 100)
+    const added = lastModel(ctx).nodes.find((n: any) => n.label === 'x2_2')
+    expect(added.visual.y).toBe(150)
+    expect(added.visual.x).toBeGreaterThan(100)
     expect(within(pane()).queryByText(/not on the canvas/)).toBeNull()
     undo(ctx)
     await waitFor(() => expect(lastModel(ctx).nodes.map((n: any) => n.label)).not.toContain('x2_2'))
@@ -434,7 +454,6 @@ describe('sidebar Data pane', () => {
     const ds = schema.models.m.nodes.find((n: any) => n.type === 'dataset') as any
     ds.datasetSource.object = [{ x1: 1, x2: 2, col_b: 3 }, { x1: null, x2: 4, col_b: '' }]
     await setup(schema)
-    fireEvent.click(paneButton())
     expect(cells('x1')).toEqual(['▸x1', 'x1', '1'])
     expect(cells('col_b')).toEqual(['▸col_b', 'x2', '1'])
     expect(cells('x2')).toEqual(['▸x2', '—', '0'])   // D maps col_b, not x2, to x2
@@ -447,7 +466,6 @@ describe('sidebar Data pane', () => {
       { x1: -2.2146998871775, x2: 3, col_b: 'a' }, { x1: 1.5953, x2: 1, col_b: 'b' }, { x1: null, x2: 1, col_b: 5 },
     ]
     await setup(schema)
-    fireEvent.click(paneButton())
     expect(screen.queryByTestId('column-summary')).toBeNull()
     const summaryText = () => Array.from(screen.getByTestId('column-summary').querySelectorAll('dt, dd')).map((el) => el.textContent)
 
@@ -471,7 +489,6 @@ describe('sidebar Data pane', () => {
 
   it('a column dragged from the pane maps a new variable; hovering a row highlights its variable', async () => {
     const ctx = await setup()
-    fireEvent.click(paneButton())
     fireEvent.mouseEnter(paneRow('col_b'))
     const x2Text = nodeGroup(ctx, 'x2').querySelector(':scope > text') as SVGTextElement
     expect(x2Text.getAttribute('font-weight')).toBe('bold')

@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, within, waitFor, cleanup, fireEvent, act } from '@testing-library/react'
 import CanvasTool from '../../src/components/CanvasTool'
 import { AdapterContext } from '../../src/context/AdapterContext'
 import type { GraphAdapter, GraphSchema } from '../../src/core/types'
@@ -41,8 +41,11 @@ async function selectDataset(container: HTMLElement) {
   const shape = label.closest('g')!.querySelector('[style*="grab"], rect, path, ellipse') as Element
   fireEvent.mouseDown(shape, { button: 0 })
   fireEvent.mouseUp(container.querySelector('svg')!)
-  await waitFor(() => expect(screen.getByText('⚠ No Data Loaded')).toBeTruthy())
+  await waitFor(() => expect(popup().getByText('⚠ No Data Loaded')).toBeTruthy())
 }
+
+// The selected dataset's popup (the Data pane, open in the SEM layer, shows the same details)
+const popup = () => within(screen.getByTestId('element-popup'))
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); cleanup() })
 
@@ -57,18 +60,18 @@ describe('finding a missing data file', () => {
     const requestLoadData = vi.fn()
     const { container } = renderCanvas('shiny', { requestLoadData })
     await selectDataset(container)
-    expect(screen.getByText(/⛁ Load Data button/)).toBeTruthy()
-    fireEvent.click(screen.getByText('Find data file…'))
+    expect(popup().getByText(/⛁ Load Data button/)).toBeTruthy()
+    fireEvent.click(popup().getByText('Find data file…'))
     expect(requestLoadData).toHaveBeenCalledWith('sample')
   })
 
   it('outside Shiny, the message names the Add Dataset button and the button opens a file picker', async () => {
     const { container } = renderCanvas('full', {})
     await selectDataset(container)
-    expect(screen.getByText(/⛁ Add Dataset button/)).toBeTruthy()
+    expect(popup().getByText(/⛁ Add Dataset button/)).toBeTruthy()
     const input = container.querySelector('input[type="file"][accept*="csv"]') as HTMLInputElement
     const clicked = vi.spyOn(input, 'click').mockImplementation(() => {})
-    fireEvent.click(screen.getByText('Find data file…'))
+    fireEvent.click(popup().getByText('Find data file…'))
     expect(clicked).toHaveBeenCalled()
   })
 
@@ -88,7 +91,7 @@ describe('finding a missing data file', () => {
     svg.getScreenCTM = () => ({ a: 1, inverse: () => ({}) })
     fireEvent.mouseDown(label.closest('g')!.querySelector('[style*="grab"], rect, path, ellipse')!, { button: 0 })
     fireEvent.mouseUp(svg)
-    await waitFor(() => expect(screen.getByText('sample.csv')).toBeTruthy())
+    await waitFor(() => expect(popup().getByText('sample.csv')).toBeTruthy())
     expect(screen.queryByText('⚠ No Data Loaded')).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
   })

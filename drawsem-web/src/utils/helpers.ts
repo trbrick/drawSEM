@@ -592,3 +592,40 @@ export function pathDisplayText(path: Path, mode: PathLabelMode): string | null 
 export function formatPathValue(value: number | null | undefined): string {
   return value !== null && value !== undefined ? value.toFixed(6).replace(/\.?0+$/, '') : ''
 }
+
+/**
+ * Positions for `count` new nodes added in one row ("Add all as nodes"):
+ * - appended, `step` apart, to the right end of the row holding the most
+ *   `manifests` (nodes within `tolerance` of the same height form a row; on a
+ *   tie the lower row), past every node in `occupied` on that row;
+ * - with no manifests, a row through `viewCenter`, centred on it.
+ */
+export function newRowPositions(
+  count: number,
+  manifests: readonly { x: number; y: number }[],
+  occupied: readonly { x: number; y: number }[],
+  viewCenter: { x: number; y: number },
+  step: number,
+  tolerance: number,
+): { x: number; y: number }[] {
+  if (manifests.length === 0) {
+    const startX = viewCenter.x - ((count - 1) / 2) * step
+    return Array.from({ length: count }, (_, i) => ({ x: startX + i * step, y: viewCenter.y }))
+  }
+  // Rows: manifests sorted by height, each joining the row whose mean it is within tolerance of
+  const rows: { y: number; ys: number[] }[] = []
+  for (const m of [...manifests].sort((a, b) => a.y - b.y)) {
+    const row = rows[rows.length - 1]
+    if (row && Math.abs(m.y - row.y) <= tolerance) {
+      row.ys.push(m.y)
+      row.y = row.ys.reduce((a, b) => a + b, 0) / row.ys.length
+    } else {
+      rows.push({ y: m.y, ys: [m.y] })
+    }
+  }
+  const best = rows.reduce((a, b) => (b.ys.length > a.ys.length || (b.ys.length === a.ys.length && b.y > a.y) ? b : a))
+  // The row's rightmost node (its manifests at least, when `occupied` lacks them)
+  const onRow = [...occupied, ...manifests].filter((n) => Math.abs(n.y - best.y) <= tolerance)
+  const startX = Math.max(...onRow.map((n) => n.x)) + step
+  return Array.from({ length: count }, (_, i) => ({ x: startX + i * step, y: best.y }))
+}
