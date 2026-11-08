@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  anchoredViewBox,
   parseViewBox,
   formatViewBox,
   viewScale,
@@ -176,5 +177,45 @@ describe('stored viewport helpers', () => {
     expect(viewBoxFromViewport({ x: 0, y: 0, width: 3, height: -1 })).toBeNull()
     expect(viewBoxFromViewport({ x: 'a', y: 0, width: 3, height: 4 })).toBeNull()
     expect(viewBoxFromViewport({ x: 0, y: 0, width: Infinity, height: 4 })).toBeNull()
+  })
+})
+
+describe('anchoredViewBox', () => {
+  // Every canvas point stays at the same screen position after the resize
+  const screenOf = (vb: any, rect: any, p: { x: number; y: number }) => {
+    const sc = viewScale(vb, rect)!
+    const offX = (rect.width - vb.width * sc) / 2
+    const offY = (rect.height - vb.height * sc) / 2
+    return { x: rect.left + offX + (p.x - vb.x) * sc, y: rect.top + offY + (p.y - vb.y) * sc }
+  }
+  const points = [{ x: 0, y: 0 }, { x: 250, y: -80 }, { x: -40, y: 300 }]
+
+  it('keeps the drawing in place when the sidebar widens (left edge moves right, element narrows)', () => {
+    const vb = { x: -100, y: -50, width: 600, height: 400 }
+    const before = { left: 200, top: 50, width: 900, height: 600 }
+    const after = { left: 330, top: 50, width: 770, height: 600 }
+    const next = anchoredViewBox(vb, before, after)!
+    for (const p of points) {
+      const a = screenOf(vb, before, p), b = screenOf(next, after, p)
+      expect(b.x).toBeCloseTo(a.x); expect(b.y).toBeCloseTo(a.y)
+    }
+    expect(next.width / next.height).toBeCloseTo(770 / 600)   // no letterboxing
+  })
+
+  it('and when it narrows again, and from a letterboxed viewBox', () => {
+    const vb = { x: 0, y: 0, width: 300, height: 300 }   // square viewBox in a wide element
+    const before = { left: 330, top: 0, width: 770, height: 500 }
+    const after = { left: 200, top: 0, width: 900, height: 500 }
+    const next = anchoredViewBox(vb, before, after)!
+    for (const p of points) {
+      const a = screenOf(vb, before, p), b = screenOf(next, after, p)
+      expect(b.x).toBeCloseTo(a.x); expect(b.y).toBeCloseTo(a.y)
+    }
+  })
+
+  it('is null when an element has no size', () => {
+    const vb = { x: 0, y: 0, width: 100, height: 100 }
+    expect(anchoredViewBox(vb, { left: 0, top: 0, width: 0, height: 0 }, { left: 0, top: 0, width: 10, height: 10 })).toBeNull()
+    expect(anchoredViewBox(vb, { left: 0, top: 0, width: 10, height: 10 }, { left: 0, top: 0, width: 0, height: 10 })).toBeNull()
   })
 })

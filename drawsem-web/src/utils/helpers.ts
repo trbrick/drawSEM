@@ -1,4 +1,5 @@
 import { convertToUnicode } from './converters'
+import type { ColumnSummary } from './columnStats'
 // Helper utilities for node and path operations
 export function uid(prefix = ''): string {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
@@ -25,10 +26,14 @@ export interface Node {
   // Pinned size. Absent = the renderer decides (MANIFEST_DEFAULT_* etc.).
   width?: number
   height?: number
+  // Runtime only: the loaded data's columns and their summaries (utils/columnStats)
   dataset?: {
     fileName: string
     headers: string[]
-    columns: any[]
+    columns: ColumnSummary[]
+    // The file's MD5 was checked against datasetSource.md5 when the editor
+    // loaded it (only the editor's own file loader checks; R does not)
+    md5Checked?: boolean
   }
   bindingMappings?: Record<string, string>
   // Input keys the editor does not own (see OWNED_NODE_KEYS), re-emitted verbatim.
@@ -586,4 +591,41 @@ export function pathDisplayText(path: Path, mode: PathLabelMode): string | null 
 /** A path value as shown in the inspector's Value field ('' when absent). */
 export function formatPathValue(value: number | null | undefined): string {
   return value !== null && value !== undefined ? value.toFixed(6).replace(/\.?0+$/, '') : ''
+}
+
+/**
+ * Positions for `count` new nodes added in one row ("Add all as nodes"):
+ * - appended, `step` apart, to the right end of the row holding the most
+ *   `manifests` (nodes within `tolerance` of the same height form a row; on a
+ *   tie the lower row), past every node in `occupied` on that row;
+ * - with no manifests, a row through `viewCenter`, centred on it.
+ */
+export function newRowPositions(
+  count: number,
+  manifests: readonly { x: number; y: number }[],
+  occupied: readonly { x: number; y: number }[],
+  viewCenter: { x: number; y: number },
+  step: number,
+  tolerance: number,
+): { x: number; y: number }[] {
+  if (manifests.length === 0) {
+    const startX = viewCenter.x - ((count - 1) / 2) * step
+    return Array.from({ length: count }, (_, i) => ({ x: startX + i * step, y: viewCenter.y }))
+  }
+  // Rows: manifests sorted by height, each joining the row whose mean it is within tolerance of
+  const rows: { y: number; ys: number[] }[] = []
+  for (const m of [...manifests].sort((a, b) => a.y - b.y)) {
+    const row = rows[rows.length - 1]
+    if (row && Math.abs(m.y - row.y) <= tolerance) {
+      row.ys.push(m.y)
+      row.y = row.ys.reduce((a, b) => a + b, 0) / row.ys.length
+    } else {
+      rows.push({ y: m.y, ys: [m.y] })
+    }
+  }
+  const best = rows.reduce((a, b) => (b.ys.length > a.ys.length || (b.ys.length === a.ys.length && b.y > a.y) ? b : a))
+  // The row's rightmost node (its manifests at least, when `occupied` lacks them)
+  const onRow = [...occupied, ...manifests].filter((n) => Math.abs(n.y - best.y) <= tolerance)
+  const startX = Math.max(...onRow.map((n) => n.x)) + step
+  return Array.from({ length: count }, (_, i) => ({ x: startX + i * step, y: best.y }))
 }

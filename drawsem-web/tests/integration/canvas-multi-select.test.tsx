@@ -652,10 +652,10 @@ describe('single selection is unchanged', () => {
     fireEvent.click(screen.getByText('Complete Graph'))
     await clickNode(ctx, 'D')
     await waitFor(() => expect(screen.getByText('Dataset: D')).toBeTruthy())
-    await waitFor(() => expect(screen.getByText('Mean')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Mapped to')).toBeTruthy())
     await clickNode(ctx, 'F', { shiftKey: true })
     expect(screen.queryByText('Dataset: D')).toBeNull()
-    expect(screen.queryByText('Mean')).toBeNull()
+    expect(screen.queryByText('Mapped to')).toBeNull()
     expect(summary()).toBe('2 nodes selected')
   })
 

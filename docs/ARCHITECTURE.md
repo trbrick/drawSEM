@@ -248,7 +248,8 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   Layout-only mode: copy only
 - Web frontend: data mapping row (`src/utils/dataMapping.ts`). A selected
   variable's popup has one row per data path into it: the dataset, the column
-  it maps (the data path's `label`) and a "Same as variable name" checkbox.
+  it maps (the data path's `label`), a "Same as variable name" checkbox, and
+  a Disconnect button that removes the data path (one undo step).
   While ticked, the column field is greyed out and shows the variable's label,
   and renaming the variable (inline or in the popup) renames the mapping in
   the same undo step; ticking maps the variable's label, unticking frees the
@@ -264,6 +265,34 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   dataset's columns are known (its data is loaded), a data path mapping a
   column the dataset lacks is flagged in its row and its cable label is drawn
   as a warning (not in image export)
+- Web frontend: dataset column table (`renderDatasetDetails()` in
+  `CanvasTool.tsx`, summaries in `src/utils/columnStats.ts`), shown in the
+  dataset popup and the sidebar's Data pane. Loading opens a dataset in the
+  Data pane: a model load (initial, JSON import, R `load`) its first, data
+  attached in R or a CSV loaded in the editor that dataset; other R pushes
+  (a fit) leave it as it is. A dataset added in the SEM layer keeps the SEM
+  layer (the pane shows it); in the layers that draw dataset nodes the view is
+  refit to bring the new node into view. A header gives the dataset's
+  name, where the data lives and its size ("File · 10 rows × 3 cols"; File,
+  Embedded, R session, or Editor only), and a status icon: connected when the
+  data is loaded, loaded without error and every mapped column exists, an
+  error icon otherwise; hovering it shows the errors (or, when clear, whether
+  the editor checked the file against its recorded MD5 -- only the editor's
+  own file loader does). One compact row per column: its name, the variables
+  its data paths map it to, and its missing count; drag a row onto the canvas
+  to map it. Clicking a column's name expands its summary below it (one
+  column at a time): type (Numeric, Text, Mixed or Empty), missing, and for
+  numeric values Mean (SD) and Range, at most two decimals; the popup puts
+  the numeric statistics in a second column. When some columns are mapped by
+  no data path, "Add all as nodes" adds a variable for each (mapped, linked,
+  with a free error variance) in one row, as one undo step: appended to the
+  right end of the row with the most manifest variables (the lower on a tie),
+  or, with no manifests, centred in the view (`newRowPositions()`).
+  Summaries are display only (never serialized) and assume nothing about how
+  a column is treated. Every source produces the same `ColumnSummary` shape:
+  the file and embedded loaders and the browser CSV import in TypeScript, and
+  `.columnSummary()` in `R/shiny-app.R` for Shiny (both also count values per
+  level for up to 20 distinct values, not shown yet)
 - Web frontend: path labels on the canvas (`pathDisplayText()`,
   `pathShownName()`, `isUnnamedFreePath()` in `src/utils/helpers.ts`). A
   path's name is its parameter name (`freeParameter` string), else its
@@ -307,7 +336,10 @@ Requires a Chrome/Chromium install; `chromote` and `rsvg` are `Suggests`.
   embedded widget (`plotGraphModel()`, Quarto/RMarkdown) leaves the plain wheel
   and two-finger scroll to the page and briefly shows a "Ctrl + scroll to zoom"
   (⌘ on macOS) hint. A "Show All" toolbar button (Shift+1) fits the view to
-  the model
+  the model. When the sidebar changes width (the canvas's left edge moves), the
+  viewBox is adjusted so the drawing keeps its screen scale and position
+  (`anchoredViewBox()`); other resizes, like the window's, still fit the
+  viewBox to the canvas
 - Saved view: the viewport and layer state are stored in
   `models[k].visualization` (`viewport`, `activeLayer`, `offLayerVisibility`).
   Applied on load in every context (else the view fits the model). Zoom/pan/
