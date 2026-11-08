@@ -746,3 +746,54 @@ describe('image bounds', () => {
     }
   })
 })
+
+describe('view layer and path labels', () => {
+  // F -> x (x is manifest: data path from d); constant mean on x
+  const schema: GraphSchema = {
+    schemaVersion: 0,
+    models: {
+      m: {
+        nodes: [
+          { label: 'F', type: 'variable', visual: { x: 0, y: 0 } },
+          { label: 'x', type: 'variable', visual: { x: 0, y: 150 } },
+          { label: 'd', type: 'dataset', visual: { x: 200, y: 150 } },
+        ],
+        paths: [
+          { from: 'F', to: 'x', numberOfArrows: 1, freeParameter: 'lam', label: 'lam', value: 0.5 },
+          { from: 'd', to: 'x', type: 'data', label: 'x' },
+        ],
+      },
+    },
+  }
+  const nodeLabels = (svg: string) =>
+    [...svg.matchAll(/<text[^>]*font-size="14"[^>]*>([^<]*)</g)].map((m) => m[1]).sort()
+
+  it('draws every layer by default', () => {
+    expect(nodeLabels(modelToSVG(schema, 'm'))).toEqual(['F', 'd', 'x'])
+  })
+
+  it('leaves out off-layer elements when they are hidden', () => {
+    const sem = modelToSVG(schema, 'm', { activeLayer: 'sem', offLayerVisibility: 'invisible' })
+    expect(nodeLabels(sem)).toEqual(['F', 'x'])
+    expect(sem).not.toContain('opacity=')
+    const data = modelToSVG(schema, 'm', { activeLayer: 'data', offLayerVisibility: 'invisible' })
+    expect(nodeLabels(data)).toEqual(['d', 'x'])
+  })
+
+  it('fades off-layer elements when they are translucent', () => {
+    const svg = modelToSVG(schema, 'm', { activeLayer: 'sem', offLayerVisibility: 'transparent' })
+    expect(nodeLabels(svg)).toEqual(['F', 'd', 'x'])
+    // the dataset node, its label, the data cable trunk and branch
+    const faded = [...svg.matchAll(/<g opacity="0.25">/g)].length
+    expect(faded).toBe(4)
+  })
+
+  it('writes path labels as the canvas does', () => {
+    const text = (format: SvgExportOptions['pathLabelFormat']) =>
+      [...modelToSVG(schema, 'm', { activeLayer: 'sem', pathLabelFormat: format }).matchAll(/<text[^>]*font-size="12"[^>]*>([^<]*)</g)].map((m) => m[1])
+    expect(text('default')).toEqual(['lam'])
+    expect(text('values')).toEqual(['=0.50'])
+    expect(text('both')).toEqual(['lam=0.50'])
+    expect(text('neither')).toEqual([])
+  })
+})
