@@ -66,6 +66,8 @@ A later \code{as.GraphModel()} on it recovers the layout. Hints are created
 from the model's current structure if it has none yet.
 }
 \examples{
+gm <- GraphModel() |> addVariable("X") |> addVariable("Y") |> addVariable("Z")
+
 # Single node
 gm <- setLocation(gm, "X", 100, 200)
 

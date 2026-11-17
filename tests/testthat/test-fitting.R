@@ -623,6 +623,7 @@ dataLessManifestSchema <- function() {
 
 test_that("generateData() returns a data.frame by default", {
   skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+  skip_if_not_installed("mvtnorm")
 
   g <- as.GraphModel(dataLessManifestSchema())
   df <- generateData(g, nrows = 50)
@@ -634,6 +635,7 @@ test_that("generateData() returns a data.frame by default", {
 
 test_that("generateData(returnModel = TRUE) returns a fittable GraphModel", {
   skip_if_not(requireNamespace("OpenMx", quietly = TRUE), "OpenMx not available")
+  skip_if_not_installed("mvtnorm")
 
   g <- as.GraphModel(dataLessManifestSchema())
   g2 <- generateData(g, nrows = 50, returnModel = TRUE)

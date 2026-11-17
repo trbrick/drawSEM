@@ -562,6 +562,8 @@ plotGraphModel <- function(
 #' @return The modified `graphModel` object (invisibly).
 #'
 #' @examples
+#' gm <- GraphModel() |> addVariable("X") |> addVariable("Y") |> addVariable("Z")
+#'
 #' # Single node
 #' gm <- setLocation(gm, "X", 100, 200)
 #'
