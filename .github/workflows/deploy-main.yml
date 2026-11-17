@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: drawsem-web/.nvmrc
           cache: 'npm'
           cache-dependency-path: drawsem-web/package-lock.json
 
