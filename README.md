@@ -44,7 +44,7 @@ model <- drawSEM(initialModel = myMxModel, data = myData)
 To work on the frontend source:
 
 ```bash
-git clone https://github.com/trb21/drawSEM
+git clone https://github.com/trbrick/drawSEM
 cd drawSEM
 
 git config core.hooksPath .githooks
@@ -207,4 +207,4 @@ This project was developed with the assistance of:
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
