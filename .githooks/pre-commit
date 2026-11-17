@@ -11,11 +11,33 @@ if ! cmp -s <(git show ":$SRC" 2>/dev/null) <(git show ":$DST" 2>/dev/null); the
     exit 1
 fi
 
-# Check if web-tool source files changed
-if git diff --cached --name-only | grep -qE 'drawsem-web/src|drawsem-web/schema|drawsem-web/vite'; then
+# Rebuild the widget if anything that feeds the bundle changed: source, schema,
+# build config, or dependencies (package.json / package-lock.json).
+if git diff --cached --name-only | grep -qE '^drawsem-web/(src/|schema/|vite|tailwind|postcss|package(-lock)?\.json$)'; then
     echo "Detected web tool changes. Rebuilding widget..."
-    
+
     cd drawsem-web
+
+    # The build uses the installed node_modules, but CI builds from the
+    # lockfile (npm ci). Refuse to build if they disagree, or the committed
+    # widget would fail CI's stale-widget check.
+    if ! node -e '
+        const fs = require("fs");
+        const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8")).packages;
+        let inst;
+        try { inst = JSON.parse(fs.readFileSync("node_modules/.package-lock.json", "utf8")).packages; }
+        catch (e) { console.error("node_modules is missing."); process.exit(1); }
+        const bad = Object.entries(lock).filter(([k, v]) =>
+            k !== "" && !v.optional && (!inst[k] || inst[k].version !== v.version));
+        if (bad.length) {
+            bad.slice(0, 5).forEach(([k, v]) => console.error("  " + k + ": lockfile " + v.version + ", installed " + (inst[k] ? inst[k].version : "none")));
+            process.exit(1);
+        }'; then
+        echo "pre-commit: drawsem-web/node_modules does not match package-lock.json."
+        echo "Run 'npm install' (or 'npm ci') in drawsem-web/, then commit again."
+        exit 1
+    fi
+
     npm run build:widget
     cd ..
     

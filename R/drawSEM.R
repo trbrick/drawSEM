@@ -192,7 +192,7 @@ renderGraphModel <- function(expr, env = parent.frame(), quoted = FALSE) {
 #'         list(id = "Y", label = "Y", type = "variable")
 #'       ),
 #'       paths = list(
-#'         list(from = "X", to = "Y", arrows = 1)
+#'         list(from = "X", to = "Y", numberOfArrows = 1)
 #'       )
 #'     )
 #'   )
@@ -562,6 +562,8 @@ plotGraphModel <- function(
 #' @return The modified `graphModel` object (invisibly).
 #'
 #' @examples
+#' gm <- GraphModel() |> addVariable("X") |> addVariable("Y") |> addVariable("Z")
+#'
 #' # Single node
 #' gm <- setLocation(gm, "X", 100, 200)
 #'
@@ -967,7 +969,7 @@ setManifestLatent <- function(graphModel, nodeId, value = NULL) {
 #'         list(id = "Y", label = "Y", type = "variable")
 #'       ),
 #'       paths = list(
-#'         list(from = "X", to = "Y", arrows = 1)
+#'         list(from = "X", to = "Y", numberOfArrows = 1)
 #'       )
 #'     )
 #'   )

@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: github.event.action != 'closed'
         with:
-          node-version: '20'
+          node-version-file: drawsem-web/.nvmrc
           cache: 'npm'
           cache-dependency-path: drawsem-web/package-lock.json
 

@@ -145,7 +145,7 @@ schema <- list(
         list(id = "Y", label = "Y", type = "variable")
       ),
       paths = list(
-        list(from = "X", to = "Y", arrows = 1)
+        list(from = "X", to = "Y", numberOfArrows = 1)
       )
     )
   )

@@ -100,7 +100,7 @@ make test-all            # Run both test suites
 git config core.hooksPath .githooks
 chmod +x .githooks/*
 ```
-The pre-commit hook fails if `inst/extdata/graph.schema.json` differs from `drawsem-web/schema/graph.schema.json` (run `make`), and runs `npm run build:widget` automatically so committed widget assets stay in sync. `tests/testthat/test-schema-sync.R` checks the schema copy too, for clones without hooks enabled.
+The pre-commit hook fails if `inst/extdata/graph.schema.json` differs from `drawsem-web/schema/graph.schema.json` (run `make`), and runs `npm run build:widget` automatically (on changes to web source, schema, build config, `package.json` or the lockfile) so committed widget assets stay in sync. CI (`.github/workflows/check.yml`) runs R CMD check on every change, and tsc, vitest and a widget rebuild only when web files changed; it fails if the committed widget differs from a fresh build. Node version is pinned in `drawsem-web/.nvmrc`. `tests/testthat/test-schema-sync.R` checks the schema copy too, for clones without hooks enabled.
 
 ## Scope by session context
 

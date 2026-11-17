@@ -461,6 +461,11 @@ generateData <- function(
   unfitted@metadata$lastBuilt <- NULL
   mx_model <- as.MxModel(unfitted, model_id = model_id, onUnsupported = onUnsupported)
 
+  # mxGenerateData() simulates with mvtnorm, which OpenMx only Suggests.
+  if (!requireNamespace("mvtnorm", quietly = TRUE)) {
+    stop("generateData() needs the 'mvtnorm' package: install.packages(\"mvtnorm\")",
+         call. = FALSE)
+  }
   result <- OpenMx::mxGenerateData(mx_model, nrows = nrows, returnModel = returnModel, ...)
 
   if (isTRUE(returnModel)) {
